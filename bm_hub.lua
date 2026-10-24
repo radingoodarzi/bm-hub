@@ -11,8 +11,9 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.0" }
+local Hub = { Connections = {}, Running = true, Version = "1.1" }
 genv.BMHub = Hub
+print("[BM Hub] loading v" .. Hub.Version)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -40,7 +41,7 @@ end
 local SEA_BY_PLACE = { [2753915549] = 1, [4442272183] = 2, [7449423635] = 3 }
 local Sea = SEA_BY_PLACE[game.PlaceId] or 0
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 3)
 local CommF = Remotes and Remotes:FindFirstChild("CommF_")
 
 local function invoke(...)
@@ -208,9 +209,6 @@ end
 ---------------------------------------------------------------------
 -- Quest data (از ماژول‌های خود بازی خونده میشه)
 ---------------------------------------------------------------------
-local QuestsMod = safeRequire(ReplicatedStorage:FindFirstChild("Quests"))
-local GuideMod = safeRequire(ReplicatedStorage:FindFirstChild("GuideModule"))
-
 local function toCFrame(x)
 	local t = typeof(x)
 	if t == "CFrame" then return x end
@@ -223,18 +221,6 @@ local function toCFrame(x)
 		return toCFrame(rawget(x, "CFrame")) or toCFrame(rawget(x, "Position"))
 	end
 end
-
-local NPC_BY_LEVEL = {}
-pcall(function()
-	for key, info in pairs(GuideMod.Data.NPCList) do
-		if type(info) == "table" and type(info.Levels) == "table" then
-			local cf = toCFrame(key) or toCFrame(info)
-			if cf then
-				for _, lv in pairs(info.Levels) do NPC_BY_LEVEL[lv] = cf end
-			end
-		end
-	end
-end)
 
 -- اگه ماژول‌ها لود نشن (Sea 1)
 local FALLBACK_SEA1 = {
@@ -271,34 +257,66 @@ local FALLBACK_BOSSES = {
 }
 
 local QuestList, BossList = {}, {}
-pcall(function()
-	local hasSpawns = spawnFolder() ~= nil
-	for qName, entries in pairs(QuestsMod) do
-		if type(entries) == "table" then
-			for idx, e in pairs(entries) do
-				if type(e) == "table" and type(e.LevelReq) == "number" and type(e.Task) == "table" then
-					local mob, count = next(e.Task)
-					local npc = NPC_BY_LEVEL[e.LevelReq]
-					if type(mob) == "string" and npc then
-						local entry = { quest = qName, index = idx, level = e.LevelReq, mob = mob, npc = npc }
-						if count == 1 then
-							table.insert(BossList, entry)
-						elseif not hasSpawns or mobSpawn(mob) then
-							table.insert(QuestList, entry)
+
+local function useFallback()
+	if #QuestList == 0 and Sea == 1 then
+		for _, f in ipairs(FALLBACK_SEA1) do
+			table.insert(QuestList, { level = f[1], quest = f[2], index = f[3], mob = f[4], npc = CFrame.new(f[5]) })
+		end
+	end
+end
+
+-- require روی بعضی executor ها گیر می‌کنه، برای همین جدا و با تایم‌اوت اجرا میشه
+local function loadQuestData()
+	local QuestsMod = safeRequire(ReplicatedStorage:FindFirstChild("Quests"))
+	local GuideMod = safeRequire(ReplicatedStorage:FindFirstChild("GuideModule"))
+	local npcByLevel = {}
+	pcall(function()
+		for key, info in pairs(GuideMod.Data.NPCList) do
+			if type(info) == "table" and type(info.Levels) == "table" then
+				local cf = toCFrame(key) or toCFrame(info)
+				if cf then
+					for _, lv in pairs(info.Levels) do npcByLevel[lv] = cf end
+				end
+			end
+		end
+	end)
+	local quests, bosses = {}, {}
+	pcall(function()
+		local hasSpawns = spawnFolder() ~= nil
+		for qName, entries in pairs(QuestsMod) do
+			if type(entries) == "table" then
+				for idx, e in pairs(entries) do
+					if type(e) == "table" and type(e.LevelReq) == "number" and type(e.Task) == "table" then
+						local mob, count = next(e.Task)
+						local npc = npcByLevel[e.LevelReq]
+						if type(mob) == "string" and npc then
+							local entry = { quest = qName, index = idx, level = e.LevelReq, mob = mob, npc = npc }
+							if count == 1 then
+								table.insert(bosses, entry)
+							elseif not hasSpawns or mobSpawn(mob) then
+								table.insert(quests, entry)
+							end
 						end
 					end
 				end
 			end
 		end
+	end)
+	if #quests > 0 then
+		table.clear(QuestList)
+		for _, q in ipairs(quests) do table.insert(QuestList, q) end
 	end
-end)
-if #QuestList == 0 and Sea == 1 then
-	for _, f in ipairs(FALLBACK_SEA1) do
-		table.insert(QuestList, { level = f[1], quest = f[2], index = f[3], mob = f[4], npc = CFrame.new(f[5]) })
-	end
+	for _, b in ipairs(bosses) do table.insert(BossList, b) end
+	table.sort(QuestList, function(a, b) return a.level < b.level end)
+	table.sort(BossList, function(a, b) return a.level < b.level end)
 end
-table.sort(QuestList, function(a, b) return a.level < b.level end)
-table.sort(BossList, function(a, b) return a.level < b.level end)
+
+useFallback()
+task.spawn(function()
+	local ok, err = pcall(loadQuestData)
+	print("[BM Hub] quest data:", ok and (#QuestList .. " quests, " .. #BossList .. " bosses") or err)
+end)
 
 local function questForLevel(lv)
 	local pick
@@ -796,6 +814,7 @@ local root = new("ScreenGui", {
 })
 local placed = pcall(function() root.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
 if not placed or not root.Parent then root.Parent = player:WaitForChild("PlayerGui") end
+print("[BM Hub] UI parent:", root.Parent:GetFullName())
 
 local espFolder = new("Folder", { Name = "BMHubESP", Parent = root.Parent })
 
@@ -1498,8 +1517,8 @@ end)
 ---------------------------------------------------------------------
 -- Splash: خوش آمدید
 ---------------------------------------------------------------------
-task.spawn(function()
-	local blur = new("BlurEffect", { Size = 0, Parent = Lighting })
+local function playSplash()
+	local blur = new("BlurEffect", { Name = "BMHubBlur", Size = 0, Parent = Lighting })
 	local splash = new("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(380, 170),
 		BackgroundColor3 = Theme.Bg, BackgroundTransparency = 1, Parent = root,
@@ -1559,7 +1578,16 @@ task.spawn(function()
 	task.wait(0.5)
 	splash:Destroy()
 	blur:Destroy()
+end
 
+task.spawn(function()
+	local ok, err = pcall(playSplash)
+	if not ok then
+		warn("[BM Hub] splash error:", err)
+		local b = Lighting:FindFirstChild("BMHubBlur")
+		if b then b:Destroy() end
+	end
+	print("[BM Hub] ready")
 	floatBtn.Visible = true
 	showMain(true)
 	task.wait(0.5)
