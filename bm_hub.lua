@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.1" }
+local Hub = { Connections = {}, Running = true, Version = "1.2" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -812,8 +812,15 @@ local root = new("ScreenGui", {
 	Name = "BMHub", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 999,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 })
-local placed = pcall(function() root.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+-- Solara روی gethui/CoreGui کلیک‌ها رو نمی‌گیره، پس اونجا PlayerGui استفاده میشه
+local executorName = ""
+pcall(function() executorName = tostring((identifyexecutor or getexecutorname)()) end)
+local placed = false
+if not executorName:lower():find("solara") then
+	placed = pcall(function() root.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+end
 if not placed or not root.Parent then root.Parent = player:WaitForChild("PlayerGui") end
+print("[BM Hub] executor:", executorName)
 print("[BM Hub] UI parent:", root.Parent:GetFullName())
 
 local espFolder = new("Folder", { Name = "BMHubESP", Parent = root.Parent })
@@ -1014,7 +1021,7 @@ local function createTab(name, icon)
 		new("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8) }),
 	})
 	Pages[name] = page
-	btn.MouseButton1Click:Connect(function() selectPage(name) end)
+	btn.Activated:Connect(function() selectPage(name) end)
 
 	local order = 0
 	local api = {}
@@ -1047,8 +1054,8 @@ local function createTab(name, icon)
 	function api:Toggle(text, key, cb)
 		local c = card(38)
 		cardLabel(c, text)
-		local hit = new("TextButton", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", Parent = c })
-		local sw = new("Frame", {
+		local hit = new("TextButton", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 10, Active = true, Parent = c })
+		local sw =new("Frame", {
 			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(42, 22),
 			BackgroundColor3 = Theme.Off, Parent = c,
 		}, { corner(11) })
@@ -1068,9 +1075,10 @@ local function createTab(name, icon)
 				BackgroundColor3 = on and Color3.new(1, 1, 1) or Color3.fromRGB(190, 192, 210),
 			}, Enum.EasingStyle.Back)
 		end
-		hit.MouseButton1Click:Connect(function()
+		hit.Activated:Connect(function()
 			S[key] = not S[key]
 			render()
+			notify(text, S[key] and "ON ✔" or "OFF ✖", 1.5)
 			if cb then task.spawn(cb, S[key]) end
 		end)
 		hoverCard(c, hit)
@@ -1087,8 +1095,8 @@ local function createTab(name, icon)
 			TextColor3 = Color3.new(1, 1, 1), Parent = c,
 		})
 		gradient().Parent = arrow
-		local hit = new("TextButton", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", Parent = c })
-		hit.MouseButton1Click:Connect(function()
+		local hit = new("TextButton", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Text = "", ZIndex = 10, Active = true, Parent = c })
+		hit.Activated:Connect(function()
 			local r = new("Frame", {
 				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 0),
 				BackgroundColor3 = Theme.Accent2, BackgroundTransparency = 0.7, Parent = c,
@@ -1133,7 +1141,7 @@ local function createTab(name, icon)
 			local a = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
 			set(min + (max - min) * a)
 		end
-		local hit = new("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, 0, 0, 26), Parent = c })
+		local hit = new("TextButton", { BackgroundTransparency = 1, Text = "", Position = UDim2.fromOffset(0, 26), Size = UDim2.new(1, 0, 0, 26), ZIndex = 10, Active = true, Parent = c })
 		hit.InputBegan:Connect(function(i)
 			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 				dragging = true
@@ -1161,7 +1169,7 @@ local function createTab(name, icon)
 			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(20, 38),
 			BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 12, Text = "▼", TextColor3 = Theme.SubText, Parent = c,
 		})
-		local header = new("TextButton", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 38), Text = "", Parent = c })
+		local header = new("TextButton", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 38), Text = "", ZIndex = 10, Active = true, Parent = c })
 		local list = new("ScrollingFrame", {
 			Position = UDim2.fromOffset(8, 40), Size = UDim2.new(1, -16, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
 			ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Accent2, CanvasSize = UDim2.new(),
@@ -1189,7 +1197,7 @@ local function createTab(name, icon)
 				}, { corner(6) })
 				b.MouseEnter:Connect(function() tween(b, 0.12, { BackgroundColor3 = Theme.CardHover }) end)
 				b.MouseLeave:Connect(function() tween(b, 0.12, { BackgroundColor3 = Theme.Panel }) end)
-				b.MouseButton1Click:Connect(function()
+				b.Activated:Connect(function()
 					S[key] = o
 					refreshLabel()
 					close()
@@ -1198,7 +1206,7 @@ local function createTab(name, icon)
 			end
 			return #opts
 		end
-		header.MouseButton1Click:Connect(function()
+		header.Activated:Connect(function()
 			if open then
 				close()
 				return
@@ -1463,12 +1471,12 @@ local function showMain(show)
 	end
 end
 
-minBtn.MouseButton1Click:Connect(function()
+minBtn.Activated:Connect(function()
 	minimized = not minimized
 	minBtn.Text = minimized and "+" or "–"
 	tween(main, 0.35, { Size = minimized and UDim2.fromOffset(FULL.X.Offset, 50) or FULL })
 end)
-closeBtn.MouseButton1Click:Connect(function() showMain(false) end)
+closeBtn.Activated:Connect(function() showMain(false) end)
 
 local function makeDraggable(handle, target, onClick)
 	local dragging, startPos, startInput, moved
