@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.9" }
+local Hub = { Connections = {}, Running = true, Version = "1.9.1" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -2333,6 +2333,33 @@ Items:Button("Go to Mysterious Man (TTK)", function()
 	tweenTo(CFrame.new(MYSTERIOUS_MAN + Vector3.new(0, 3, 4)))
 end)
 Items:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
+
+-- کلکسیون: کدوم آیتم‌های مهم رو داری و کدوم‌ها مونده (از اینونتوری خود بازی)
+local COLLECTION = {
+	{ "Sea 1", { "Saber", "Pole (1st Form)", "Gravity Cane", "Trident", "Warden's Sword", "Longsword", "Bisento", "Soul Cane", "Shark Saw", "Jitte" } },
+	{ "Sea 2", { "Rengoku", "Dragon Trident", "Midnight Blade", "True Triple Katana", "Koko", "Dual-Headed Blade", "Kabucha", "Bizarre Revolver", "Acidum Rifle" } },
+	{ "Sea 3", { "Yama", "Tushita", "Cursed Dual Katana", "Hallow Scythe", "Shark Anchor", "Canvander", "Buddy Sword", "Twin Hooks", "Spikey Trident", "Dark Dagger", "Skull Guitar", "Fox Lamp", "Venom Bow", "Dragonstorm" } },
+}
+Items:Section("Collection")
+for _, group in ipairs(COLLECTION) do
+	local seaName, list = group[1], group[2]
+	local function missing()
+		local out = {}
+		for _, item in ipairs(list) do
+			if not hasItem(item) then table.insert(out, item) end
+		end
+		return out
+	end
+	Items:Label(function()
+		local m = #missing()
+		local color = m == 0 and "#7CFF9B" or "#FFD166"
+		return ("%s:  <font color=\"%s\">%d/%d owned</font>"):format(seaName, color, #list - m, #list)
+	end)
+	Items:Dropdown("Missing (" .. seaName .. ")", function()
+		local m = missing()
+		return #m > 0 and m or { "Nothing missing ✔" }
+	end, "ViewMissing" .. seaName:gsub(" ", ""))
+end
 
 SeaFarm:Label(function()
 	return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  Sea " .. (Sea > 0 and Sea or "?")
