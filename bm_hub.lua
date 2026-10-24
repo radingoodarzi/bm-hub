@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.6" }
+local Hub = { Connections = {}, Running = true, Version = "1.7" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -116,6 +116,10 @@ local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
+	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
+	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
+	AutoFactory = false, AutoEcto = false,
+	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoBoss = false, SelectedBoss = nil, BossQuest = true,
 	AutoHaki = true,
 	AutoStats = false, StatType = "Melee", StatAmount = 3,
@@ -149,7 +153,7 @@ local function dataValue(name)
 	return v and v.Value
 end
 local function anyFarm()
-	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit
+	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 end
 
 ---------------------------------------------------------------------
@@ -595,8 +599,21 @@ local function findWeapon()
 	end
 end
 
-local function equipWeapon()
-	local t, h = findWeapon(), getHum()
+local function equipWeapon(tooltip)
+	local t, h
+	if tooltip then
+		for _, cont in ipairs({ getChar(), player:FindFirstChild("Backpack") }) do
+			if cont and not t then
+				for _, tool in ipairs(cont:GetChildren()) do
+					if tool:IsA("Tool") and tool.ToolTip == tooltip then
+						t = tool
+						break
+					end
+				end
+			end
+		end
+	end
+	t, h = t or findWeapon(), getHum()
 	if t and h and t.Parent ~= getChar() then pcall(function() h:EquipTool(t) end) end
 end
 
@@ -669,6 +686,23 @@ local function attack()
 	if m == "Auto" or m == "Click" then clickScreen() end
 end
 
+-- استفاده از اسکیل‌ها (Z X C V) با شبیه‌سازی کیبورد
+local SKILL_KEYS = { Z = Enum.KeyCode.Z, X = Enum.KeyCode.X, C = Enum.KeyCode.C, V = Enum.KeyCode.V }
+local lastSkill = 0
+local function useSkills()
+	if not S.UseSkills or not VIM or tick() - lastSkill < 0.6 then return end
+	lastSkill = tick()
+	for _, k in ipairs({ "Z", "X", "C", "V" }) do
+		if S["Skill" .. k] then
+			pcall(function()
+				VIM:SendKeyEvent(true, SKILL_KEYS[k], false, game)
+				task.wait(0.05)
+				VIM:SendKeyEvent(false, SKILL_KEYS[k], false, game)
+			end)
+		end
+	end
+end
+
 local function enemyInRange()
 	local root = getRoot()
 	local enemies = workspace:FindFirstChild("Enemies")
@@ -724,13 +758,20 @@ local function killMob(mob, keepGoing)
 	while Hub.Running and keepGoing() and alive() and mob.Parent and hum and hum.Health > 0 do
 		local root = getRoot()
 		local target = CFrame.new(hrp.Position + Vector3.new(0, S.FarmDistance, 0))
+		-- Mastery: وقتی جون ماب کم شد، با سلاح مستری تمومش می‌کنیم
+		local masteryPhase = S.MasteryFarm and hum.MaxHealth > 0 and (hum.Health / hum.MaxHealth) * 100 <= S.MasteryHealth
 		if (root.Position - target.Position).Magnitude > 80 then
 			tweenTo(target, keepGoing)
 		else
 			setFloat(true)
-			root.CFrame = target
+			root.CFrame = masteryPhase and CFrame.lookAt(target.Position, hrp.Position) or target
 		end
-		equipWeapon()
+		if masteryPhase then
+			equipWeapon(S.MasteryWeapon)
+			useSkills()
+		else
+			equipWeapon()
+		end
 		if S.BringMobs then bringMobs(name, hrp.CFrame) end
 		attack()
 		task.wait(0.08)
@@ -908,6 +949,54 @@ task.spawn(function()
 	end
 end)
 
+-- Sea 2: Factory (Core) و Ectoplasm (ماب‌های Cursed Ship)
+local FACTORY_POS = Vector3.new(431, 238, -433)
+local CURSED_SHIP_POS = Vector3.new(900.9, 144, 33072.6)
+local ECTO_MOBS = { "Ship Deckhand", "Ship Engineer", "Ship Steward", "Ship Officer" }
+
+task.spawn(function()
+	while Hub.Running do
+		task.wait(0.3)
+		if S.AutoFactory and alive() then
+			local keep = function() return S.AutoFactory end
+			local ok, err = pcall(function()
+				local core = findMobAnywhere("Core")
+				if not core then
+					S.Status = "Factory closed (Core not spawned)"
+					return
+				end
+				if core.Parent ~= workspace:FindFirstChild("Enemies") then
+					S.Status = "Going to Factory"
+					tweenTo(CFrame.new(FACTORY_POS + Vector3.new(0, 30, 0)), keep)
+					return
+				end
+				killMob(core, keep)
+			end)
+			if not ok then logError("AutoFactory", err) end
+		elseif S.AutoEcto and alive() then
+			local keep = function() return S.AutoEcto end
+			local ok, err = pcall(function()
+				local best, bestDist
+				local root = getRoot()
+				for _, name in ipairs(ECTO_MOBS) do
+					local m = findMob(name)
+					if m then
+						local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+						if not bestDist or d < bestDist then best, bestDist = m, d end
+					end
+				end
+				if best then
+					killMob(best, keep)
+				else
+					S.Status = "Going to Cursed Ship"
+					tweenTo(CFrame.new(CURSED_SHIP_POS + Vector3.new(0, 40, 0)), function() return S.AutoEcto end)
+				end
+			end)
+			if not ok then logError("AutoEcto", err) end
+		end
+	end
+end)
+
 -- Chests
 local chestCache, chestCacheTime = {}, 0
 local function getChests()
@@ -1067,20 +1156,99 @@ end)
 ---------------------------------------------------------------------
 -- Utility actions
 ---------------------------------------------------------------------
-local function serverHop()
+-- lowest = true: کم‌جمعیت‌ترین سرور
+local function serverHop(lowest)
+	local order = lowest and "Asc" or "Desc"
 	local ok, body = pcall(function()
-		return game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Desc&limit=100")
+		return game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=" .. order .. "&limit=100")
 	end)
 	if ok then
 		local data = HttpService:JSONDecode(body)
+		local best
 		for _, s in ipairs(data.data or {}) do
 			if s.id ~= game.JobId and s.playing < s.maxPlayers then
-				TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, player)
-				return true
+				if not lowest then
+					best = s
+					break
+				end
+				if s.playing > 0 and (not best or s.playing < best.playing) then best = s end
 			end
+		end
+		if best then
+			TeleportService:TeleportToPlaceInstance(game.PlaceId, best.id, player)
+			return true
 		end
 	end
 	return false
+end
+
+-- وقتی بازیکن دیگه‌ای نزدیک بشه سرور عوض میشه
+task.spawn(function()
+	while Hub.Running do
+		task.wait(1)
+		if S.AutoHopNear and alive() then
+			local root = getRoot()
+			for _, p in ipairs(Players:GetPlayers()) do
+				local r = p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+				if r and (r.Position - root.Position).Magnitude <= S.HopDistance then
+					S.Status = "Player nearby (" .. p.Name .. "), hopping..."
+					serverHop(true)
+					task.wait(10)
+					break
+				end
+			end
+		end
+	end
+end)
+
+-- کدها (کدهای ریست استت عمداً حذف شدن)
+local CODES = {
+	"EASTEREXP", "LIGHTNINGABUSE", "1LOSTADMIN", "CHANDLER", "Sub2CaptainMaui", "BIGNEWS", "kittgaming",
+	"Sub2Fer999", "Enyu_is_Pro", "Magicbus", "JCWK", "Bluxxy", "fudd10_v2", "SUB2GAMERROBOT_EXP1",
+	"Sub2UncleKizaru", "Axiore", "Sub2Daigrock", "Sub2NoobMaster123", "StrawHatMaine", "TantaiGaming",
+	"Fudd10", "TheGreatAce", "Sub2OfficialNoobie",
+}
+local function redeemAllCodes()
+	local redeem = Remotes and Remotes:FindFirstChild("Redeem")
+	if not redeem then return 0, "Redeem remote not found" end
+	local n = 0
+	for _, code in ipairs(CODES) do
+		if pcall(redeem.InvokeServer, redeem, code) then n += 1 end
+		task.wait(0.3)
+	end
+	return n
+end
+
+-- فایتینگ استایل‌ها: اسم -> دستورهای CommF_ (به ترتیب)
+local FIGHTING_STYLES = {
+	{ "Black Leg", { { "BuyBlackLeg" } } },
+	{ "Electro", { { "BuyElectro" } } },
+	{ "Fishman Karate", { { "BuyFishmanKarate" } } },
+	{ "Dragon Claw", { { "BlackbeardReward", "DragonClaw", "1" }, { "BlackbeardReward", "DragonClaw", "2" } } },
+	{ "Superhuman", { { "BuySuperhuman" } } },
+	{ "Death Step", { { "BuyDeathStep" } } },
+	{ "Sharkman Karate", { { "BuySharkmanKarate", true }, { "BuySharkmanKarate" } } },
+	{ "Electric Claw", { { "BuyElectricClaw" } } },
+	{ "Dragon Talon", { { "BuyDragonTalon" } } },
+	{ "Godhuman", { { "BuyGodhuman" } } },
+	{ "Sanguine Art", { { "BuySanguineArt" } } },
+}
+local function styleNames()
+	local out = {}
+	for _, s in ipairs(FIGHTING_STYLES) do table.insert(out, s[1]) end
+	return out
+end
+local function buyStyle(name)
+	for _, s in ipairs(FIGHTING_STYLES) do
+		if s[1] == name then
+			local last
+			for _, args in ipairs(s[2]) do
+				last = invoke(table.unpack(args))
+				task.wait(0.2)
+			end
+			return last
+		end
+	end
 end
 
 local function fpsBoost()
@@ -1420,13 +1588,13 @@ local sidebar = new("Frame", {
 	Position = UDim2.fromOffset(10, 60), Size = UDim2.new(0, 150, 1, -70), BackgroundColor3 = Theme.Panel,
 	BackgroundTransparency = 0.2, Parent = main,
 }, { corner(10) })
-local tabList = new("Frame", { Position = UDim2.fromOffset(6, 6), Size = UDim2.new(1, -12, 1, -12), BackgroundTransparency = 1, Parent = sidebar }, {
-	new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
+local tabList = new("ScrollingFrame", {
+	Position = UDim2.fromOffset(6, 6), Size = UDim2.new(1, -12, 1, -12), BackgroundTransparency = 1, BorderSizePixel = 0,
+	ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Accent2, CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = sidebar,
+}, {
+	new("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }),
 })
-local indicator = new("Frame", {
-	Size = UDim2.fromOffset(3, 22), Position = UDim2.fromOffset(2, 13), BackgroundColor3 = Color3.new(1, 1, 1),
-	ZIndex = 3, Parent = sidebar,
-}, { corner(2), gradient(90) })
 
 local pageHolder = new("Frame", {
 	Position = UDim2.fromOffset(170, 60), Size = UDim2.new(1, -180, 1, -70), BackgroundTransparency = 1,
@@ -1458,19 +1626,20 @@ local function selectPage(name)
 		local on = n == name
 		tween(t.label, 0.2, { TextColor3 = on and Theme.Text or Theme.SubText })
 		tween(t.button, 0.2, { BackgroundTransparency = on and 0 or 1 })
-		if on then
-			local y = t.button.AbsolutePosition.Y - sidebar.AbsolutePosition.Y
-			tween(indicator, 0.35, { Position = UDim2.fromOffset(2, y / uiScale.Scale + 8) }, Enum.EasingStyle.Back)
-		end
+		tween(t.bar, 0.3, { Size = on and UDim2.fromOffset(3, 18) or UDim2.fromOffset(3, 0) }, Enum.EasingStyle.Back)
 	end
 end
 
 local function createTab(name, icon)
 	tabCount += 1
 	local btn = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 38), BackgroundColor3 = Theme.Card, BackgroundTransparency = 1, Text = "",
+		Size = UDim2.new(1, -4, 0, 34), BackgroundColor3 = Theme.Card, BackgroundTransparency = 1, Text = "",
 		AutoButtonColor = false, LayoutOrder = tabCount, Parent = tabList,
 	}, { corner(8) })
+	local bar = new("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 2, 0.5, 0), Size = UDim2.fromOffset(3, 0),
+		BackgroundColor3 = Color3.new(1, 1, 1), Parent = btn,
+	}, { corner(2), gradient(90) })
 	new("TextLabel", {
 		BackgroundTransparency = 1, Position = UDim2.fromOffset(10, 0), Size = UDim2.new(0, 22, 1, 0),
 		Font = Enum.Font.GothamBold, TextSize = 15, Text = icon, TextColor3 = Theme.Text, Parent = btn,
@@ -1480,7 +1649,7 @@ local function createTab(name, icon)
 		Font = Enum.Font.GothamBold, TextSize = 13, Text = name, TextColor3 = Theme.SubText,
 		TextXAlignment = Enum.TextXAlignment.Left, Parent = btn,
 	})
-	Tabs[name] = { button = btn, label = label }
+	Tabs[name] = { button = btn, label = label, bar = bar }
 
 	local page = new("ScrollingFrame", {
 		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
@@ -1728,6 +1897,42 @@ local function createTab(name, icon)
 end
 
 ---------------------------------------------------------------------
+-- Settings save / load (پوشه‌ی workspace خود executor)
+---------------------------------------------------------------------
+local SETTINGS_FILE = "BMHub_settings.json"
+local SKIP_SAVE = { Status = true }
+
+local function saveSettings()
+	local data = {}
+	for k, v in pairs(S) do
+		local t = type(v)
+		if not SKIP_SAVE[k] and (t == "boolean" or t == "number" or t == "string") then data[k] = v end
+	end
+	return pcall(function() writefile(SETTINGS_FILE, HttpService:JSONEncode(data)) end)
+end
+
+local function loadSettings()
+	local ok, data = pcall(function()
+		if isfile and not isfile(SETTINGS_FILE) then return nil end
+		return HttpService:JSONDecode(readfile(SETTINGS_FILE))
+	end)
+	if not ok or type(data) ~= "table" then return false end
+	for k, v in pairs(data) do
+		if S[k] ~= nil and type(S[k]) == type(v) and not SKIP_SAVE[k] then S[k] = v end
+	end
+	return true
+end
+
+local settingsLoaded = loadSettings()
+
+task.spawn(function()
+	while Hub.Running do
+		task.wait(30)
+		if S.AutoSave then saveSettings() end
+	end
+end)
+
+---------------------------------------------------------------------
 -- Pages
 ---------------------------------------------------------------------
 local Home = createTab("Home", "⌂")
@@ -1771,6 +1976,46 @@ Farm:Toggle("Bring Mobs", "BringMobs")
 Farm:Toggle("Auto Haki (Buso)", "AutoHaki")
 Farm:Slider("Farm Height", 0, 60, "FarmDistance")
 Farm:Slider("Tween Speed", 100, 350, "TweenSpeed")
+
+local Mastery = createTab("Mastery", "✪")
+Mastery:Section("Mastery Farm")
+Mastery:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
+Mastery:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
+Mastery:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
+Mastery:Section("Skills")
+Mastery:Toggle("Use Skills", "UseSkills")
+Mastery:Toggle("Skill Z", "SkillZ")
+Mastery:Toggle("Skill X", "SkillX")
+Mastery:Toggle("Skill C", "SkillC")
+Mastery:Toggle("Skill V", "SkillV")
+Mastery:Label(function() return "Turn on Auto Farm too. Weak mobs get finished with your mastery weapon." end)
+
+local SeaFarm = createTab("Sea Farms", "⚓")
+SeaFarm:Section("Second Sea")
+SeaFarm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+SeaFarm:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+SeaFarm:Label(function()
+	return "Ectoplasm: " .. formatNumber(dataValue("Ectoplasm") or 0) .. "  •  Sea " .. (Sea > 0 and Sea or "?")
+end)
+
+local Shop = createTab("Shop", "$")
+Shop:Section("Codes")
+Shop:Button("Redeem All Codes", function()
+	notify("Codes", "Redeeming " .. #CODES .. " codes...", 3)
+	local n, err = redeemAllCodes()
+	notify("Codes", err or ("Sent " .. n .. " codes ✔ (expired ones are ignored)"), 5)
+end)
+Shop:Section("Fighting Styles")
+Shop:Dropdown("Style", styleNames, "SelectedStyle")
+Shop:Button("Buy Selected Style", function()
+	if not S.SelectedStyle then return notify("Shop", "Select a style first") end
+	local r = buyStyle(S.SelectedStyle)
+	notify(S.SelectedStyle, r ~= nil and tostring(r) or "Request sent (need beli/fragments + requirements)", 5)
+end)
 
 local Boss = createTab("Bosses", "♛")
 Boss:Section("Auto Boss")
@@ -1867,10 +2112,23 @@ Misc:Toggle("Anti AFK", "AntiAFK")
 Misc:Button("Server Hop", function()
 	if not serverHop() then notify("Server Hop", "No server found") end
 end)
+Misc:Button("Hop to Low Player Server", function()
+	if not serverHop(true) then notify("Server Hop", "No server found") end
+end)
+Misc:Toggle("Auto Hop When Player Near", "AutoHopNear")
+Misc:Slider("Hop Distance", 50, 1000, "HopDistance")
 Misc:Button("Rejoin", function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
 Misc:Button("FPS Boost", function()
 	fpsBoost()
 	notify("FPS Boost", "Done ✔")
+end)
+Misc:Section("Settings")
+Misc:Toggle("Auto Save Settings", "AutoSave")
+Misc:Button("Save Settings", function()
+	notify("Settings", saveSettings() and "Saved ✔" or "Save failed (executor has no writefile)", 3)
+end)
+Misc:Button("Load Settings", function()
+	notify("Settings", loadSettings() and "Loaded ✔  re-run the hub to refresh the UI" or "No saved settings", 4)
 end)
 Misc:Button("Destroy Hub", function() Hub.Destroy() end)
 
@@ -1943,17 +2201,24 @@ end)
 -- Window behaviour
 ---------------------------------------------------------------------
 local minimized = false
+-- وضعیت باز/بسته جدا نگه داشته میشه تا کلیک وسط انیمیشن قاطی نکنه
+local isOpen = false
+local showToken = 0
 local function showMain(show)
+	isOpen = show
+	showToken += 1
+	local token = showToken
 	if show then
 		main.Visible = true
 		tween(main, 0.45, { Size = minimized and UDim2.fromOffset(FULL.X.Offset, 50) or FULL }, Enum.EasingStyle.Back)
 	else
 		tween(main, 0.3, { Size = UDim2.fromOffset(0, 0) })
-		task.delay(0.3, function()
-			if main.Size.X.Offset < 5 then main.Visible = false end
+		task.delay(0.32, function()
+			if token == showToken and not isOpen then main.Visible = false end
 		end)
 	end
 end
+local function toggleMain() showMain(not isOpen) end
 
 minBtn.Activated:Connect(function()
 	minimized = not minimized
@@ -1968,8 +2233,10 @@ local function makeDraggable(handle, target, onClick)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 			dragging, moved = true, false
 			startInput, startPos = i.Position, target.Position
-			i.Changed:Connect(function()
+			local conn
+			conn = i.Changed:Connect(function()
 				if i.UserInputState == Enum.UserInputState.End then
+					conn:Disconnect()
 					dragging = false
 					if not moved and onClick then onClick() end
 				end
@@ -1987,23 +2254,24 @@ end
 makeDraggable(topbar, main)
 
 -- دکمه‌ی شناور (برای موبایل)
-local floatBtn = new("Frame", {
+-- خود دایره دکمه‌ست (نه Frame با متن روش) تا کلیک/تاچ همیشه بهش برسه
+local floatBtn = new("TextButton", {
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 60, 0.3, 0), Size = UDim2.fromOffset(52, 52),
-	BackgroundColor3 = Color3.new(1, 1, 1), Active = true, Visible = false, Parent = root,
+	BackgroundColor3 = Color3.new(1, 1, 1), AutoButtonColor = false, Active = true, Visible = false, ZIndex = 50,
+	Font = Enum.Font.GothamBlack, TextSize = 16, TextColor3 = Color3.new(1, 1, 1), Text = "BM", Parent = root,
 }, { corner(26) })
 animated(gradient(), 120).Parent = floatBtn
-new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 2, Transparency = 0.5, Parent = floatBtn })
-new("TextLabel", {
-	BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBlack, TextSize = 16,
-	TextColor3 = Color3.new(1, 1, 1), Text = "BM", Parent = floatBtn,
-})
-makeDraggable(floatBtn, floatBtn, function() showMain(not main.Visible or main.Size.X.Offset < 5) end)
+new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 2, Transparency = 0.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = floatBtn })
+local floatScale = new("UIScale", { Parent = floatBtn })
+makeDraggable(floatBtn, floatBtn, function()
+	floatScale.Scale = 0.85
+	tween(floatScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+	toggleMain()
+end)
 
 connect(UserInputService.InputBegan, function(input, processed)
 	if processed then return end
-	if input.KeyCode == Enum.KeyCode.RightControl then
-		showMain(not main.Visible or main.Size.X.Offset < 5)
-	end
+	if input.KeyCode == Enum.KeyCode.RightControl then toggleMain() end
 end)
 
 ---------------------------------------------------------------------
