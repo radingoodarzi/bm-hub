@@ -99,16 +99,32 @@ if pg then
 end
 
 ---------------------------------------------------------------------
+-- همین الان کپی می‌کنیم که اگه decompile گیر کرد، اطلاعات از دست نره
+local function copyNow(final)
+	local text = table.concat(out, "\n")
+	local copied = pcall(function() (setclipboard or toclipboard)(text) end)
+	return copied, text
+end
+copyNow()
+status("Part 1 copied ✔  Now decompiling small gacha scripts...")
+
 section("DECOMPILE")
 local KEYS = { "FireServer", "InvokeServer", "Gacha", "Cousin", "Spin", "Buy", "Roll" }
+local MAX_BYTECODE = 25000 -- اسکریپت‌های بزرگ decompile رو قفل می‌کنن
 local started = os.clock()
 if type(decompile) == "function" then
 	for i, s in ipairs(scripts) do
-		if os.clock() - started > 80 then
+		if os.clock() - started > 60 then
 			add("(time limit reached)")
 			break
 		end
-		status(("Decompiling %d/%d: %s"):format(i, #scripts, s.Name))
+		local size = -1
+		pcall(function() size = #getscriptbytecode(s) end)
+		if size > MAX_BYTECODE or size == 0 then
+			add("--- skip (bytecode " .. size .. "): " .. s:GetFullName())
+			continue
+		end
+		status(("Decompiling %d/%d: %s (%d bytes)"):format(i, #scripts, s.Name, size))
 		task.wait()
 		local ok, src = pcall(decompile, s)
 		if ok and type(src) == "string" then
@@ -128,11 +144,11 @@ if type(decompile) == "function" then
 		else
 			add("--- " .. s:GetFullName() .. " decompile failed: " .. tostring(src))
 		end
+		copyNow()
 	end
 end
 
-local text = table.concat(out, "\n")
-local copied = pcall(function() (setclipboard or toclipboard)(text) end)
+local copied, text = copyNow()
 status(("Done ✔  copied: %s  |  tell Claude 'copied'"):format(copied and "yes" or "no"))
 print(text)
 task.delay(20, function() gui:Destroy() end)
