@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.3" }
+local Hub = { Connections = {}, Running = true, Version = "1.4" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -280,6 +280,73 @@ local FALLBACK_SEA1 = {
 	{ 625, "FountainQuest", 1, "Galley Pirate", Vector3.new(5259.82, 37.35, 4050.03) },
 	{ 650, "FountainQuest", 2, "Galley Captain", Vector3.new(5259.82, 37.35, 4050.03) },
 }
+-- مختصات تقریبی NPC ها؛ اگه کوئست قبول نشه، خودش بدون کوئست همون مانستر رو فارم می‌کنه
+local FALLBACK_SEA2 = {
+	{ 700, "Area1Quest", 1, "Raider", Vector3.new(-429.54, 71.77, 1836.18) },
+	{ 725, "Area1Quest", 2, "Mercenary", Vector3.new(-429.54, 71.77, 1836.18) },
+	{ 775, "Area2Quest", 1, "Swan Pirate", Vector3.new(638.43, 71.77, 918.28) },
+	{ 800, "Area2Quest", 2, "Factory Staff", Vector3.new(638.43, 71.77, 918.28) },
+	{ 875, "MarineQuest3", 1, "Marine Lieutenant", Vector3.new(-2440.79, 71.71, -3216.06) },
+	{ 900, "MarineQuest3", 2, "Marine Captain", Vector3.new(-2440.79, 71.71, -3216.06) },
+	{ 950, "ZombieQuest", 1, "Zombie", Vector3.new(-5497.06, 47.59, -795.23) },
+	{ 975, "ZombieQuest", 2, "Vampire", Vector3.new(-5497.06, 47.59, -795.23) },
+	{ 1000, "SnowMountainQuest", 1, "Snow Trooper", Vector3.new(609.85, 400.11, -5372.25) },
+	{ 1050, "SnowMountainQuest", 2, "Winter Warrior", Vector3.new(609.85, 400.11, -5372.25) },
+	{ 1100, "IceSideQuest", 1, "Lab Subordinate", Vector3.new(-6064.06, 15.24, -4902.97) },
+	{ 1125, "IceSideQuest", 2, "Horned Warrior", Vector3.new(-6064.06, 15.24, -4902.97) },
+	{ 1175, "FireSideQuest", 1, "Magma Ninja", Vector3.new(-5428.03, 15.06, -5299.43) },
+	{ 1200, "FireSideQuest", 2, "Lava Pirate", Vector3.new(-5428.03, 15.06, -5299.43) },
+	{ 1250, "ShipQuest1", 1, "Ship Deckhand", Vector3.new(1037.80, 125.09, 32911.60) },
+	{ 1275, "ShipQuest1", 2, "Ship Engineer", Vector3.new(1037.80, 125.09, 32911.60) },
+	{ 1300, "ShipQuest2", 1, "Ship Steward", Vector3.new(968.80, 125.09, 33244.12) },
+	{ 1325, "ShipQuest2", 2, "Ship Officer", Vector3.new(968.80, 125.09, 33244.12) },
+	{ 1350, "FrostQuest", 1, "Arctic Warrior", Vector3.new(5667.65, 26.79, -6486.08) },
+	{ 1375, "FrostQuest", 2, "Snow Lurker", Vector3.new(5667.65, 26.79, -6486.08) },
+	{ 1425, "ForgottenQuest", 1, "Sea Soldier", Vector3.new(-3054.44, 235.54, -10142.81) },
+	{ 1450, "ForgottenQuest", 2, "Water Fighter", Vector3.new(-3054.44, 235.54, -10142.81) },
+}
+local FALLBACK_SEA3 = {
+	{ 1500, "PiratePortQuest", 1, "Pirate Millionaire", Vector3.new(-290.07, 42.90, 5581.58) },
+	{ 1525, "PiratePortQuest", 2, "Pistol Billionaire", Vector3.new(-290.07, 42.90, 5581.58) },
+	{ 1575, "AmazonQuest", 1, "Dragon Crew Warrior", Vector3.new(5832.83, 51.68, -1101.51) },
+	{ 1600, "AmazonQuest", 2, "Dragon Crew Archer", Vector3.new(5832.83, 51.68, -1101.51) },
+	{ 1625, "AmazonQuest2", 1, "Female Islander", Vector3.new(5448.86, 601.52, 751.13) },
+	{ 1650, "AmazonQuest2", 2, "Giant Islander", Vector3.new(5448.86, 601.52, 751.13) },
+	{ 1700, "MarineTreeIsland", 1, "Marine Commodore", Vector3.new(2180.54, 27.82, -6741.55) },
+	{ 1725, "MarineTreeIsland", 2, "Marine Rear Admiral", Vector3.new(2180.54, 27.82, -6741.55) },
+	{ 1775, "DeepForestIsland3", 1, "Fishman Raider", Vector3.new(-10581.66, 330.87, -8761.19) },
+	{ 1800, "DeepForestIsland3", 2, "Fishman Captain", Vector3.new(-10581.66, 330.87, -8761.19) },
+	{ 1825, "DeepForestIsland", 1, "Forest Pirate", Vector3.new(-13234.04, 331.49, -7625.40) },
+	{ 1850, "DeepForestIsland", 2, "Mythological Pirate", Vector3.new(-13234.04, 331.49, -7625.40) },
+	{ 1900, "DeepForestIsland2", 1, "Jungle Pirate", Vector3.new(-12680.39, 389.97, -9902.02) },
+	{ 1925, "DeepForestIsland2", 2, "Musketeer Pirate", Vector3.new(-12680.39, 389.97, -9902.02) },
+	{ 1975, "HauntedQuest1", 1, "Reborn Skeleton", Vector3.new(-9479.22, 141.22, 5566.09) },
+	{ 2000, "HauntedQuest1", 2, "Living Zombie", Vector3.new(-9479.22, 141.22, 5566.09) },
+	{ 2025, "HauntedQuest2", 1, "Demonic Soul", Vector3.new(-9516.99, 172.02, 6078.47) },
+	{ 2050, "HauntedQuest2", 2, "Posessed Mummy", Vector3.new(-9516.99, 172.02, 6078.47) },
+	{ 2075, "NutsIslandQuest", 1, "Peanut Scout", Vector3.new(-2104.39, 38.10, -10194.22) },
+	{ 2100, "NutsIslandQuest", 2, "Peanut President", Vector3.new(-2104.39, 38.10, -10194.22) },
+	{ 2125, "IceCreamIslandQuest", 1, "Ice Cream Chef", Vector3.new(-820.65, 65.82, -10965.80) },
+	{ 2150, "IceCreamIslandQuest", 2, "Ice Cream Commander", Vector3.new(-820.65, 65.82, -10965.80) },
+	{ 2200, "CakeQuest1", 1, "Cookie Crafter", Vector3.new(-2021.32, 37.80, -12028.73) },
+	{ 2225, "CakeQuest1", 2, "Cake Guard", Vector3.new(-2021.32, 37.80, -12028.73) },
+	{ 2250, "CakeQuest2", 1, "Baking Staff", Vector3.new(-1927.92, 37.80, -12842.54) },
+	{ 2275, "CakeQuest2", 2, "Head Baker", Vector3.new(-1927.92, 37.80, -12842.54) },
+	{ 2300, "ChocQuest1", 1, "Cocoa Warrior", Vector3.new(233.23, 29.88, -12201.23) },
+	{ 2325, "ChocQuest1", 2, "Chocolate Bar Battler", Vector3.new(233.23, 29.88, -12201.23) },
+	{ 2350, "ChocQuest2", 1, "Sweet Thief", Vector3.new(150.51, 30.69, -12774.50) },
+	{ 2375, "ChocQuest2", 2, "Candy Rebel", Vector3.new(150.51, 30.69, -12774.50) },
+	{ 2400, "CandyQuest1", 1, "Candy Pirate", Vector3.new(-1150.04, 20.38, -14446.33) },
+	{ 2425, "CandyQuest1", 2, "Snow Demon", Vector3.new(-1150.04, 20.38, -14446.33) },
+	{ 2450, "TikiQuest1", 1, "Isle Outlaw", Vector3.new(-16547.75, 61.13, -173.41) },
+	{ 2475, "TikiQuest1", 2, "Island Boy", Vector3.new(-16547.75, 61.13, -173.41) },
+	{ 2500, "TikiQuest2", 1, "Sun-kissed Warrior", Vector3.new(-16539.08, 55.69, 1051.57) },
+	{ 2525, "TikiQuest2", 2, "Isle Champion", Vector3.new(-16539.08, 55.69, 1051.57) },
+	{ 2550, "TikiQuest3", 1, "Serpent Hunter", Vector3.new(-16665.19, 104.60, 1579.69) },
+	{ 2575, "TikiQuest3", 2, "Skull Slayer", Vector3.new(-16665.19, 104.60, 1579.69) },
+}
+local FALLBACK_BY_SEA = { FALLBACK_SEA1, FALLBACK_SEA2, FALLBACK_SEA3 }
+
 local FALLBACK_BOSSES = {
 	"The Gorilla King", "Bobby", "Yeti", "Mob Leader", "Vice Admiral", "Warden", "Chief Warden",
 	"Swan", "Magma Admiral", "Fishman Lord", "Wysper", "Thunder God", "Cyborg", "Saber Expert", "Greybeard",
@@ -288,8 +355,9 @@ local FALLBACK_BOSSES = {
 local QuestList, BossList = {}, {}
 
 local function useFallback()
-	if #QuestList == 0 and Sea == 1 then
-		for _, f in ipairs(FALLBACK_SEA1) do
+	local list = FALLBACK_BY_SEA[Sea]
+	if #QuestList == 0 and list then
+		for _, f in ipairs(list) do
 			table.insert(QuestList, { level = f[1], quest = f[2], index = f[3], mob = f[4], npc = CFrame.new(f[5]) })
 		end
 	end
@@ -583,6 +651,42 @@ local function pickMobByLevel()
 	return best or nearest
 end
 
+-- اسم مانستر رو از متن کوئست فعال روی صفحه درمیاره (مثلا "Defeat 5 Bandits (0/5)")
+local function activeQuestMob()
+	local g = questGui()
+	if not g or not g.Visible then return nil end
+	local title
+	pcall(function() title = g.Container.QuestTitle.Title.Text end)
+	if not title then
+		pcall(function()
+			for _, d in ipairs(g:GetDescendants()) do
+				if d:IsA("TextLabel") and d.Text:lower():find("defeat") then
+					title = d.Text
+					break
+				end
+			end
+		end)
+	end
+	if not title or title == "" then return nil end
+	local lower = title:lower()
+	local candidates = {}
+	for _, q in ipairs(QuestList) do candidates[q.mob] = true end
+	for _, q in ipairs(BossList) do candidates[q.mob] = true end
+	local enemies = workspace:FindFirstChild("Enemies")
+	if enemies then
+		for _, m in ipairs(enemies:GetChildren()) do candidates[mobBaseName(m.Name)] = true end
+	end
+	local sp = spawnFolder()
+	if sp then
+		for _, p in ipairs(sp:GetChildren()) do candidates[mobBaseName(p.Name)] = true end
+	end
+	local best
+	for name in pairs(candidates) do
+		if lower:find(name:lower(), 1, true) and (not best or #name > #best) then best = name end
+	end
+	return best
+end
+
 local function farmTarget()
 	if S.FarmMode == "Selected Mob" and S.SelectedMob then
 		return questForMob(S.SelectedMob) or { mob = S.SelectedMob, noQuest = true }
@@ -597,6 +701,24 @@ task.spawn(function()
 		if S.AutoFarm and alive() then
 			local keep = function() return S.AutoFarm end
 			local ok, err = pcall(function()
+				-- اول کوئستی که الان داری
+				if S.FarmMode ~= "Selected Mob" then
+					local qm = activeQuestMob()
+					if qm then
+						local mob = findMob(qm)
+						if mob then
+							killMob(mob, function() return S.AutoFarm and activeQuestMob() == qm end)
+						else
+							S.Status = "Waiting for " .. qm
+							local q2 = questForMob(qm)
+							local sp = mobSpawn(qm) or (q2 and q2.npc)
+							if sp then
+								tweenTo(sp * CFrame.new(0, 30, 0), function() return S.AutoFarm and not findMob(qm) end)
+							end
+						end
+						return
+					end
+				end
 				local q = farmTarget()
 				if not q then
 					local mob = pickMobByLevel()
