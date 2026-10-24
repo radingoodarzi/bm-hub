@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.7" }
+local Hub = { Connections = {}, Running = true, Version = "1.8" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -120,6 +120,9 @@ local S = {
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
 	AutoFactory = false, AutoEcto = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
+	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
+	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
+	SelectedBossSpawn = nil,
 	AutoBoss = false, SelectedBoss = nil, BossQuest = true,
 	AutoHaki = true,
 	AutoStats = false, StatType = "Melee", StatAmount = 3,
@@ -1107,9 +1110,104 @@ task.spawn(function()
 		end
 		if S.AutoStats then
 			local pts = dataValue("Points") or 0
-			if pts > 0 then invoke("AddPoint", S.StatType, math.min(pts, S.StatAmount)) end
+			if pts > 0 then
+				local amount = math.min(pts, S.StatAmount)
+				-- پخش بین دو استت
+				if S.StatType2 ~= "None" and S.StatType2 ~= S.StatType and amount >= 2 then
+					local half = math.floor(amount / 2)
+					invoke("AddPoint", S.StatType, amount - half)
+					invoke("AddPoint", S.StatType2, half)
+				else
+					invoke("AddPoint", S.StatType, amount)
+				end
+			end
 		end
 	end
+end)
+
+-- Observation (Ken) و اسکیل ریس (کلید T)
+local CommE = Remotes and Remotes:FindFirstChild("CommE")
+task.spawn(function()
+	local tick5 = 0
+	while Hub.Running do
+		task.wait(1)
+		tick5 += 1
+		if alive() and tick5 % 5 == 0 then
+			if S.AutoKen and CommE then pcall(CommE.FireServer, CommE, "Ken", true) end
+			if S.AutoRace and VIM then
+				pcall(function()
+					VIM:SendKeyEvent(true, Enum.KeyCode.T, false, game)
+					task.wait(0.05)
+					VIM:SendKeyEvent(false, Enum.KeyCode.T, false, game)
+				end)
+			end
+		end
+	end
+end)
+
+---------------------------------------------------------------------
+-- Boss spawns / notifiers
+---------------------------------------------------------------------
+-- محل اسپاون باس‌ها از EnemySpawns (اسم‌هایی که [Boss] دارن)
+local function bossSpawns()
+	local out, seen = {}, {}
+	local sp = spawnFolder()
+	if sp then
+		for _, p in ipairs(sp:GetChildren()) do
+			if p:IsA("BasePart") and p.Name:find("%[Boss%]") then
+				local n = mobBaseName(p.Name)
+				if not seen[n] then
+					seen[n] = true
+					table.insert(out, { name = n, cf = p.CFrame })
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b) return a.name < b.name end)
+	return out
+end
+
+local function bossNames()
+	local set, out = {}, {}
+	for _, b in ipairs(bossSpawns()) do set[b.name] = true end
+	for _, q in ipairs(BossList) do set[q.mob] = true end
+	for n in pairs(set) do table.insert(out, n) end
+	table.sort(out)
+	return out
+end
+
+local notifyHook -- بعد از ساخت UI مقدار می‌گیره
+task.spawn(function()
+	local present, first = {}, true
+	while Hub.Running do
+		task.wait(3)
+		pcall(function()
+			for _, name in ipairs(bossNames()) do
+				local now = findMobAnywhere(name) ~= nil
+				if now and not present[name] and not first and S.BossNotify and notifyHook then
+					notifyHook("Boss Spawned", name .. " just spawned!", 6)
+				end
+				present[name] = now
+			end
+			first = false
+		end)
+	end
+end)
+
+connect(workspace.ChildAdded, function(v)
+	if S.FruitNotify and notifyHook and (v:IsA("Tool") or v:IsA("Model")) and v.Name:find("Fruit") then
+		notifyHook("Fruit Spawned", v.Name .. " is on the map!", 8)
+	end
+end)
+
+-- Auto Rejoin وقتی از بازی بیرون انداخته میشی
+pcall(function()
+	connect(game:GetService("GuiService").ErrorMessageChanged, function(msg)
+		if S.AutoRejoin and msg and msg ~= "" then
+			task.wait(3)
+			pcall(function() TeleportService:Teleport(game.PlaceId, player) end)
+		end
+	end)
 end)
 
 ---------------------------------------------------------------------
@@ -1287,16 +1385,33 @@ local function islandCFrame(name)
 	return p and p.CFrame * CFrame.new(0, 40, 0)
 end
 
+-- NPC های دور توی ReplicatedStorage.NPCs نگه داشته میشن
+local function npcFolders()
+	return { workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }
+end
+
 local function npcList()
 	local out = {}
-	local npcs = workspace:FindFirstChild("NPCs")
-	if npcs then
-		for _, v in ipairs(npcs:GetChildren()) do
-			if v:IsA("Model") and not table.find(out, v.Name) then table.insert(out, v.Name) end
+	for _, folder in ipairs(npcFolders()) do
+		if folder then
+			for _, v in ipairs(folder:GetChildren()) do
+				local name = v.Name:gsub("^%s+", "")
+				if v:IsA("Model") and name ~= "" and not table.find(out, v.Name) then table.insert(out, v.Name) end
+			end
 		end
 	end
 	table.sort(out)
 	return out
+end
+
+local function findNPC(name)
+	for _, folder in ipairs(npcFolders()) do
+		local npc = folder and folder:FindFirstChild(name)
+		if npc then
+			local ok, cf = pcall(function() return npc:GetPivot() end)
+			if ok and cf.Position.Y > -500 then return cf end
+		end
+	end
 end
 
 local function playerList()
@@ -1492,6 +1607,7 @@ local notifHolder = new("Frame", {
 })
 local notifCount = 0
 local function notify(title, text, dur)
+	if not Hub.Running then return end
 	notifCount += 1
 	local slot = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, LayoutOrder = notifCount, Parent = notifHolder })
 	local card = new("Frame", {
@@ -1517,6 +1633,8 @@ local function notify(title, text, dur)
 		slot:Destroy()
 	end)
 end
+
+notifyHook = notify
 
 -- Main window
 local FULL = UDim2.fromOffset(600, 390)
@@ -1924,6 +2042,10 @@ local function loadSettings()
 end
 
 local settingsLoaded = loadSettings()
+-- تنظیمات ذخیره‌شده‌ای که باید همون اول اعمال بشن
+if S.CPUSaver then pcall(function() RunService:Set3dRenderingEnabled(false) end) end
+if S.FPSCapOn and setfpscap then pcall(setfpscap, S.FPSCap) end
+print("[BM Hub] settings loaded:", settingsLoaded)
 
 task.spawn(function()
 	while Hub.Running do
@@ -1974,6 +2096,8 @@ Farm:Slider("Attack Range", 10, 150, "AttackRange")
 Farm:Toggle("Fast Attack", "FastAttack")
 Farm:Toggle("Bring Mobs", "BringMobs")
 Farm:Toggle("Auto Haki (Buso)", "AutoHaki")
+Farm:Toggle("Auto Observation (Ken)", "AutoKen")
+Farm:Toggle("Auto Race Skill (T)", "AutoRace")
 Farm:Slider("Farm Height", 0, 60, "FarmDistance")
 Farm:Slider("Tween Speed", 100, 350, "TweenSpeed")
 
@@ -2016,6 +2140,27 @@ Shop:Button("Buy Selected Style", function()
 	local r = buyStyle(S.SelectedStyle)
 	notify(S.SelectedStyle, r ~= nil and tostring(r) or "Request sent (need beli/fragments + requirements)", 5)
 end)
+Shop:Section("Abilities")
+local function shopButton(label, ...)
+	local args = { ... }
+	Shop:Button(label, function()
+		local r
+		for _, a in ipairs(args) do
+			r = invoke(table.unpack(a))
+			task.wait(0.2)
+		end
+		notify(label, r ~= nil and tostring(r) or "Request sent", 4)
+	end)
+end
+shopButton("Buy Geppo (Sky Jump)", { "BuyHaki", "Geppo" })
+shopButton("Buy Buso Haki", { "BuyHaki", "Buso" })
+shopButton("Buy Soru (Flash Step)", { "BuyHaki", "Soru" })
+shopButton("Buy Observation (Ken)", { "KenTalk", "Start" }, { "KenTalk", "Buy" })
+shopButton("Buy Random Haki Color", { "ColorsDealer", "2" })
+Shop:Section("Second Sea")
+shopButton("Legendary Sword Dealer (1)", { "LegendarySwordDealer", "1" })
+shopButton("Legendary Sword Dealer (2)", { "LegendarySwordDealer", "2" })
+shopButton("Legendary Sword Dealer (3)", { "LegendarySwordDealer", "3" })
 
 local Boss = createTab("Bosses", "♛")
 Boss:Section("Auto Boss")
@@ -2029,6 +2174,28 @@ Boss:Button("Check Boss Spawned", function()
 	local b = findMobAnywhere(S.SelectedBoss)
 	notify("Boss", S.SelectedBoss .. (b and " is spawned ✔" or " is not spawned ✖"))
 end)
+Boss:Button("List Spawned Bosses", function()
+	local alive_ = {}
+	for _, n in ipairs(bossNames()) do
+		if findMobAnywhere(n) then table.insert(alive_, n) end
+	end
+	notify("Spawned Bosses (" .. #alive_ .. ")", #alive_ > 0 and table.concat(alive_, ", ") or "None right now", 7)
+end)
+Boss:Section("Boss Locations")
+Boss:Dropdown("Boss Spawn", function()
+	local out = {}
+	for _, b in ipairs(bossSpawns()) do table.insert(out, b.name) end
+	return out
+end, "SelectedBossSpawn")
+Boss:Button("Teleport to Boss Spawn", function()
+	for _, b in ipairs(bossSpawns()) do
+		if b.name == S.SelectedBossSpawn then return tweenTo(b.cf * CFrame.new(0, 40, 0)) end
+	end
+	notify("Boss", "Select a boss spawn first")
+end)
+Boss:Section("Alerts")
+Boss:Toggle("Boss Spawn Alert", "BossNotify")
+Boss:Toggle("Boss ESP", "BossESP")
 
 local Fruit = createTab("Fruits", "◆")
 Fruit:Section("Devil Fruits")
@@ -2038,6 +2205,7 @@ end)
 Fruit:Toggle("Auto Store Fruits", "AutoStore")
 Fruit:Toggle("Auto Random Fruit (Cousin)", "AutoRandomFruit")
 Fruit:Toggle("Fruit ESP", "FruitESP")
+Fruit:Toggle("Fruit Spawn Alert", "FruitNotify")
 Fruit:Button("Buy Random Fruit", function()
 	local r = invoke("Cousin", "Buy")
 	notify("Random Fruit", r and tostring(r) or "Request sent")
@@ -2069,10 +2237,9 @@ end)
 Tp:Section("NPCs & Players")
 Tp:Dropdown("NPC", npcList, "SelectedNPC")
 Tp:Button("Teleport to NPC", function()
-	local npcs = workspace:FindFirstChild("NPCs")
-	local npc = npcs and S.SelectedNPC and npcs:FindFirstChild(S.SelectedNPC)
-	if not npc then return notify("Teleport", "NPC not found") end
-	tweenTo(npc:GetPivot() * CFrame.new(0, 0, 4))
+	local cf = S.SelectedNPC and findNPC(S.SelectedNPC)
+	if not cf then return notify("Teleport", "NPC not found") end
+	tweenTo(cf * CFrame.new(0, 0, 4))
 end)
 Tp:Dropdown("Player", playerList, "SelectedPlayer")
 Tp:Button("Teleport to Player", function()
@@ -2086,6 +2253,7 @@ Tp:Button("Stop Teleport", function() stopTween() end)
 local Stats = createTab("Stats", "▲")
 Stats:Section("Auto Stats")
 Stats:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
+Stats:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
 Stats:Slider("Points Per Tick", 1, 100, "StatAmount")
 Stats:Toggle("Auto Stats", "AutoStats")
 
@@ -2094,6 +2262,7 @@ Visual:Section("ESP")
 Visual:Toggle("Player ESP", "PlayerESP")
 Visual:Toggle("Fruit ESP", "FruitESP")
 Visual:Toggle("Chest ESP", "ChestESP")
+Visual:Toggle("Boss ESP", "BossESP")
 
 local Misc = createTab("Misc", "✦")
 Misc:Section("Player")
@@ -2122,6 +2291,18 @@ Misc:Button("FPS Boost", function()
 	fpsBoost()
 	notify("FPS Boost", "Done ✔")
 end)
+Misc:Section("AFK")
+Misc:Toggle("CPU Saver (no 3D render)", "CPUSaver", function(on)
+	pcall(function() RunService:Set3dRenderingEnabled(not on) end)
+end)
+Misc:Toggle("FPS Cap", "FPSCapOn", function(on)
+	if not setfpscap then return notify("FPS Cap", "Executor has no setfpscap") end
+	setfpscap(on and S.FPSCap or 0)
+end)
+Misc:Slider("Max FPS", 10, 120, "FPSCap", function(v)
+	if S.FPSCapOn and setfpscap then pcall(setfpscap, v) end
+end)
+Misc:Toggle("Auto Rejoin On Kick", "AutoRejoin")
 Misc:Section("Settings")
 Misc:Toggle("Auto Save Settings", "AutoSave")
 Misc:Button("Save Settings", function()
@@ -2176,6 +2357,21 @@ task.spawn(function()
 			if S.FruitESP then
 				for _, f in ipairs(getWorldFruits()) do
 					espSet(f.obj, f.part, ("%s  %dm"):format(f.obj.Name, dist(f.part)), Color3.fromRGB(120, 255, 160))
+				end
+			end
+			if S.BossESP then
+				local enemies = workspace:FindFirstChild("Enemies")
+				local names = {}
+				for _, n in ipairs(bossNames()) do names[n] = true end
+				if enemies then
+					for _, m in ipairs(enemies:GetChildren()) do
+						local base = mobBaseName(m.Name)
+						if names[base] and isAliveMob(m) then
+							local h = m:FindFirstChildOfClass("Humanoid")
+							local pct = math.floor(h.Health / math.max(h.MaxHealth, 1) * 100)
+							espSet(m, m.HumanoidRootPart, ("👑 %s  %d%%  %dm"):format(base, pct, dist(m.HumanoidRootPart)), Color3.fromRGB(255, 140, 60))
+						end
+					end
 				end
 			end
 			if S.ChestESP then
@@ -2370,6 +2566,7 @@ function Hub.Destroy()
 	end
 	stopTween()
 	setFloat(false)
+	pcall(function() RunService:Set3dRenderingEnabled(true) end)
 	for _, c in ipairs(Hub.Connections) do pcall(function() c:Disconnect() end) end
 	pcall(function() root:Destroy() end)
 	pcall(function() espFolder:Destroy() end)
