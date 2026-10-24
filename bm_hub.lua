@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.8" }
+local Hub = { Connections = {}, Running = true, Version = "1.9" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -69,6 +69,19 @@ local function invoke(...)
 	if ok then return res end
 end
 
+-- برای لیبل‌هایی که مدام آپدیت میشن: جواب سرور تا ttl ثانیه کش میشه
+local invokeCache = {}
+local function invokeCached(key, ttl, ...)
+	local c = invokeCache[key]
+	if c and tick() - c.t < ttl then return c.v end
+	invokeCache[key] = { t = tick(), v = c and c.v }
+	local args = { ... }
+	task.spawn(function()
+		invokeCache[key] = { t = tick(), v = invoke(table.unpack(args)) }
+	end)
+	return c and c.v
+end
+
 local Modules = ReplicatedStorage:FindFirstChild("Modules")
 local Net = Modules and Modules:FindFirstChild("Net")
 
@@ -95,6 +108,7 @@ local RegisterHit = findRemote("RegisterHit")
 local executorName = "?"
 pcall(function() executorName = tostring((identifyexecutor or getexecutorname)()) end)
 
+local notifyHook -- بعد از ساخت UI مقدار می‌گیره (برای اعلان از لوپ‌ها)
 Hub.Errors = {}
 local function logError(where, err)
 	local msg = where .. ": " .. tostring(err)
@@ -118,7 +132,7 @@ local S = {
 	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
-	AutoFactory = false, AutoEcto = false,
+	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
 	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
@@ -157,6 +171,7 @@ local function dataValue(name)
 end
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
+		or S.AutoRengoku or S.AutoTrident
 end
 
 ---------------------------------------------------------------------
@@ -1000,6 +1015,165 @@ task.spawn(function()
 	end
 end)
 
+---------------------------------------------------------------------
+-- Sea 2 items (Rengoku, Dragon Trident, Legendary Sword Dealer)
+---------------------------------------------------------------------
+local RENGOKU_CHEST = Vector3.new(6571.2, 299.4, -6967.4)
+local ICE_CASTLE = Vector3.new(6062.3, 155.3, -6880.9)
+local FORGOTTEN_ISLAND = Vector3.new(-3194.2, 155.3, -10795.3)
+local EL_ADMIN = Vector3.new(1321.0, 121.8, 33134.8)
+local MYSTERIOUS_MAN = Vector3.new(-2573.5, 1620.7, -3745.2)
+
+local function backpackTool(name)
+	for _, cont in ipairs({ getChar(), player:FindFirstChild("Backpack") }) do
+		local t = cont and cont:FindFirstChild(name)
+		if t and t:IsA("Tool") then return t end
+	end
+end
+
+-- اینونتوری (با دو اسم دستور قدیمی/جدید)، 20 ثانیه کش
+local inventoryCache, inventoryTime = {}, 0
+local function inventoryNames()
+	if tick() - inventoryTime < 20 then return inventoryCache end
+	local set = {}
+	for _, cmd in ipairs({ "getInventoryWeapons", "getInventory" }) do
+		local r = invoke(cmd)
+		if type(r) == "table" then
+			for _, item in pairs(r) do
+				if type(item) == "table" and item.Name then set[item.Name] = true end
+			end
+		end
+	end
+	inventoryCache, inventoryTime = set, tick()
+	return set
+end
+
+local function hasItem(name)
+	return backpackTool(name) ~= nil or inventoryNames()[name] == true
+end
+
+-- نزدیک‌ترین ماب از لیست؛ اگه نبود میره سمت fallbackPos
+local function farmNearestOf(names, keep, fallbackPos)
+	local root = getRoot()
+	local best, bestDist
+	for _, name in ipairs(names) do
+		local m = findMob(name)
+		if m then
+			local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+			if not bestDist or d < bestDist then best, bestDist = m, d end
+		end
+	end
+	if best then
+		killMob(best, keep)
+	elseif fallbackPos then
+		S.Status = "Looking for " .. table.concat(names, " / ")
+		tweenTo(CFrame.new(fallbackPos + Vector3.new(0, 40, 0)), keep)
+	end
+end
+
+-- باس رو اگه اسپاون شده می‌کشه؛ true یعنی باس پیدا شد
+local function fightBoss(name, keep)
+	local boss = findMobAnywhere(name)
+	if not boss then return false end
+	if boss.Parent ~= workspace:FindFirstChild("Enemies") then
+		S.Status = "Going to " .. name
+		tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmDistance, 0), keep)
+	else
+		killMob(boss, keep)
+	end
+	return true
+end
+
+local function touchPart(part)
+	local root = getRoot()
+	if not (root and part and firetouchinterest) then return false end
+	pcall(function()
+		firetouchinterest(root, part, 0)
+		task.wait(0.1)
+		firetouchinterest(root, part, 1)
+	end)
+	return true
+end
+
+task.spawn(function()
+	while Hub.Running do
+		task.wait(0.3)
+		if S.AutoRengoku and alive() then
+			local keep = function() return S.AutoRengoku end
+			local ok, err = pcall(function()
+				if hasItem("Rengoku") then
+					S.AutoRengoku = false
+					S.Status = "Rengoku obtained ✔"
+					if notifyHook then notifyHook("Rengoku", "You already have Rengoku ✔", 6) end
+					return
+				end
+				local key = backpackTool("Hidden Key")
+				if key then
+					-- کلید داریم: میریم سراغ صندوق Rengoku توی Ice Castle
+					S.Status = "Opening Rengoku chest"
+					local h = getHum()
+					if h and key.Parent ~= getChar() then h:EquipTool(key) end
+					tweenTo(CFrame.new(RENGOKU_CHEST), keep)
+					local det
+					pcall(function() det = workspace.Map.IceCastle.RengokuChest.Detection end)
+					touchPart(det)
+					task.wait(1.5)
+					return
+				end
+				-- Awakened Ice Admiral شانس بیشتری داره (حدود 5%)
+				if not fightBoss("Awakened Ice Admiral", keep) then
+					farmNearestOf({ "Arctic Warrior", "Snow Lurker" }, keep, ICE_CASTLE)
+				end
+			end)
+			if not ok then logError("AutoRengoku", err) end
+		elseif S.AutoTrident and alive() then
+			local keep = function() return S.AutoTrident end
+			local ok, err = pcall(function()
+				if hasItem("Dragon Trident") then
+					S.AutoTrident = false
+					S.Status = "Dragon Trident obtained ✔"
+					if notifyHook then notifyHook("Dragon Trident", "You have Dragon Trident ✔", 6) end
+					return
+				end
+				local q = questForMob("Tide Keeper")
+				if q and S.BossQuest and not questBlocked(q) and not hasQuest(q.mob) and findMobAnywhere("Tide Keeper") then
+					takeQuest(q, keep)
+					return
+				end
+				if not fightBoss("Tide Keeper", keep) then
+					S.Status = "Tide Keeper not spawned, waiting at Forgotten Island"
+					tweenTo(CFrame.new(FORGOTTEN_ISLAND + Vector3.new(0, 60, 0)), keep)
+					task.wait(2)
+				end
+			end)
+			if not ok then logError("AutoTrident", err) end
+		end
+	end
+end)
+
+-- Legendary Sword Dealer هر چند ساعت یه جا اسپاون میشه
+local function dealerPosition()
+	for _, folder in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
+		local npc = folder and folder:FindFirstChild("Legendary Sword Dealer")
+		if npc then
+			local ok, cf = pcall(function() return npc:GetPivot() end)
+			if ok and cf.Position.Y > -500 then return cf end
+		end
+	end
+end
+
+task.spawn(function()
+	local wasSpawned = dealerPosition() ~= nil
+	while Hub.Running do
+		task.wait(5)
+		local now = dealerPosition() ~= nil
+		if now and not wasSpawned and S.DealerNotify and notifyHook then
+			notifyHook("Legendary Sword Dealer", "He just spawned! Check the Items tab.", 8)
+		end
+		wasSpawned = now
+	end
+end)
+
 -- Chests
 local chestCache, chestCacheTime = {}, 0
 local function getChests()
@@ -1176,7 +1350,6 @@ local function bossNames()
 	return out
 end
 
-local notifyHook -- بعد از ساخت UI مقدار می‌گیره
 task.spawn(function()
 	local present, first = {}, true
 	while Hub.Running do
@@ -1509,6 +1682,11 @@ local function debugReport()
 		end
 	end
 	add("tools:", table.concat(tools, ", "))
+	inventoryTime = 0
+	local invNames = {}
+	for n in pairs(inventoryNames()) do table.insert(invNames, n) end
+	add("inventory (" .. #invNames .. "):", table.concat(invNames, ", "))
+	add("dealer spawned:", dealerPosition() ~= nil, "| hidden key:", backpackTool("Hidden Key") ~= nil)
 	add("errors:", #Hub.Errors > 0 and table.concat(Hub.Errors, " || ") or "none")
 	return table.concat(lines, "\n")
 end
@@ -2122,8 +2300,42 @@ end)
 SeaFarm:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
+local Items = createTab("Items", "✧")
+Items:Section("Rengoku")
+Items:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Items:Label(function()
+	local key = backpackTool("Hidden Key") and "✔ have key" or "no key yet"
+	return "Hidden Key: " .. key .. "  •  drops from Ice Admiral / Ice Castle mobs"
+end)
+Items:Section("Dragon Trident")
+Items:Toggle("Auto Dragon Trident (Tide Keeper)", "AutoTrident", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Items:Section("Midnight Blade")
+Items:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  needs 100" end)
+Items:Button("Go to El Admin (buy Midnight Blade)", function()
+	tweenTo(CFrame.new(EL_ADMIN + Vector3.new(0, 3, 4)))
+	notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
+end)
+Items:Section("True Triple Katana")
+Items:Label(function()
+	return "Sword Dealer: " .. (dealerPosition() and "<font color=\"#7CFF9B\">SPAWNED</font>" or "not spawned")
+end)
+Items:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
+Items:Button("Go to Legendary Sword Dealer", function()
+	local cf = dealerPosition()
+	if not cf then return notify("Sword Dealer", "Not spawned right now") end
+	tweenTo(cf * CFrame.new(0, 0, 4))
+end)
+Items:Button("Go to Mysterious Man (TTK)", function()
+	tweenTo(CFrame.new(MYSTERIOUS_MAN + Vector3.new(0, 3, 4)))
+end)
+Items:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
+
 SeaFarm:Label(function()
-	return "Ectoplasm: " .. formatNumber(dataValue("Ectoplasm") or 0) .. "  •  Sea " .. (Sea > 0 and Sea or "?")
+	return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  Sea " .. (Sea > 0 and Sea or "?")
 end)
 
 local Shop = createTab("Shop", "$")
