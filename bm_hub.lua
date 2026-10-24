@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.9.3" }
+local Hub = { Connections = {}, Running = true, Version = "1.9.4" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -293,6 +293,9 @@ local function toCFrame(x)
 	end
 end
 
+-- نکته: Luau حداکثر 200 متغیر local در یک اسکوپ قبول می‌کنه؛ بخش‌های مستقل داخل do ... end هستن
+local FALLBACK_BY_SEA
+do
 -- اگه ماژول‌ها لود نشن (Sea 1)
 local FALLBACK_SEA1 = {
 	{ 1, "BanditQuest1", 1, "Bandit", Vector3.new(1059.37, 15.45, 1550.42) },
@@ -387,7 +390,8 @@ local FALLBACK_SEA3 = {
 	{ 2550, "TikiQuest3", 1, "Serpent Hunter", Vector3.new(-16665.19, 104.60, 1579.69) },
 	{ 2575, "TikiQuest3", 2, "Skull Slayer", Vector3.new(-16665.19, 104.60, 1579.69) },
 }
-local FALLBACK_BY_SEA = { FALLBACK_SEA1, FALLBACK_SEA2, FALLBACK_SEA3 }
+FALLBACK_BY_SEA = { FALLBACK_SEA1, FALLBACK_SEA2, FALLBACK_SEA3 }
+end
 
 local FALLBACK_BOSSES = {
 	"The Gorilla King", "Bobby", "Yeti", "Mob Leader", "Vice Admiral", "Warden", "Chief Warden",
@@ -2284,6 +2288,7 @@ end)
 ---------------------------------------------------------------------
 -- Pages
 ---------------------------------------------------------------------
+do -- صفحه‌ها (متغیرهاشون فقط همین‌جا لازمن)
 local Home = createTab("Home", "⌂")
 Home:Profile()
 Home:Section("Stats")
@@ -2600,10 +2605,12 @@ Misc:Button("Load Settings", function()
 	notify("Settings", loadSettings() and "Loaded ✔  re-run the hub to refresh the UI" or "No saved settings", 4)
 end)
 Misc:Button("Destroy Hub", function() Hub.Destroy() end)
+end -- صفحه‌ها
 
 ---------------------------------------------------------------------
 -- ESP
 ---------------------------------------------------------------------
+do
 local ESP = {}
 local function espSet(key, adornee, text, color)
 	local e = ESP[key]
@@ -2681,9 +2688,12 @@ task.spawn(function()
 	end
 end)
 
+end -- ESP
+
 ---------------------------------------------------------------------
 -- Window behaviour
 ---------------------------------------------------------------------
+do
 local minimized = false
 -- وضعیت باز/بسته جدا نگه داشته میشه تا کلیک وسط انیمیشن قاطی نکنه
 local isOpen = false
@@ -2839,6 +2849,7 @@ task.spawn(function()
 	notify("BM Hub", ("Loaded ✔  Sea %s  •  %d quests"):format(Sea > 0 and Sea or "?", #QuestList), 4)
 	if Sea == 0 then notify("BM Hub", "This doesn't look like Blox Fruits!", 5) end
 end)
+end -- پنجره و صفحه‌ی خوش‌آمد
 
 ---------------------------------------------------------------------
 -- Cleanup
