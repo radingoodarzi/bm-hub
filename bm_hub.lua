@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.9.2" }
+local Hub = { Connections = {}, Running = true, Version = "1.9.3" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1286,10 +1286,41 @@ task.spawn(function()
 	end
 end)
 
+-- میوه‌ی رندوم: سیستم جدید Gacha، با دستور قدیمی Cousin به‌عنوان پشتیبان
+local GachaRF = Net and Net:FindFirstChild("RF/GachaNetworkRF")
+local function describe(r)
+	if type(r) == "table" then
+		local parts = {}
+		for k, v in pairs(r) do
+			table.insert(parts, tostring(k) .. "=" .. tostring(v))
+			if #parts >= 4 then break end
+		end
+		return "{" .. table.concat(parts, ", ") .. "}"
+	end
+	return tostring(r)
+end
+
+local function buyRandomFruit()
+	if GachaRF then
+		local ok, r = pcall(GachaRF.InvokeServer, GachaRF, { Context = "Purchase", BoxName = "ZiolesGacha" })
+		if ok and r ~= nil then return true, "Gacha: " .. describe(r) end
+		if not ok then logError("Gacha", r) end
+	end
+	local r = invoke("Cousin", "Buy")
+	if r ~= nil then return true, "Cousin: " .. describe(r) end
+	return false, "no response (cooldown / not enough beli?)"
+end
+
 task.spawn(function()
+	local delay = 30
 	while Hub.Running do
-		if S.AutoRandomFruit then invoke("Cousin", "Buy") end
-		task.wait(30)
+		if S.AutoRandomFruit then
+			local ok, info = buyRandomFruit()
+			S.Status = "Random fruit: " .. info
+			-- اگه نشد کم‌کم صبر بیشتر (تا 5 دقیقه)
+			delay = ok and 30 or math.min(delay * 2, 300)
+		end
+		task.wait(delay)
 	end
 end)
 
@@ -2464,8 +2495,8 @@ Fruit:Toggle("Auto Random Fruit (Cousin)", "AutoRandomFruit")
 Fruit:Toggle("Fruit ESP", "FruitESP")
 Fruit:Toggle("Fruit Spawn Alert", "FruitNotify")
 Fruit:Button("Buy Random Fruit", function()
-	local r = invoke("Cousin", "Buy")
-	notify("Random Fruit", r and tostring(r) or "Request sent")
+	local _, info = buyRandomFruit()
+	notify("Random Fruit", info, 6)
 end)
 Fruit:Button("Find Fruits In Server", function()
 	local list = getWorldFruits()
