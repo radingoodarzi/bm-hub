@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.9.1" }
+local Hub = { Connections = {}, Running = true, Version = "1.9.2" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -567,27 +567,36 @@ end
 
 local function takeQuest(q, keepGoing)
 	local g = questGui()
-	if g and g.Visible then invoke("AbandonQuest") end
+	-- فقط کوئست اشتباه/تموم‌شده رو ول می‌کنیم
+	if g and g.Visible and not hasQuest(q.mob) then invoke("AbandonQuest") end
 	S.Status = "Taking quest: " .. q.mob
-	if tweenTo(q.npc, keepGoing) then
-		task.wait(0.3)
-		local res = invoke("StartQuest", q.quest, q.index)
-		-- پنل کوئست با تاخیر نشون داده میشه، تا 3 ثانیه صبر
+	if not tweenTo(q.npc, keepGoing) then return end
+	-- سرور موقعیت جدید رو با تاخیر می‌بینه؛ قبل از درخواست کمی صبر
+	setFloat(true)
+	task.wait(0.7)
+	local key = q.quest .. q.index
+	local res
+	for attempt = 1, 3 do
+		if (keepGoing and not keepGoing()) or not alive() then return end
+		S.Status = ("Taking quest: %s (try %d/3)"):format(q.mob, attempt)
+		local root = getRoot()
+		if root then root.CFrame = q.npc end
+		res = invoke("StartQuest", q.quest, q.index)
 		local waited = 0
-		while waited < 3 and not hasQuest(q.mob) do
-			waited += task.wait(0.2)
+		while waited < 1.5 and not hasQuest(q.mob) do
+			waited += task.wait(0.15)
 		end
-		local key = q.quest .. q.index
 		if hasQuest(q.mob) then
 			questFailures[key] = 0
-		else
-			questFailures[key] = (questFailures[key] or 0) + 1
-			logError("StartQuest " .. key, "not accepted (" .. tostring(res) .. ")")
-			if questFailures[key] >= 2 then
-				questBlockedUntil[key] = tick() + 120
-				questFailures[key] = 0
-			end
+			return
 		end
+	end
+	questFailures[key] = (questFailures[key] or 0) + 1
+	logError("StartQuest " .. key, "not accepted (" .. tostring(res) .. ")")
+	if questFailures[key] >= 2 then
+		-- مدت کوتاه بدون کوئست، بعد دوباره تلاش
+		questBlockedUntil[key] = tick() + 30
+		questFailures[key] = 0
 	end
 end
 
@@ -833,6 +842,8 @@ local function pickMobByLevel()
 end
 
 -- اسم مانستر رو از متن کوئست فعال روی صفحه درمیاره (مثلا "Defeat 5 Bandits (0/5)")
+local candidateCache = { t = 0, set = {} }
+local questMobCache = { t = 0 }
 local function activeQuestMob()
 	local g = questGui()
 	if not g or not g.Visible then return nil end
@@ -849,22 +860,29 @@ local function activeQuestMob()
 		end)
 	end
 	if not title or title == "" or questDone(title) then return nil end
-	local lower = title:lower()
-	local candidates = {}
-	for _, q in ipairs(QuestList) do candidates[q.mob] = true end
-	for _, q in ipairs(BossList) do candidates[q.mob] = true end
-	local enemies = workspace:FindFirstChild("Enemies")
-	if enemies then
-		for _, m in ipairs(enemies:GetChildren()) do candidates[mobBaseName(m.Name)] = true end
-	end
-	local sp = spawnFolder()
-	if sp then
-		for _, p in ipairs(sp:GetChildren()) do candidates[mobBaseName(p.Name)] = true end
+	-- متن کوئست با پیشرفت عوض میشه، پس بدون (x/y) کش می‌کنیم
+	local base = title:gsub("%(.-%)", "")
+	if questMobCache.title == base and tick() - questMobCache.t < 10 then return questMobCache.mob end
+	local lower = base:lower()
+	if tick() - candidateCache.t > 10 then
+		local candidates = {}
+		for _, q in ipairs(QuestList) do candidates[q.mob] = true end
+		for _, q in ipairs(BossList) do candidates[q.mob] = true end
+		local enemies = workspace:FindFirstChild("Enemies")
+		if enemies then
+			for _, m in ipairs(enemies:GetChildren()) do candidates[mobBaseName(m.Name)] = true end
+		end
+		local sp = spawnFolder()
+		if sp then
+			for _, p in ipairs(sp:GetChildren()) do candidates[mobBaseName(p.Name)] = true end
+		end
+		candidateCache = { t = tick(), set = candidates }
 	end
 	local best
-	for name in pairs(candidates) do
+	for name in pairs(candidateCache.set) do
 		if lower:find(name:lower(), 1, true) and (not best or #name > #best) then best = name end
 	end
+	questMobCache = { title = base, mob = best, t = tick() }
 	return best
 end
 
