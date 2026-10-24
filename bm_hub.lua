@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.5" }
+local Hub = { Connections = {}, Running = true, Version = "1.6" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -115,7 +115,7 @@ end
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
-	FarmDistance = 7, TweenSpeed = 300,
+	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
 	AutoBoss = false, SelectedBoss = nil, BossQuest = true,
 	AutoHaki = true,
 	AutoStats = false, StatType = "Melee", StatAmount = 3,
@@ -521,11 +521,19 @@ local function questGui()
 	return m and m:FindFirstChild("Quest")
 end
 
+-- کوئست با پیشرفت کامل مثل (8/8) تموم‌شده حساب میشه
+local function questDone(txt)
+	local cur, total = txt:match("%((%d+)%s*/%s*(%d+)%)")
+	return cur ~= nil and tonumber(cur) >= tonumber(total)
+end
+
 local function hasQuest(mob)
 	local q = questGui()
 	if not q or not q.Visible then return false end
 	local ok, txt = pcall(function() return q.Container.QuestTitle.Title.Text end)
-	if not ok or not mob then return true end
+	if not ok then return mob == nil end
+	if questDone(txt) then return false end
+	if not mob then return true end
 	return txt:lower():find(mob:lower(), 1, true) ~= nil
 end
 
@@ -542,7 +550,11 @@ local function takeQuest(q, keepGoing)
 	if tweenTo(q.npc, keepGoing) then
 		task.wait(0.3)
 		local res = invoke("StartQuest", q.quest, q.index)
-		task.wait(0.5)
+		-- پنل کوئست با تاخیر نشون داده میشه، تا 3 ثانیه صبر
+		local waited = 0
+		while waited < 3 and not hasQuest(q.mob) do
+			waited += task.wait(0.2)
+		end
 		local key = q.quest .. q.index
 		if hasQuest(q.mob) then
 			questFailures[key] = 0
@@ -614,13 +626,16 @@ local function clickScreen()
 	end
 end
 
+local lastRemote = 0
 local function remoteAttack(root)
 	if not (RegisterAttack and RegisterHit) then return end
+	if tick() - lastRemote < 0.1 then return end
+	lastRemote = tick()
 	local hits = {}
 	local enemies = workspace:FindFirstChild("Enemies")
 	if enemies then
 		for _, m in ipairs(enemies:GetChildren()) do
-			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= 60 then
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
 				table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
 			end
 		end
@@ -653,6 +668,31 @@ local function attack()
 	end
 	if m == "Auto" or m == "Click" then clickScreen() end
 end
+
+local function enemyInRange()
+	local root = getRoot()
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not root or not enemies then return false end
+	for _, m in ipairs(enemies:GetChildren()) do
+		if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
+			return true
+		end
+	end
+	return false
+end
+
+-- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
+task.spawn(function()
+	while Hub.Running do
+		task.wait(0.1)
+		if S.AutoClick and alive() and enemyInRange() then
+			pcall(function()
+				equipWeapon()
+				attack()
+			end)
+		end
+	end
+end)
 
 local function bringMobs(name, cf)
 	local enemies = workspace:FindFirstChild("Enemies")
@@ -749,7 +789,7 @@ local function activeQuestMob()
 			end
 		end)
 	end
-	if not title or title == "" then return nil end
+	if not title or title == "" or questDone(title) then return nil end
 	local lower = title:lower()
 	local candidates = {}
 	for _, q in ipairs(QuestList) do candidates[q.mob] = true end
@@ -1724,10 +1764,12 @@ Farm:Toggle("Take Quest", "TakeQuest")
 Farm:Section("Combat")
 Farm:Dropdown("Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
 Farm:Dropdown("Attack Method", function() return { "Auto", "Remote", "Click", "Tool" } end, "AttackMethod")
+Farm:Toggle("Auto Click (always attack nearby)", "AutoClick")
+Farm:Slider("Attack Range", 10, 150, "AttackRange")
 Farm:Toggle("Fast Attack", "FastAttack")
 Farm:Toggle("Bring Mobs", "BringMobs")
 Farm:Toggle("Auto Haki (Buso)", "AutoHaki")
-Farm:Slider("Farm Height", 0, 30, "FarmDistance")
+Farm:Slider("Farm Height", 0, 60, "FarmDistance")
 Farm:Slider("Tween Speed", 100, 350, "TweenSpeed")
 
 local Boss = createTab("Bosses", "♛")
