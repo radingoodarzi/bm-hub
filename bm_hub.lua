@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.4" }
+local Hub = { Connections = {}, Running = true, Version = "1.5" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -38,8 +38,27 @@ end
 ---------------------------------------------------------------------
 -- Game info
 ---------------------------------------------------------------------
-local SEA_BY_PLACE = { [2753915549] = 1, [4442272183] = 2, [7449423635] = 3 }
+local SEA_BY_PLACE = { [2753915549] = 1, [4442272183] = 2, [7449423635] = 3, [79091703265657] = 2 }
 local Sea = SEA_BY_PLACE[game.PlaceId] or 0
+
+-- PlaceId ها عوض میشن، پس از اسم جزیره‌ها هم Sea رو تشخیص میدیم
+local SEA_MARKERS = {
+	{ 2, { "Kingdom of Rose", "Cafe", "Graveyard Island", "Snow Mountain", "Hot and Cold", "Cursed Ship", "Ice Castle", "Forgotten Island" } },
+	{ 3, { "Port Town", "Hydra Island", "Great Tree", "Castle on the Sea", "Floating Turtle", "Haunted Castle", "Sea of Treats", "Tiki Outpost" } },
+	{ 1, { "Windmill", "Marine Starter", "Middle Town", "Jungle", "Pirate Village", "Frozen Village", "Marine Fortress", "Skylands", "Prison", "Magma Village", "Fountain City" } },
+}
+pcall(function()
+	if Sea ~= 0 then return end
+	local loc = workspace._WorldOrigin.Locations
+	for _, entry in ipairs(SEA_MARKERS) do
+		for _, name in ipairs(entry[2]) do
+			if loc:FindFirstChild(name) then
+				Sea = entry[1]
+				return
+			end
+		end
+	end
+end)
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 3)
 local CommF = Remotes and Remotes:FindFirstChild("CommF_")
@@ -190,8 +209,9 @@ end
 ---------------------------------------------------------------------
 -- Enemies
 ---------------------------------------------------------------------
+-- "Smoke Admiral [Lv. 1150] [Boss]" -> "Smoke Admiral"
 local function mobBaseName(name)
-	return (name:gsub("%s*%[.-%]%s*$", ""))
+	return (name:gsub("%s*%[.-%]", ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
 local function isAliveMob(m)
@@ -363,47 +383,109 @@ local function useFallback()
 	end
 end
 
--- require روی بعضی executor ها گیر می‌کنه، برای همین جدا و با تایم‌اوت اجرا میشه
-local function loadQuestData()
-	local QuestsMod = safeRequire(ReplicatedStorage:FindFirstChild("Quests"))
-	local GuideMod = safeRequire(ReplicatedStorage:FindFirstChild("GuideModule"))
-	local npcByLevel = {}
-	pcall(function()
-		for key, info in pairs(GuideMod.Data.NPCList) do
-			if type(info) == "table" and type(info.Levels) == "table" then
-				local cf = toCFrame(key) or toCFrame(info)
-				if cf then
-					for _, lv in pairs(info.Levels) do npcByLevel[lv] = cf end
+-- مختصات تقریبی هر کوئست (از جدول‌های پشتیبان) برای پیدا کردن NPC درست
+local QUEST_REF = {}
+for _, list in ipairs(FALLBACK_BY_SEA) do
+	for _, f in ipairs(list) do
+		if not QUEST_REF[f[2]] then QUEST_REF[f[2]] = f[5] end
+	end
+end
+
+-- ماب‌هایی که توی این Sea وجود دارن
+local function seaMobSet()
+	local set, n = {}, 0
+	local function addName(name)
+		local b = mobBaseName(name)
+		if not set[b] then
+			set[b] = true
+			n += 1
+		end
+	end
+	local sp = spawnFolder()
+	if sp then
+		for _, p in ipairs(sp:GetChildren()) do addName(p.Name) end
+	end
+	local enemies = workspace:FindFirstChild("Enemies")
+	if enemies then
+		for _, m in ipairs(enemies:GetChildren()) do addName(m.Name) end
+	end
+	for _, m in ipairs(ReplicatedStorage:GetChildren()) do
+		if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then addName(m.Name) end
+	end
+	return set, n
+end
+
+local function questGivers()
+	local list = {}
+	for _, folder in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
+		if folder then
+			for _, npc in ipairs(folder:GetChildren()) do
+				if npc.Name:find("Quest") then
+					local ok, cf = pcall(function() return npc:GetPivot() end)
+					if ok and cf.Position.Y > -500 then table.insert(list, cf) end
 				end
 			end
 		end
-	end)
+	end
+	return list
+end
+
+local function spawnCentroid(mob)
+	local sp = spawnFolder()
+	if not sp then return nil end
+	local sum, n = Vector3.zero, 0
+	for _, p in ipairs(sp:GetChildren()) do
+		if p:IsA("BasePart") and mobBaseName(p.Name) == mob then
+			sum += p.Position
+			n += 1
+		end
+	end
+	return n > 0 and sum / n or nil
+end
+
+-- نزدیک‌ترین NPC کوئست‌دهنده به محل تقریبی کوئست یا محل اسپاون ماب‌ها
+local function findQuestNpc(givers, qName, mob)
+	local ref = QUEST_REF[qName] or spawnCentroid(mob)
+	if not ref then return nil end
+	local best, bestDist
+	for _, cf in ipairs(givers) do
+		local d = (cf.Position - ref).Magnitude
+		if d < 700 and (not bestDist or d < bestDist) then best, bestDist = cf, d end
+	end
+	return best or CFrame.new(ref)
+end
+
+-- فقط ماژول Quests خونده میشه؛ GuideModule روی Solara گیر می‌کنه
+local function loadQuestData()
+	local QuestsMod = safeRequire(ReplicatedStorage:FindFirstChild("Quests"))
+	if not QuestsMod then error("Quests module not readable") end
+	local mobs, mobCount = seaMobSet()
+	local givers = questGivers()
 	local quests, bosses = {}, {}
-	pcall(function()
-		local hasSpawns = spawnFolder() ~= nil
-		for qName, entries in pairs(QuestsMod) do
-			if type(entries) == "table" then
-				for idx, e in pairs(entries) do
-					if type(e) == "table" and type(e.LevelReq) == "number" and type(e.Task) == "table" then
-						local mob, count = next(e.Task)
-						local npc = npcByLevel[e.LevelReq]
-						if type(mob) == "string" and npc then
-							local entry = { quest = qName, index = idx, level = e.LevelReq, mob = mob, npc = npc }
-							if count == 1 then
-								table.insert(bosses, entry)
-							elseif not hasSpawns or mobSpawn(mob) then
-								table.insert(quests, entry)
-							end
+	for qName, entries in pairs(QuestsMod) do
+		if type(entries) == "table" then
+			for idx, e in pairs(entries) do
+				if type(e) == "table" and type(e.LevelReq) == "number" and type(e.Task) == "table" then
+					local mob, count = next(e.Task)
+					local inSea = mobCount == 0 or mobs[mob]
+					-- کوئست‌های خاص (مثل 50 تایی‌ها) حذف میشن
+					if type(mob) == "string" and type(count) == "number" and count <= 20 and inSea then
+						local entry = { quest = qName, index = idx, level = e.LevelReq, mob = mob, npc = findQuestNpc(givers, qName, mob) }
+						if count == 1 then
+							table.insert(bosses, entry)
+						elseif entry.npc then
+							table.insert(quests, entry)
 						end
 					end
 				end
 			end
 		end
-	end)
+	end
 	if #quests > 0 then
 		table.clear(QuestList)
 		for _, q in ipairs(quests) do table.insert(QuestList, q) end
 	end
+	table.clear(BossList)
 	for _, b in ipairs(bosses) do table.insert(BossList, b) end
 	table.sort(QuestList, function(a, b) return a.level < b.level end)
 	table.sort(BossList, function(a, b) return a.level < b.level end)
@@ -444,7 +526,7 @@ local function hasQuest(mob)
 	if not q or not q.Visible then return false end
 	local ok, txt = pcall(function() return q.Container.QuestTitle.Title.Text end)
 	if not ok or not mob then return true end
-	return txt:find(mob, 1, true) ~= nil
+	return txt:lower():find(mob:lower(), 1, true) ~= nil
 end
 
 -- اگه کوئستی چند بار گرفته نشد، یه مدت بدون کوئست فارم می‌کنیم
