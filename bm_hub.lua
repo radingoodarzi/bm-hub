@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.2" }
+local Hub = { Connections = {}, Running = true, Version = "1.3" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -52,8 +52,37 @@ end
 
 local Modules = ReplicatedStorage:FindFirstChild("Modules")
 local Net = Modules and Modules:FindFirstChild("Net")
-local RegisterAttack = Net and Net:FindFirstChild("RE/RegisterAttack")
-local RegisterHit = Net and Net:FindFirstChild("RE/RegisterHit")
+
+-- اسم ریموت‌ها با آپدیت‌ها عوض میشه، پس با جستجو پیداشون می‌کنیم
+local function findRemote(key)
+	local hit
+	pcall(function()
+		for _, r in ipairs({ Net, Modules, ReplicatedStorage }) do
+			if r then
+				for _, d in ipairs(r:GetDescendants()) do
+					if d:IsA("RemoteEvent") and d.Name:find(key, 1, true) then
+						hit = d
+						return
+					end
+				end
+			end
+		end
+	end)
+	return hit
+end
+local RegisterAttack = findRemote("RegisterAttack")
+local RegisterHit = findRemote("RegisterHit")
+
+local executorName = "?"
+pcall(function() executorName = tostring((identifyexecutor or getexecutorname)()) end)
+
+Hub.Errors = {}
+local function logError(where, err)
+	local msg = where .. ": " .. tostring(err)
+	table.insert(Hub.Errors, msg)
+	if #Hub.Errors > 8 then table.remove(Hub.Errors, 1) end
+	warn("[BM Hub] " .. msg)
+end
 
 local function safeRequire(m)
 	if not m then return nil end
@@ -66,8 +95,8 @@ end
 ---------------------------------------------------------------------
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
-	BringMobs = true, FastAttack = true, Weapon = "Melee",
-	FarmDistance = 10, TweenSpeed = 300,
+	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
+	FarmDistance = 7, TweenSpeed = 300,
 	AutoBoss = false, SelectedBoss = nil, BossQuest = true,
 	AutoHaki = true,
 	AutoStats = false, StatType = "Melee", StatAmount = 3,
@@ -315,7 +344,8 @@ end
 useFallback()
 task.spawn(function()
 	local ok, err = pcall(loadQuestData)
-	print("[BM Hub] quest data:", ok and (#QuestList .. " quests, " .. #BossList .. " bosses") or err)
+	Hub.QuestLoadInfo = ok and (#QuestList .. " quests, " .. #BossList .. " bosses") or ("error: " .. tostring(err))
+	print("[BM Hub] quest data:", Hub.QuestLoadInfo)
 end)
 
 local function questForLevel(lv)
@@ -349,14 +379,31 @@ local function hasQuest(mob)
 	return txt:find(mob, 1, true) ~= nil
 end
 
+-- اگه کوئستی چند بار گرفته نشد، یه مدت بدون کوئست فارم می‌کنیم
+local questFailures, questBlockedUntil = {}, {}
+local function questBlocked(q)
+	return (questBlockedUntil[q.quest .. q.index] or 0) > tick()
+end
+
 local function takeQuest(q, keepGoing)
 	local g = questGui()
 	if g and g.Visible then invoke("AbandonQuest") end
 	S.Status = "Taking quest: " .. q.mob
 	if tweenTo(q.npc, keepGoing) then
-		task.wait(0.25)
-		invoke("StartQuest", q.quest, q.index)
-		task.wait(0.25)
+		task.wait(0.3)
+		local res = invoke("StartQuest", q.quest, q.index)
+		task.wait(0.5)
+		local key = q.quest .. q.index
+		if hasQuest(q.mob) then
+			questFailures[key] = 0
+		else
+			questFailures[key] = (questFailures[key] or 0) + 1
+			logError("StartQuest " .. key, "not accepted (" .. tostring(res) .. ")")
+			if questFailures[key] >= 2 then
+				questBlockedUntil[key] = tick() + 120
+				questFailures[key] = 0
+			end
+		end
 	end
 end
 
@@ -365,11 +412,23 @@ end
 ---------------------------------------------------------------------
 local function findWeapon()
 	local bp = player:FindFirstChild("Backpack")
+	local fallback
 	for _, cont in ipairs({ getChar(), bp }) do
 		if cont then
 			for _, t in ipairs(cont:GetChildren()) do
-				if t:IsA("Tool") and t.ToolTip == S.Weapon then return t end
+				if t:IsA("Tool") then
+					if t.ToolTip == S.Weapon then return t end
+					if not fallback and t.ToolTip == "Melee" then fallback = t end
+				end
 			end
+		end
+	end
+	if fallback then return fallback end
+	-- اگه ToolTip ها فرق داشتن، اولین ابزار
+	for _, cont in ipairs({ getChar(), bp }) do
+		if cont then
+			local t = cont:FindFirstChildOfClass("Tool")
+			if t then return t end
 		end
 	end
 end
@@ -379,32 +438,70 @@ local function equipWeapon()
 	if t and h and t.Parent ~= getChar() then pcall(function() h:EquipTool(t) end) end
 end
 
+local VIM
+pcall(function() VIM = game:GetService("VirtualInputManager") end)
+
+Hub.AttackInfo = { remote = 0, click = 0, tool = 0, lastError = "none" }
+
+local function clickScreen()
+	local vs = camera.ViewportSize
+	local pos = Vector2.new(vs.X * 0.85, vs.Y * 0.45)
+	local ok, err = pcall(function()
+		VirtualUser:CaptureController()
+		VirtualUser:Button1Down(pos, camera.CFrame)
+		VirtualUser:Button1Up(pos, camera.CFrame)
+	end)
+	if not ok and VIM then
+		ok, err = pcall(function()
+			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+		end)
+	end
+	if ok then
+		Hub.AttackInfo.click += 1
+	else
+		Hub.AttackInfo.lastError = "click: " .. tostring(err)
+	end
+end
+
+local function remoteAttack(root)
+	if not (RegisterAttack and RegisterHit) then return end
+	local hits = {}
+	local enemies = workspace:FindFirstChild("Enemies")
+	if enemies then
+		for _, m in ipairs(enemies:GetChildren()) do
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= 60 then
+				table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
+			end
+		end
+	end
+	if #hits == 0 then return end
+	local ok, err = pcall(function()
+		RegisterAttack:FireServer(0)
+		RegisterHit:FireServer(hits[1][2], hits)
+	end)
+	if ok then
+		Hub.AttackInfo.remote += 1
+	else
+		Hub.AttackInfo.lastError = "remote: " .. tostring(err)
+	end
+end
+
 local lastClick = 0
 local function attack()
 	local root = getRoot()
 	if not root then return end
-	if S.FastAttack and RegisterAttack and RegisterHit then
-		local hits = {}
-		local enemies = workspace:FindFirstChild("Enemies")
-		if enemies then
-			for _, m in ipairs(enemies:GetChildren()) do
-				if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= 60 then
-					table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
-				end
-			end
-		end
-		if #hits > 0 then
-			pcall(function()
-				RegisterAttack:FireServer(0)
-				RegisterHit:FireServer(hits[1][2], hits)
-			end)
+	local m = S.AttackMethod
+	if S.FastAttack and (m == "Auto" or m == "Remote") then remoteAttack(root) end
+	if tick() - lastClick < 0.12 then return end
+	lastClick = tick()
+	if m == "Auto" or m == "Tool" then
+		local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
+		if tool and pcall(function() tool:Activate() end) then
+			Hub.AttackInfo.tool += 1
 		end
 	end
-	local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
-	if tool and tick() - lastClick > 0.15 then
-		lastClick = tick()
-		pcall(function() tool:Activate() end)
-	end
+	if m == "Auto" or m == "Click" then clickScreen() end
 end
 
 local function bringMobs(name, cf)
@@ -453,10 +550,44 @@ end
 ---------------------------------------------------------------------
 -- Farm loops
 ---------------------------------------------------------------------
+-- لول مانستر از اسم / DisplayName / Attribute
+local function mobLevel(m)
+	local a = m:GetAttribute("Level")
+	if type(a) == "number" then return a end
+	local h = m:FindFirstChildOfClass("Humanoid")
+	for _, s in ipairs({ m.Name, h and h.DisplayName or "" }) do
+		local n = s:match("Lv%.?%s*(%d+)")
+		if n then return tonumber(n) end
+	end
+end
+
+-- بدون داده‌ی کوئست: بهترین مانستر بر اساس لول، وگرنه نزدیک‌ترین
+local function pickMobByLevel()
+	local enemies = workspace:FindFirstChild("Enemies")
+	local root = getRoot()
+	if not enemies or not root then return nil end
+	local myLevel = dataValue("Level") or 1
+	local best, bestLv, bestDist, nearest, nearestDist
+	for _, m in ipairs(enemies:GetChildren()) do
+		if isAliveMob(m) then
+			local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+			if not nearestDist or d < nearestDist then nearest, nearestDist = m, d end
+			local lv = mobLevel(m)
+			if lv and lv <= myLevel then
+				if not bestLv or lv > bestLv or (lv == bestLv and d < bestDist) then
+					best, bestLv, bestDist = m, lv, d
+				end
+			end
+		end
+	end
+	return best or nearest
+end
+
 local function farmTarget()
 	if S.FarmMode == "Selected Mob" and S.SelectedMob then
-		return questForMob(S.SelectedMob)
+		return questForMob(S.SelectedMob) or { mob = S.SelectedMob, noQuest = true }
 	end
+	if S.FarmMode == "Nearest Mob" then return nil end
 	return questForLevel(dataValue("Level") or 1)
 end
 
@@ -468,25 +599,35 @@ task.spawn(function()
 			local ok, err = pcall(function()
 				local q = farmTarget()
 				if not q then
-					S.Status = "No quest found for your level"
+					local mob = pickMobByLevel()
+					if not mob then
+						S.Status = "No mobs found nearby"
+						return
+					end
+					killMob(mob, keep)
 					return
 				end
-				if S.TakeQuest and not hasQuest(q.mob) then
+				local useQuest = S.TakeQuest and not q.noQuest and q.npc and not questBlocked(q)
+				if useQuest and not hasQuest(q.mob) then
 					takeQuest(q, keep)
 					return
 				end
 				local mob = findMob(q.mob)
 				if not mob then
 					S.Status = "Waiting for " .. q.mob
-					local sp = mobSpawn(q.mob)
+					local sp = mobSpawn(q.mob) or (q.npc and q.npc * CFrame.new(0, 30, 0))
 					if sp then
 						tweenTo(sp * CFrame.new(0, 30, 0), function() return S.AutoFarm and not findMob(q.mob) end)
 					end
 					return
 				end
-				killMob(mob, function() return S.AutoFarm and (not S.TakeQuest or hasQuest(q.mob)) end)
+				killMob(mob, function() return S.AutoFarm and (not useQuest or hasQuest(q.mob)) end)
 			end)
-			if not ok then S.Status = "Error: " .. tostring(err) end
+			if not ok then
+				S.Status = "Error: " .. tostring(err)
+				logError("AutoFarm", err)
+				task.wait(1)
+			end
 		end
 	end
 end)
@@ -497,14 +638,14 @@ task.spawn(function()
 		task.wait(0.2)
 		if S.AutoBoss and S.SelectedBoss and alive() then
 			local keep = function() return S.AutoBoss end
-			pcall(function()
+			local ok, err = pcall(function()
 				local boss = findMobAnywhere(S.SelectedBoss)
 				if not boss then
 					S.Status = S.SelectedBoss .. " not spawned"
 					return
 				end
 				local q = questForMob(S.SelectedBoss)
-				if S.BossQuest and q and not hasQuest(q.mob) then
+				if S.BossQuest and q and not questBlocked(q) and not hasQuest(q.mob) then
 					takeQuest(q, keep)
 					return
 				end
@@ -515,6 +656,10 @@ task.spawn(function()
 				end
 				killMob(boss, keep)
 			end)
+			if not ok then
+				logError("AutoBoss", err)
+				task.wait(1)
+			end
 		end
 	end
 end)
@@ -755,7 +900,90 @@ local function mobOptions()
 	for _, q in ipairs(QuestList) do
 		if not table.find(out, q.mob) then table.insert(out, q.mob) end
 	end
+	local enemies = workspace:FindFirstChild("Enemies")
+	if enemies then
+		for _, m in ipairs(enemies:GetChildren()) do
+			local n = mobBaseName(m.Name)
+			if not table.find(out, n) then table.insert(out, n) end
+		end
+	end
 	return out
+end
+
+-- گزارش برای پیدا کردن مشکل‌ها (کپی میشه تا برای Claude بفرستی)
+local function debugReport()
+	local lines = {}
+	local function add(...)
+		local parts = {}
+		for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+		table.insert(lines, table.concat(parts, " "))
+	end
+	local identity = "?"
+	pcall(function() identity = (getthreadidentity or getidentity or get_thread_identity)() end)
+	add("== BM Hub", Hub.Version, "debug ==")
+	add("executor:", executorName, "| identity:", identity, "| place:", game.PlaceId, "| sea:", Sea)
+	add("level:", dataValue("Level"), "| beli:", dataValue("Beli"), "| status:", S.Status)
+	add("funcs: require=", pcall(function() return require end) and type(require),
+		"setclipboard=", type(setclipboard), "sethiddenproperty=", type(sethiddenproperty),
+		"gethui=", type(gethui), "VIM=", VIM ~= nil)
+	add("CommF:", CommF and CommF:GetFullName() or "nil")
+	add("RegisterAttack:", RegisterAttack and RegisterAttack:GetFullName() or "nil")
+	add("RegisterHit:", RegisterHit and RegisterHit:GetFullName() or "nil")
+	local a = Hub.AttackInfo
+	add("attacks remote/click/tool:", a.remote, a.click, a.tool, "| last error:", a.lastError)
+	if Net then
+		local names = {}
+		for i, r in ipairs(Net:GetChildren()) do
+			if i > 40 then break end
+			table.insert(names, r.Name)
+		end
+		add("Net children:", table.concat(names, ", "))
+	else
+		local mods = {}
+		for _, c in ipairs(ReplicatedStorage:GetChildren()) do table.insert(mods, c.Name .. "(" .. c.ClassName .. ")") end
+		add("ReplicatedStorage:", table.concat(mods, ", "))
+	end
+	add("quest data:", Hub.QuestLoadInfo or "loading/hung", "| QuestList:", #QuestList, "| BossList:", #BossList)
+	local q = questForLevel(dataValue("Level") or 1)
+	add("quest for level:", q and (q.quest .. " #" .. tostring(q.index) .. " " .. q.mob .. " @ " .. tostring(q.npc and q.npc.Position)) or "none",
+		"| blocked:", q and questBlocked(q))
+	local g = questGui()
+	local title = "?"
+	pcall(function() title = g.Container.QuestTitle.Title.Text end)
+	add("quest gui:", g and g:GetFullName() or "nil", "| visible:", g and g.Visible, "| title:", title)
+	local enemies = workspace:FindFirstChild("Enemies")
+	add("Enemies folder:", enemies ~= nil, "| count:", enemies and #enemies:GetChildren() or 0)
+	if enemies then
+		for i, m in ipairs(enemies:GetChildren()) do
+			if i > 6 then break end
+			local h = m:FindFirstChildOfClass("Humanoid")
+			local attrs = {}
+			for k, v in pairs(m:GetAttributes()) do table.insert(attrs, k .. "=" .. tostring(v)) end
+			add("  mob:", m.Name, "| display:", h and h.DisplayName, "| lv:", mobLevel(m), "| attrs:", table.concat(attrs, ","))
+		end
+	end
+	local sp = spawnFolder()
+	if sp then
+		local names = {}
+		for i, p in ipairs(sp:GetChildren()) do
+			if i > 10 then break end
+			table.insert(names, p.Name)
+		end
+		add("EnemySpawns:", table.concat(names, ", "))
+	else
+		add("EnemySpawns: nil")
+	end
+	local tools = {}
+	for _, cont in ipairs({ getChar(), player:FindFirstChild("Backpack") }) do
+		if cont then
+			for _, t in ipairs(cont:GetChildren()) do
+				if t:IsA("Tool") then table.insert(tools, t.Name .. "[" .. t.ToolTip .. "]") end
+			end
+		end
+	end
+	add("tools:", table.concat(tools, ", "))
+	add("errors:", #Hub.Errors > 0 and table.concat(Hub.Errors, " || ") or "none")
+	return table.concat(lines, "\n")
 end
 
 local function bossOptions()
@@ -813,8 +1041,6 @@ local root = new("ScreenGui", {
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 })
 -- Solara روی gethui/CoreGui کلیک‌ها رو نمی‌گیره، پس اونجا PlayerGui استفاده میشه
-local executorName = ""
-pcall(function() executorName = tostring((identifyexecutor or getexecutorname)()) end)
 local placed = false
 if not executorName:lower():find("solara") then
 	placed = pcall(function() root.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
@@ -1271,17 +1497,29 @@ Home:Label(function() return "Status:  <font color=\"#FFD166\">" .. S.Status .. 
 Home:Section("Info")
 Home:Label(function() return "Quests loaded: " .. #QuestList .. "  •  Bosses: " .. #BossList end)
 Home:Label(function() return "Toggle UI:  RightControl  /  BM button" end)
+Home:Section("Debug")
+Home:Label(function()
+	local a = Hub.AttackInfo
+	return ("Attacks  remote:%d  click:%d  tool:%d"):format(a.remote, a.click, a.tool)
+end)
+Home:Button("Copy Debug Report", function()
+	local report = debugReport()
+	local copied = pcall(function() (setclipboard or toclipboard)(report) end)
+	print(report)
+	notify("Debug Report", copied and "Copied ✔ — paste it to Claude" or "Printed to console (F9)", 5)
+end)
 
 local Farm = createTab("Main Farm", "⚔")
 Farm:Section("Auto Farm")
 Farm:Toggle("Auto Farm", "AutoFarm", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
-Farm:Dropdown("Farm Mode", function() return { "Level", "Selected Mob" } end, "FarmMode")
+Farm:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
 Farm:Dropdown("Select Mob", mobOptions, "SelectedMob")
 Farm:Toggle("Take Quest", "TakeQuest")
 Farm:Section("Combat")
 Farm:Dropdown("Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
+Farm:Dropdown("Attack Method", function() return { "Auto", "Remote", "Click", "Tool" } end, "AttackMethod")
 Farm:Toggle("Fast Attack", "FastAttack")
 Farm:Toggle("Bring Mobs", "BringMobs")
 Farm:Toggle("Auto Haki (Buso)", "AutoHaki")
