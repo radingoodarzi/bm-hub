@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.10" }
+local Hub = { Connections = {}, Running = true, Version = "1.10.1" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -169,6 +169,11 @@ local function dataValue(name)
 	local v = d and d:FindFirstChild(name)
 	return v and v.Value
 end
+-- فارم‌های اصلی اولویت دارن؛ صندوق/میوه وقتی اینا روشنن صبر می‌کنن تا سر حرکت دعوا نشه
+local function mainFarmBusy()
+	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident
+end
+
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 		or S.AutoRengoku or S.AutoTrident
@@ -990,7 +995,8 @@ task.spawn(function()
 				local useQuest = S.TakeQuest and not q.noQuest and q.npc and not questBlocked(q)
 				if useQuest and not hasQuest(q.mob) then
 					takeQuest(q, keep)
-					return
+					-- کوئست گرفته شد؟ همین الان برو سراغ ماب‌ها، بدون دور اضافه‌ی لوپ
+					if not hasQuest(q.mob) then return end
 				end
 				local mob = findMob(q.mob)
 				if not mob then
@@ -1286,7 +1292,7 @@ end
 task.spawn(function()
 	while Hub.Running do
 		task.wait(0.2)
-		if S.AutoChest and alive() then
+		if S.AutoChest and alive() and not mainFarmBusy() then
 			pcall(function()
 				local c = getChests()[1]
 				if not c then
@@ -1331,7 +1337,7 @@ end
 task.spawn(function()
 	while Hub.Running do
 		task.wait(0.5)
-		if S.AutoFruit and alive() then
+		if S.AutoFruit and alive() and not mainFarmBusy() then
 			pcall(function()
 				local f = getWorldFruits()[1]
 				if f then
