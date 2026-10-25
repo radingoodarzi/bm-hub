@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.27" }
+local Hub = { Connections = {}, Running = true, Version = "1.28" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -136,6 +136,8 @@ local S = {
 	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true, AutoLegendary = false, AutoAllBosses = false,
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
+	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
+	AutoBoneGamble = false, AutoAbilities = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
 	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
@@ -177,12 +179,14 @@ end
 local function mainFarmBusy()
 	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast
 end
 
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast
 end
 
 ---------------------------------------------------------------------
@@ -1137,7 +1141,8 @@ local function inventoryNames()
 		local r = invoke(cmd)
 		if type(r) == "table" then
 			for _, item in pairs(r) do
-				if type(item) == "table" and item.Name then set[item.Name] = true end
+				-- مقدار = تعداد (برای متریال‌ها مثل Bones)، یا true
+				if type(item) == "table" and item.Name then set[item.Name] = tonumber(item.Count) or true end
 			end
 		end
 	end
@@ -1146,7 +1151,7 @@ local function inventoryNames()
 end
 
 local function hasItem(name)
-	return backpackTool(name) ~= nil or inventoryNames()[name] == true
+	return backpackTool(name) ~= nil or inventoryNames()[name] ~= nil
 end
 
 -- نزدیک‌ترین ماب از لیست؛ اگه نبود میره سمت fallbackPos
@@ -1672,6 +1677,186 @@ do
 					if not ok then
 						logError(flag, err)
 						task.wait(2)
+					end
+				end
+			end
+		end
+	end)
+end
+
+---------------------------------------------------------------------
+-- Sea 3: Elite Hunter، Yama، Bone، Cake Prince، Sea Beast + هاکی خودکار
+-- (اسم‌ها و دستورها از کد بازی/Kaitun، منطق نوشته‌ی خودمون)
+---------------------------------------------------------------------
+local function materialCount(name)
+	local v = inventoryNames()[name]
+	return type(v) == "number" and v or 0
+end
+
+do
+	local ELITES = { "Diablo", "Deandre", "Urban", "Tyrant of the Skies" }
+	local BONE_MOBS = { "Reborn Skeleton", "Living Zombie", "Demonic Soul", "Posessed Mummy" }
+	local CAKE_MOBS = { "Cookie Crafter", "Cake Guard", "Baking Staff", "Head Baker" }
+	local CAKE_BOSSES = { "Cake Prince", "Dough King" }
+	local HAUNTED = Vector3.new(-9515, 164, 5786)
+	local CAKE_ISLAND = Vector3.new(-2021, 37, -12028)
+
+	local function findElite()
+		for _, n in ipairs(ELITES) do
+			if findMobAnywhere(n) then return n end
+		end
+	end
+
+	-- نزدیک‌ترین ماب از لیست، با کوئست خودش (اگه Take Quest روشنه)
+	local function farmList(list, keep, waitPos)
+		local root = getRoot()
+		local best, bestDist
+		for _, n in ipairs(list) do
+			local m = findMob(n)
+			if m then
+				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+				if not bestDist or d < bestDist then best, bestDist = m, d end
+			end
+		end
+		if not best then
+			S.Status = "Waiting for mobs to spawn"
+			tweenTo(CFrame.new(waitPos + Vector3.new(0, 40, 0)), keep)
+			return
+		end
+		local name = mobBaseName(best.Name)
+		local q = questForMob(name)
+		if S.TakeQuest and q and not questBlocked(q) and not hasQuest(name) and not activeQuestMob() then
+			takeQuest(q, keep)
+			return
+		end
+		killMob(best, keep)
+	end
+
+	local function stepElite(keep)
+		local elite = findElite()
+		if not elite then
+			S.Status = "Elite Hunter: no elite spawned (progress " .. tostring(invokeCached("eliteProg", 20, "EliteHunter", "Progress") or "?") .. ")"
+			task.wait(3)
+			return
+		end
+		if not hasQuest(elite) then
+			S.Status = "Elite Hunter: taking quest"
+			invoke("EliteHunter")
+			task.wait(1)
+			return
+		end
+		fightBoss(elite, keep)
+	end
+
+	local function stepYama(keep)
+		if hasItem("Yama") then
+			S.AutoYama = false
+			if notifyHook then notifyHook("Yama", "You have Yama ✔", 6) end
+			return
+		end
+		local prog = tonumber(invoke("EliteHunter", "Progress")) or 0
+		if prog < 30 then
+			S.Status = ("Yama: elites %d/30 (turn on Auto Elite)"):format(prog)
+			task.wait(5)
+			return
+		end
+		local hit
+		pcall(function() hit = workspace.Map.Waterfall.SealedKatana.Hitbox end)
+		if not hit then
+			S.Status = "Yama: going to waterfall"
+			tweenTo(CFrame.new(5241, 23, 1055), keep)
+			return
+		end
+		S.Status = "Yama: pulling the sword"
+		tweenTo(hit.CFrame * CFrame.new(0, 3, 0), keep)
+		local cd = hit:FindFirstChildOfClass("ClickDetector")
+		if cd and fireclickdetector then pcall(fireclickdetector, cd) end
+		task.wait(0.5)
+	end
+
+	local function stepCake(keep)
+		for _, b in ipairs(CAKE_BOSSES) do
+			if findMobAnywhere(b) then
+				S.Status = "Fighting " .. b
+				fightBoss(b, keep)
+				return
+			end
+		end
+		farmList(CAKE_MOBS, keep, CAKE_ISLAND)
+	end
+
+	-- Sea Beast: بالای سرش می‌مونه و اسکیل‌ها رو می‌زنه
+	local function stepSeaBeast(keep)
+		local folder = workspace:FindFirstChild("SeaBeasts")
+		local root = getRoot()
+		local best, bestDist
+		if folder then
+			for _, b in ipairs(folder:GetChildren()) do
+				local hrp = b:FindFirstChild("HumanoidRootPart") or b.PrimaryPart
+				if hrp then
+					local d = (hrp.Position - root.Position).Magnitude
+					if not bestDist or d < bestDist then best, bestDist = hrp, d end
+				end
+			end
+		end
+		if not best then
+			S.Status = "No Sea Beast spawned"
+			task.wait(3)
+			return
+		end
+		S.Status = "Fighting Sea Beast"
+		local target = CFrame.new(best.Position + Vector3.new(0, 60, 0))
+		if (root.Position - target.Position).Magnitude > 80 then
+			tweenTo(target, keep)
+		else
+			setFloat(true)
+			root.CFrame = CFrame.lookAt(target.Position, best.Position)
+		end
+		equipWeapon(S.SeaBeastWeapon)
+		local saved = S.UseSkills
+		S.UseSkills = true
+		useSkills()
+		S.UseSkills = saved
+		task.wait(0.2)
+	end
+
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(0.3)
+			if alive() then
+				local step, flag
+				if S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
+				elseif S.AutoElite and Sea == 3 then step, flag = stepElite, "AutoElite"
+				elseif S.AutoYama and Sea == 3 then step, flag = stepYama, "AutoYama"
+				elseif S.AutoBone and Sea == 3 then step, flag = function(k) farmList(BONE_MOBS, k, HAUNTED) end, "AutoBone"
+				elseif S.AutoCake and Sea == 3 then step, flag = stepCake, "AutoCake"
+				end
+				if step then
+					local ok, err = pcall(step, function() return S[flag] end)
+					if not ok then
+						logError(flag, err)
+						task.wait(2)
+					end
+				end
+			end
+		end
+	end)
+
+	-- قمار Bone (50 Bone هر بار) و خرید خودکار هاکی‌های پایه وقتی پولش هست
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(5)
+			if S.AutoBoneGamble and Sea == 3 then
+				inventoryTime = 0
+				if materialCount("Bones") >= 50 then invoke("Bones", "Buy", 1, 1) end
+			end
+			if S.AutoAbilities and alive() then
+				local char = getChar()
+				local beli = dataValue("Beli") or 0
+				for _, a in ipairs({ { "Buso", 25000 }, { "Geppo", 10000 }, { "Soru", 100000 } }) do
+					if beli >= a[2] and not CollectionService:HasTag(char, a[1]) then
+						invoke("BuyHaki", a[1])
+						task.wait(0.5)
 					end
 				end
 			end
@@ -2949,7 +3134,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true }
 
 local function saveSettings()
 	local data = {}
@@ -3064,7 +3249,12 @@ Farm:Label(function() return "Turn on Auto Farm too. Weak mobs get finished with
 
 local SeaEvents = createTab("Sea Events", "⚓")
 SeaEvents:Section("Sea Beasts & Sea Events")
-SeaEvents:Label(function() return "Sea Beast, Terrorshark, Leviathan... coming in phase 2" end)
+SeaEvents:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", function(on) if not on then stopTween() end end)
+SeaEvents:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")
+SeaEvents:Label(function()
+	local f = workspace:FindFirstChild("SeaBeasts")
+	return "Sea Beasts in server: " .. (f and #f:GetChildren() or 0)
+end)
 Farm:Section("Sea 2 Farms")
 Farm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
 	if not on then stopTween() S.Status = "Idle" end
@@ -3082,6 +3272,21 @@ end, "RaidType")
 Farm:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
 Farm:Toggle("Auto Raid (start + clear islands)", "AutoRaid", function(on)
 	if not on then stopTween() S.Status = "Idle" end
+end)
+Farm:Section("Sea 3 Farms")
+Farm:Toggle("Auto Elite Hunter", "AutoElite", function(on) if not on then stopTween() end end)
+Farm:Toggle("Auto Yama (after 30 elites)", "AutoYama", function(on) if not on then stopTween() end end)
+Farm:Label(function()
+	if Sea ~= 3 then return "Sea 3 farms work in Sea 3 only" end
+	return "Elite progress: " .. tostring(invokeCached("eliteProg", 20, "EliteHunter", "Progress") or "?") .. "/30"
+end)
+Farm:Toggle("Auto Bone (Haunted Castle)", "AutoBone", function(on) if not on then stopTween() end end)
+Farm:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
+Farm:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) end)
+Farm:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", function(on) if not on then stopTween() end end)
+Farm:Label(function()
+	if Sea ~= 3 then return "Cake Prince: Sea 3 only" end
+	return "Cake Prince: " .. tostring(invokeCached("cakeSpawner", 20, "CakePrinceSpawner") or "?")
 end)
 Farm:Section("Items: Rengoku")
 Farm:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", function(on)
@@ -3164,6 +3369,7 @@ Shop:Button("Buy Selected Style", function()
 	notify(S.SelectedStyle, r ~= nil and tostring(r) or "Request sent (need beli/fragments + requirements)", 5)
 end)
 Shop:Section("Abilities")
+Shop:Toggle("Auto Buy Buso / Geppo / Soru (when affordable)", "AutoAbilities")
 local function shopButton(label, ...)
 	local args = { ... }
 	Shop:Button(label, function()
