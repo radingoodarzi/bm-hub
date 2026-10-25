@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.16" }
+local Hub = { Connections = {}, Running = true, Version = "1.17" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -130,10 +130,10 @@ local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
-	ShipHome = "", ArenaHome = "",
+
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
-	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true,
+	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true, AutoLegendary = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
 	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
@@ -209,83 +209,7 @@ local function setFloat(on)
 end
 
 -- تا رسیدن صبر می‌کنه؛ اگه keepGoing false بشه وسط راه قطع میشه
--- پورتال‌های خود بازی (قطعه‌هایی که با لمس جابجات می‌کنن)؛ مختصات از اسکن تلپورت
--- inside = منطقه‌ی پشت پورتال، enter = قطعه‌ی ورود (بیرون)، exit = قطعه‌ی خروج (داخل)
-local tweenTo -- پایین‌تر تعریف میشه (پورتال‌ها برای رسیدن به در ازش استفاده می‌کنن)
-local FastTP = {
-	Portals = {
-		{
-			name = "Cursed Ship", sea = 2, inside = Vector3.new(910, 150, 33050), radius = 2500,
-			enter = { "Map.GhostShip.Teleport", Vector3.new(-6496.9, 89.0, -116.5) },
-			exit = { "Map.GhostShipInterior.Teleport", Vector3.new(920.5, 154.9, 32839.0) },
-		},
-		{
-			name = "Swan's Room", sea = 2, inside = Vector3.new(2293.7, 12.5, 663.1), radius = 450,
-			enter = { "Map.Dressrosa.FlamingoEntrance", Vector3.new(-287.0, 306.1, 592.9) },
-			exit = { "Map.Dressrosa.FlamingoExit", Vector3.new(2284.9, 15.5, 910.5) },
-		},
-	},
-	busy = false,
-}
-
-local function findPath(path)
-	local obj = workspace
-	for name in path:gmatch("[^%.]+") do
-		obj = obj and obj:FindFirstChild(name)
-	end
-	return obj
-end
-
--- میره کنار قطعه، روش می‌ایسته و لمسش می‌کنه؛ true یعنی جابجا شدیم
-function FastTP.touch(spec, keepGoing)
-	local part = findPath(spec[1])
-	local pos = part and part.Position or spec[2]
-	FastTP.busy = true
-	tweenTo(CFrame.new(pos + Vector3.new(0, 4, 0)), keepGoing)
-	FastTP.busy = false
-	local root = getRoot()
-	if not root then return false end
-	local before = root.Position
-	root.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
-	if part and firetouchinterest then
-		pcall(function()
-			firetouchinterest(root, part, 0)
-			task.wait(0.1)
-			firetouchinterest(root, part, 1)
-		end)
-	end
-	local t = 0
-	while t < 3 do
-		t += task.wait(0.1)
-		local r = getRoot()
-		if r and (r.Position - before).Magnitude > 300 then return true end
-	end
-	return false
-end
-
--- اگه رفتن از پورتال کوتاه‌تره، از پورتال میریم
-function FastTP.hop(target, keepGoing)
-	if FastTP.busy then return false end
-	local root = getRoot()
-	if not root then return false end
-	local here = root.Position
-	for _, p in ipairs(FastTP.Portals) do
-		if p.sea == Sea then
-			local targetInside = (target - p.inside).Magnitude < p.radius
-			local amInside = (here - p.inside).Magnitude < p.radius
-			if targetInside ~= amInside then
-				local door = amInside and p.exit or p.enter
-				local landing = amInside and p.enter[2] or p.inside
-				local viaPortal = (here - door[2]).Magnitude + (landing - target).Magnitude
-				if viaPortal < (here - target).Magnitude * 0.8 then
-					S.Status = (amInside and "Leaving " or "Entering ") .. p.name .. " via portal"
-					return FastTP.touch(door, keepGoing)
-				end
-			end
-		end
-	end
-	return false
-end
+local tweenTo -- پایین‌تر تعریف میشه
 
 -- سرعت پرواز بیشتر از 300 ریسک بن داره؛ هیچ‌وقت ازش بالاتر نمیره
 local MAX_SAFE_SPEED = 300
@@ -295,11 +219,6 @@ tweenTo = function(cf, keepGoing, manual)
 	local root = getRoot()
 	if not root or not cf then return false end
 	if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
-	local farDist = (root.Position - cf.Position).Magnitude
-	if farDist > 1000 and FastTP.hop(cf.Position, keepGoing) then
-		root = getRoot()
-		if not root then return false end
-	end
 	local dist = (root.Position - cf.Position).Magnitude
 	if dist <= 10 then
 		root.CFrame = cf
@@ -320,133 +239,6 @@ tweenTo = function(cf, keepGoing, manual)
 	if activeTween == t then activeTween = nil end
 	local r = getRoot()
 	return r ~= nil and (r.Position - cf.Position).Magnitude < 20
-end
-
----------------------------------------------------------------------
--- Home Point: بعد از ریست، خود سرور تو رو کنار Home زنده می‌کنه (تلپورت قانونی)
----------------------------------------------------------------------
-local HomePoint = {
-	ShipHint = Vector3.new(863.5, 121.4, 32857.6), -- Set Home Point روی Cursed Ship (از اسکن)
-	DarkArena = Vector3.new(3807.1, 11.8, -3452.2),
-}
-
-function HomePoint.points()
-	local out = {}
-	for _, folder in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
-		if folder then
-			for _, n in ipairs(folder:GetChildren()) do
-				if n.Name == "Set Home Point" then
-					local ok, cf = pcall(function() return n:GetPivot() end)
-					if ok and cf.Position.Y > -500 then table.insert(out, cf) end
-				end
-			end
-		end
-	end
-	return out
-end
-
-function HomePoint.nearest(pos)
-	local best, bestDist
-	for _, cf in ipairs(HomePoint.points()) do
-		local d = (cf.Position - pos).Magnitude
-		if not bestDist or d < bestDist then best, bestDist = cf, d end
-	end
-	return best, bestDist
-end
-
-function HomePoint.current()
-	return dataValue("SpawnPoint")
-end
-
--- مثل دیالوگ خود NPC: کنارش وایمیستیم و SetSpawnPoint می‌فرستیم
-function HomePoint.set(cf, keepGoing)
-	if not tweenTo(cf * CFrame.new(0, 0, 4), keepGoing) then return false end
-	task.wait(0.4)
-	local before = HomePoint.current()
-	local res = invoke("SetSpawnPoint")
-	task.wait(0.8)
-	local now = HomePoint.current()
-	return now ~= nil and (now ~= before or res == true), now
-end
-
--- مثل دکمه‌ی Reset خود Roblox
-function HomePoint.respawn()
-	local hum = getHum()
-	if not hum then return false end
-	stopTween()
-	local oldChar = getChar()
-	hum.Health = 0
-	local t = 0
-	while t < 20 do
-		t += task.wait(0.25)
-		local c = getChar()
-		local h = getHum()
-		if c and c ~= oldChar and c:FindFirstChild("HumanoidRootPart") and h and h.Health > 0 then
-			task.wait(0.5)
-			return true
-		end
-	end
-	return false
-end
-
--- محل زنده شدن بعد از مرگ = Data.LastSpawnPoint (اسکریپت LastSpawnPoint خود بازی با
--- SetLastSpawnPoint نزدیک‌ترین جزیره رو به سرور میگه). اینجا خودمون جزیره‌ی مقصد رو میدیم و ریست می‌کنیم.
-function HomePoint.zones()
-	local out = {}
-	local okF, folder = pcall(function() return workspace._WorldOrigin.PlayerSpawns[player.Team.Name] end)
-	if okF and folder then
-		for _, z in ipairs(folder:GetChildren()) do table.insert(out, z.Name) end
-	end
-	table.sort(out)
-	return out
-end
-
-function HomePoint.spawnAt(zone, finalPos)
-	local char = getChar()
-	-- اسکریپت خود بازی مدام نزدیک‌ترین جزیره رو می‌فرسته؛ تا ریست خاموشش می‌کنیم که مقدار ما رو عوض نکنه
-	local tracker = char and char:FindFirstChild("LastSpawnPoint")
-	if tracker then pcall(function() tracker.Disabled = true end) end
-	local zoneObj
-	pcall(function() zoneObj = workspace._WorldOrigin.PlayerSpawns[player.Team.Name][zone] end)
-	local accepted = dataValue("LastSpawnPoint") == zone
-	for _, arg in ipairs({ zone, zoneObj }) do
-		if accepted then break end
-		invoke("SetLastSpawnPoint", arg)
-		local t = 0
-		while t < 1 and dataValue("LastSpawnPoint") ~= zone do
-			t += task.wait(0.1)
-		end
-		accepted = dataValue("LastSpawnPoint") == zone
-	end
-	if not accepted then
-		if tracker then pcall(function() tracker.Disabled = false end) end
-		if notifyHook then notifyHook("Respawn TP", "Server didn't accept " .. zone .. " — flying instead", 5) end
-		return false
-	end
-	S.Status = "Respawning at " .. zone .. " ⚡"
-	HomePoint.respawn()
-	if finalPos then tweenTo(CFrame.new(finalPos + Vector3.new(0, 40, 0)), nil, true) end
-	return true
-end
-
--- اگه Home الان همون‌جاست فقط ریست؛ وگرنه یه بار میریم و Home رو اونجا میذاریم
-function HomePoint.travel(key, homeCF, finalPos)
-	if not homeCF then
-		if notifyHook then notifyHook("Home Point", "No Set Home Point found for this place", 5) end
-		return
-	end
-	if S[key] ~= "" and HomePoint.current() == S[key] then
-		S.Status = "Respawning at home ⚡"
-		HomePoint.respawn()
-	else
-		S.Status = "Setting home here (first time only)..."
-		local ok, name = HomePoint.set(homeCF)
-		if ok and name then S[key] = name end
-		if notifyHook then
-			notifyHook("Home Point", ok and "Home set ✔ next time it's instant" or "Couldn't set home (Pirates only?)", 6)
-		end
-	end
-	if finalPos then tweenTo(CFrame.new(finalPos + Vector3.new(0, 40, 0)), nil, true) end
 end
 
 ---------------------------------------------------------------------
@@ -1422,6 +1214,63 @@ task.spawn(function()
 			notifyHook("Legendary Sword Dealer", "He just spawned! Check the Items tab.", 8)
 		end
 		wasSpawned = now
+	end
+end)
+
+-- خرید خودکار شمشیر افسانه‌ای: وقتی Dealer اسپاون شد میره پیشش و مثل دیالوگ خود بازی (1,2,3) می‌خره
+local LEGENDARY_SWORDS = { "Shisui", "Saddi", "Wando" }
+local LEGENDARY_PRICE = 2000000
+task.spawn(function()
+	while Hub.Running do
+		task.wait(8)
+		if S.AutoLegendary and alive() then
+			local ok, err = pcall(function()
+				inventoryTime = 0
+				local missing = {}
+				for _, sw in ipairs(LEGENDARY_SWORDS) do
+					if not hasItem(sw) then table.insert(missing, sw) end
+				end
+				if #missing == 0 then
+					S.AutoLegendary = false
+					if notifyHook then notifyHook("Legendary Swords", "You own all 3 ✔ (Shisui, Saddi, Wando)", 6) end
+					return
+				end
+				local cf = dealerPosition()
+				if not cf then
+					S.Status = "Waiting for Legendary Sword Dealer to spawn"
+					return
+				end
+				if (dataValue("Beli") or 0) < LEGENDARY_PRICE then
+					S.Status = "Dealer spawned but need $2,000,000"
+					return
+				end
+				-- فارم موقتاً متوقف میشه تا سر حرکت دعوا نشه
+				local wasFarming = S.AutoFarm
+				S.AutoFarm = false
+				stopTween()
+				S.Status = "Going to Legendary Sword Dealer"
+				tweenTo(cf * CFrame.new(0, 0, 4), function() return S.AutoLegendary end)
+				task.wait(0.4)
+				local beliBefore = dataValue("Beli") or 0
+				for _, step in ipairs({ "1", "2", "3" }) do
+					invoke("LegendarySwordDealer", step)
+					task.wait(0.4)
+				end
+				task.wait(1)
+				inventoryTime = 0
+				local bought
+				for _, sw in ipairs(missing) do
+					if hasItem(sw) then bought = sw end
+				end
+				local spent = beliBefore - (dataValue("Beli") or 0)
+				if notifyHook then
+					notifyHook("Legendary Sword Dealer", bought and ("Bought " .. bought .. " ✔") or (spent > 0 and "Purchase made ✔" or "Nothing bought (already owned / sold out)"), 8)
+				end
+				S.AutoFarm = wasFarming
+				task.wait(60)
+			end)
+			if not ok then logError("AutoLegendary", err) end
+		end
 	end
 end)
 
@@ -2530,7 +2379,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true }
 
 local function saveSettings()
 	local data = {}
@@ -2661,6 +2510,12 @@ Items:Label(function()
 	return "Sword Dealer: " .. (dealerPosition() and "<font color=\"#7CFF9B\">SPAWNED</font>" or "not spawned")
 end)
 Items:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
+Items:Toggle("Auto Buy Legendary Sword ($2M each)", "AutoLegendary")
+Items:Label(function()
+	local have = {}
+	for _, sw in ipairs({ "Shisui", "Saddi", "Wando" }) do table.insert(have, sw .. (hasItem(sw) and " ✔" or " ✖")) end
+	return table.concat(have, "   ")
+end)
 Items:Button("Go to Legendary Sword Dealer", function()
 	local cf = dealerPosition()
 	if not cf then return notify("Sword Dealer", "Not spawned right now") end
@@ -2821,36 +2676,6 @@ local QUICK_PLACES = {
 		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
 	},
 }
-Tp:Section("Respawn Teleport ⚡")
-Tp:Label(function()
-	return "Respawn point: <font color=\"#00D2FF\">" .. tostring(dataValue("LastSpawnPoint") or "?") .. "</font>"
-end)
-Tp:Button("Cursed Ship ⚡ (respawn)", function()
-	if Sea ~= 2 then return notify("Teleport", "Cursed Ship is in Sea 2") end
-	if not HomePoint.spawnAt("Ship") then goTo(CFrame.new(HomePoint.ShipHint + Vector3.new(0, 10, 0))) end
-end)
-Tp:Button("Dark Arena ⚡ (respawn + short flight)", function()
-	if Sea ~= 2 then return notify("Teleport", "Dark Arena is in Sea 2") end
-	if not HomePoint.spawnAt("IceCastle", HomePoint.DarkArena) then goTo(CFrame.new(HomePoint.DarkArena + Vector3.new(0, 40, 0))) end
-end)
-Tp:Dropdown("Respawn Island", function() return HomePoint.zones() end, "SelectedZone")
-Tp:Button("Respawn at Selected Island ⚡", function()
-	if not S.SelectedZone then return notify("Teleport", "Select an island first") end
-	HomePoint.spawnAt(S.SelectedZone)
-end)
-Tp:Section("Game Portals ⚡")
-for _, p in ipairs(FastTP.Portals) do
-	if p.sea == Sea then
-		Tp:Button("Enter " .. p.name .. " (portal)", function()
-			local ok = FastTP.touch(p.enter)
-			notify(p.name, ok and "Teleported ✔" or "Portal didn't respond", 4)
-		end)
-		Tp:Button("Leave " .. p.name .. " (portal)", function()
-			local ok = FastTP.touch(p.exit)
-			notify(p.name, ok and "Back outside ✔" or "Portal didn't respond", 4)
-		end)
-	end
-end
 Tp:Section("Quick Places (Sea " .. (Sea > 0 and Sea or "?") .. ")")
 for _, place in ipairs(QUICK_PLACES[Sea] or {}) do
 	Tp:Button(place[1], function()
