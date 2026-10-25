@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.10.2" }
+local Hub = { Connections = {}, Running = true, Version = "1.11" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -208,23 +208,53 @@ local function setFloat(on)
 end
 
 -- تا رسیدن صبر می‌کنه؛ اگه keepGoing false بشه وسط راه قطع میشه
--- تلپورت فوری با سیستم ورودی‌های خود بازی (requestEntrance)؛ سرور اینو قانونی می‌دونه
+-- پورتال‌های خود بازی (قطعه‌هایی که با لمس جابجات می‌کنن)؛ مختصات از اسکن تلپورت
+-- inside = منطقه‌ی پشت پورتال، enter = قطعه‌ی ورود (بیرون)، exit = قطعه‌ی خروج (داخل)
+local tweenTo -- پایین‌تر تعریف میشه (پورتال‌ها برای رسیدن به در ازش استفاده می‌کنن)
 local FastTP = {
-	Entrances = {
-		-- inside = ورودی کشتی، outside = خروجی به خشکی
-		{ name = "Cursed Ship", sea = 2, inside = Vector3.new(923.21, 126.98, 32852.83), outside = Vector3.new(-6508.56, 89.03, -132.84) },
+	Portals = {
+		{
+			name = "Cursed Ship", sea = 2, inside = Vector3.new(910, 150, 33050), radius = 2500,
+			enter = { "Map.GhostShip.Teleport", Vector3.new(-6496.9, 89.0, -116.5) },
+			exit = { "Map.GhostShipInterior.Teleport", Vector3.new(920.5, 154.9, 32839.0) },
+		},
+		{
+			name = "Swan's Room", sea = 2, inside = Vector3.new(2293.7, 12.5, 663.1), radius = 450,
+			enter = { "Map.Dressrosa.FlamingoEntrance", Vector3.new(-287.0, 306.1, 592.9) },
+			exit = { "Map.Dressrosa.FlamingoExit", Vector3.new(2284.9, 15.5, 910.5) },
+		},
 	},
+	busy = false,
 }
 
-function FastTP.entrance(pos)
+local function findPath(path)
+	local obj = workspace
+	for name in path:gmatch("[^%.]+") do
+		obj = obj and obj:FindFirstChild(name)
+	end
+	return obj
+end
+
+-- میره کنار قطعه، روش می‌ایسته و لمسش می‌کنه؛ true یعنی جابجا شدیم
+function FastTP.touch(spec, keepGoing)
+	local part = findPath(spec[1])
+	local pos = part and part.Position or spec[2]
+	FastTP.busy = true
+	tweenTo(CFrame.new(pos + Vector3.new(0, 4, 0)), keepGoing)
+	FastTP.busy = false
 	local root = getRoot()
 	if not root then return false end
 	local before = root.Position
-	stopTween()
-	invoke("requestEntrance", pos)
-	-- اگه تا 2 ثانیه جابجا شدیم یعنی کار کرد
+	root.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+	if part and firetouchinterest then
+		pcall(function()
+			firetouchinterest(root, part, 0)
+			task.wait(0.1)
+			firetouchinterest(root, part, 1)
+		end)
+	end
 	local t = 0
-	while t < 2 do
+	while t < 3 do
 		t += task.wait(0.1)
 		local r = getRoot()
 		if r and (r.Position - before).Magnitude > 300 then return true end
@@ -232,31 +262,35 @@ function FastTP.entrance(pos)
 	return false
 end
 
--- اگه مسیر از یه ورودی رد میشه، اول با ورودی میریم (فوری) بعد بقیه‌ی راه رو پرواز
-function FastTP.hop(target)
+-- اگه رفتن از پورتال کوتاه‌تره، از پورتال میریم
+function FastTP.hop(target, keepGoing)
+	if FastTP.busy then return false end
 	local root = getRoot()
 	if not root then return false end
-	for _, e in ipairs(FastTP.Entrances) do
-		if e.sea == Sea then
-			local targetInside = (target - e.inside).Magnitude < 2000
-			local amInside = (root.Position - e.inside).Magnitude < 2000
-			if targetInside and not amInside then
-				S.Status = "Entering " .. e.name .. " (instant)"
-				return FastTP.entrance(e.inside)
-			elseif amInside and not targetInside then
-				S.Status = "Leaving " .. e.name .. " (instant)"
-				return FastTP.entrance(e.outside)
+	local here = root.Position
+	for _, p in ipairs(FastTP.Portals) do
+		if p.sea == Sea then
+			local targetInside = (target - p.inside).Magnitude < p.radius
+			local amInside = (here - p.inside).Magnitude < p.radius
+			if targetInside ~= amInside then
+				local door = amInside and p.exit or p.enter
+				local landing = amInside and p.enter[2] or p.inside
+				local viaPortal = (here - door[2]).Magnitude + (landing - target).Magnitude
+				if viaPortal < (here - target).Magnitude * 0.8 then
+					S.Status = (amInside and "Leaving " or "Entering ") .. p.name .. " via portal"
+					return FastTP.touch(door, keepGoing)
+				end
 			end
 		end
 	end
 	return false
 end
 
-local function tweenTo(cf, keepGoing)
+tweenTo = function(cf, keepGoing)
 	local root = getRoot()
 	if not root or not cf then return false end
 	if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
-	if (root.Position - cf.Position).Magnitude > 3000 and FastTP.hop(cf.Position) then
+	if (root.Position - cf.Position).Magnitude > 1000 and FastTP.hop(cf.Position, keepGoing) then
 		root = getRoot()
 		if not root then return false end
 	end
@@ -2617,17 +2651,19 @@ local QUICK_PLACES = {
 		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
 	},
 }
-Tp:Section("Instant (game entrances)")
-Tp:Button("Cursed Ship ⚡ instant", function()
-	if Sea ~= 2 then return notify("Teleport", "Cursed Ship is in Sea 2") end
-	local ok = FastTP.entrance(FastTP.Entrances[1].inside)
-	notify("Cursed Ship", ok and "Teleported ✔" or "Entrance didn't respond, flying instead", 4)
-	if not ok then tweenTo(CFrame.new(900.9, 184, 33072.6)) end
-end)
-Tp:Button("Leave Cursed Ship ⚡ instant", function()
-	local ok = FastTP.entrance(FastTP.Entrances[1].outside)
-	notify("Cursed Ship", ok and "Back on land ✔" or "Exit didn't respond", 4)
-end)
+Tp:Section("Game Portals ⚡")
+for _, p in ipairs(FastTP.Portals) do
+	if p.sea == Sea then
+		Tp:Button("Enter " .. p.name .. " (portal)", function()
+			local ok = FastTP.touch(p.enter)
+			notify(p.name, ok and "Teleported ✔" or "Portal didn't respond", 4)
+		end)
+		Tp:Button("Leave " .. p.name .. " (portal)", function()
+			local ok = FastTP.touch(p.exit)
+			notify(p.name, ok and "Back outside ✔" or "Portal didn't respond", 4)
+		end)
+	end
+end
 Tp:Section("Quick Places (Sea " .. (Sea > 0 and Sea or "?") .. ")")
 for _, place in ipairs(QUICK_PLACES[Sea] or {}) do
 	Tp:Button(place[1], function()
