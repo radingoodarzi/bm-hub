@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.21" }
+local Hub = { Connections = {}, Running = true, Version = "1.22" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1051,17 +1051,38 @@ task.spawn(function()
 		elseif S.AutoEcto and alive() then
 			local keep = function() return S.AutoEcto end
 			local ok, err = pcall(function()
+				-- بهترین کوئست کشتی برای لولت (پول و XP بیشتر کنار Ectoplasm)
+				local shipQuest
+				local lv = dataValue("Level") or 1
+				for _, q in ipairs(QuestList) do
+					if table.find(ECTO_MOBS, q.mob) and q.level <= lv then shipQuest = q end
+				end
+				local useQuest = S.TakeQuest and shipQuest and not questBlocked(shipQuest)
+				if useQuest and not hasQuest(shipQuest.mob) then
+					takeQuest(shipQuest, keep)
+					if not hasQuest(shipQuest.mob) then return end
+				end
+				-- اول ماب کوئست، بعد بقیه‌ی ماب‌های کشتی (نزدیک‌ترین)
 				local best, bestDist
 				local root = getRoot()
-				for _, name in ipairs(ECTO_MOBS) do
+				local order = useQuest and { shipQuest.mob } or ECTO_MOBS
+				for _, name in ipairs(order) do
 					local m = findMob(name)
 					if m then
 						local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
 						if not bestDist or d < bestDist then best, bestDist = m, d end
 					end
 				end
+				if not best and useQuest then
+					local sp = mobSpawn(shipQuest.mob)
+					if sp then
+						S.Status = "Going to " .. shipQuest.mob
+						tweenTo(sp * CFrame.new(0, 30, 0), function() return S.AutoEcto and not findMob(shipQuest.mob) end)
+						return
+					end
+				end
 				if best then
-					killMob(best, keep)
+					killMob(best, function() return S.AutoEcto and (not useQuest or hasQuest(shipQuest.mob)) end)
 				else
 					S.Status = "Going to Cursed Ship"
 					tweenTo(CFrame.new(CURSED_SHIP_POS + Vector3.new(0, 40, 0)), function() return S.AutoEcto end)
