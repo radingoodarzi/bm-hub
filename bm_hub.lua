@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.15" }
+local Hub = { Connections = {}, Running = true, Version = "1.16" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -387,6 +387,46 @@ function HomePoint.respawn()
 		end
 	end
 	return false
+end
+
+-- محل زنده شدن بعد از مرگ = Data.LastSpawnPoint (اسکریپت LastSpawnPoint خود بازی با
+-- SetLastSpawnPoint نزدیک‌ترین جزیره رو به سرور میگه). اینجا خودمون جزیره‌ی مقصد رو میدیم و ریست می‌کنیم.
+function HomePoint.zones()
+	local out = {}
+	local okF, folder = pcall(function() return workspace._WorldOrigin.PlayerSpawns[player.Team.Name] end)
+	if okF and folder then
+		for _, z in ipairs(folder:GetChildren()) do table.insert(out, z.Name) end
+	end
+	table.sort(out)
+	return out
+end
+
+function HomePoint.spawnAt(zone, finalPos)
+	local char = getChar()
+	-- اسکریپت خود بازی مدام نزدیک‌ترین جزیره رو می‌فرسته؛ تا ریست خاموشش می‌کنیم که مقدار ما رو عوض نکنه
+	local tracker = char and char:FindFirstChild("LastSpawnPoint")
+	if tracker then pcall(function() tracker.Disabled = true end) end
+	local zoneObj
+	pcall(function() zoneObj = workspace._WorldOrigin.PlayerSpawns[player.Team.Name][zone] end)
+	local accepted = dataValue("LastSpawnPoint") == zone
+	for _, arg in ipairs({ zone, zoneObj }) do
+		if accepted then break end
+		invoke("SetLastSpawnPoint", arg)
+		local t = 0
+		while t < 1 and dataValue("LastSpawnPoint") ~= zone do
+			t += task.wait(0.1)
+		end
+		accepted = dataValue("LastSpawnPoint") == zone
+	end
+	if not accepted then
+		if tracker then pcall(function() tracker.Disabled = false end) end
+		if notifyHook then notifyHook("Respawn TP", "Server didn't accept " .. zone .. " — flying instead", 5) end
+		return false
+	end
+	S.Status = "Respawning at " .. zone .. " ⚡"
+	HomePoint.respawn()
+	if finalPos then tweenTo(CFrame.new(finalPos + Vector3.new(0, 40, 0)), nil, true) end
+	return true
 end
 
 -- اگه Home الان همون‌جاست فقط ریست؛ وگرنه یه بار میریم و Home رو اونجا میذاریم
@@ -2781,20 +2821,23 @@ local QUICK_PLACES = {
 		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
 	},
 }
-Tp:Section("Home Point ⚡ (respawn teleport)")
-Tp:Label(function() return "Current home: <font color=\"#00D2FF\">" .. tostring(HomePoint.current() or "?") .. "</font>" end)
-Tp:Button("Cursed Ship ⚡ (via Home)", function()
+Tp:Section("Respawn Teleport ⚡")
+Tp:Label(function()
+	return "Respawn point: <font color=\"#00D2FF\">" .. tostring(dataValue("LastSpawnPoint") or "?") .. "</font>"
+end)
+Tp:Button("Cursed Ship ⚡ (respawn)", function()
 	if Sea ~= 2 then return notify("Teleport", "Cursed Ship is in Sea 2") end
-	HomePoint.travel("ShipHome", HomePoint.nearest(HomePoint.ShipHint) or CFrame.new(HomePoint.ShipHint), nil)
+	if not HomePoint.spawnAt("Ship") then goTo(CFrame.new(HomePoint.ShipHint + Vector3.new(0, 10, 0))) end
 end)
-Tp:Button("Dark Arena ⚡ (via Home)", function()
+Tp:Button("Dark Arena ⚡ (respawn + short flight)", function()
 	if Sea ~= 2 then return notify("Teleport", "Dark Arena is in Sea 2") end
-	HomePoint.travel("ArenaHome", HomePoint.nearest(HomePoint.DarkArena), HomePoint.DarkArena)
+	if not HomePoint.spawnAt("IceCastle", HomePoint.DarkArena) then goTo(CFrame.new(HomePoint.DarkArena + Vector3.new(0, 40, 0))) end
 end)
-Tp:Button("Go Home now (respawn)", function()
-	HomePoint.respawn()
+Tp:Dropdown("Respawn Island", function() return HomePoint.zones() end, "SelectedZone")
+Tp:Button("Respawn at Selected Island ⚡", function()
+	if not S.SelectedZone then return notify("Teleport", "Select an island first") end
+	HomePoint.spawnAt(S.SelectedZone)
 end)
-Tp:Label(function() return "First press flies there & sets Home. After that: instant respawn." end)
 Tp:Section("Game Portals ⚡")
 for _, p in ipairs(FastTP.Portals) do
 	if p.sea == Sea then
