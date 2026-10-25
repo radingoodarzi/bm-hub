@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.20" }
+local Hub = { Connections = {}, Running = true, Version = "1.21" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -250,7 +250,11 @@ local function mobBaseName(name)
 	return (name:gsub("%s*%[.-%]", ""):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+-- مابی که مدتی آسیب نمی‌بینه (گیر کرده توی دیوار/آب) یه مدت نادیده گرفته میشه
+local mobSkipUntil = setmetatable({}, { __mode = "k" })
+
 local function isAliveMob(m)
+	if (mobSkipUntil[m] or 0) > tick() then return false end
 	local h = m:FindFirstChildOfClass("Humanoid")
 	return h ~= nil and h.Health > 0 and m:FindFirstChild("HumanoidRootPart") ~= nil
 end
@@ -807,8 +811,17 @@ local function killMob(mob, keepGoing)
 	local hrp = mob:FindFirstChild("HumanoidRootPart")
 	local name = mobBaseName(mob.Name)
 	S.Status = "Farming: " .. name
+	local lastHp, lastHit = hum and hum.Health or 0, tick()
 	while Hub.Running and keepGoing() and alive() and mob.Parent and hum and hum.Health > 0 do
 		local root = getRoot()
+		-- اگه 8 ثانیه کنارش بودیم و جونش کم نشد، گیر کرده: 45 ثانیه رد میشیم و میریم سراغ بعدی
+		if hum.Health < lastHp - 1 then
+			lastHp, lastHit = hum.Health, tick()
+		elseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120 then
+			mobSkipUntil[mob] = tick() + 45
+			S.Status = "Skipping stuck " .. name
+			break
+		end
 		local target = CFrame.new(hrp.Position + Vector3.new(0, S.FarmDistance, 0))
 		-- Mastery: وقتی جون ماب کم شد، با سلاح مستری تمومش می‌کنیم
 		local masteryPhase = S.MasteryFarm and hum.MaxHealth > 0 and (hum.Health / hum.MaxHealth) * 100 <= S.MasteryHealth
