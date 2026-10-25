@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.25" }
+local Hub = { Connections = {}, Running = true, Version = "1.26" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -135,6 +135,7 @@ local S = {
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
 	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true, AutoLegendary = false, AutoAllBosses = false,
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
+	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
 	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
@@ -175,11 +176,13 @@ end
 -- فارم‌های اصلی اولویت دارن؛ صندوق/میوه وقتی اینا روشنن صبر می‌کنن تا سر حرکت دعوا نشه
 local function mainFarmBusy()
 	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
+		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 end
 
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
+		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 end
 
 ---------------------------------------------------------------------
@@ -1462,6 +1465,219 @@ task.spawn(function()
 	end
 end)
 end -- شمشیر افسانه‌ای
+
+---------------------------------------------------------------------
+-- Progression (حساب تازه از لول 0): تیم، باز کردن Seaها، Bartilo، Saber
+-- دستورها همون دستورهای خود بازی هستن؛ منطق مرحله‌به‌مرحله نوشته شده
+---------------------------------------------------------------------
+do
+	local function waitAt(pos, keep)
+		tweenTo(CFrame.new(pos + Vector3.new(0, 30, 0)), keep)
+	end
+
+	-- باس رو می‌کشه یا کنار محل اسپاونش منتظر می‌مونه
+	local function huntBoss(name, keep, spawnPos)
+		if fightBoss(name, keep) then return true end
+		S.Status = "Waiting for " .. name
+		if spawnPos then waitAt(spawnPos, keep) end
+		task.wait(1)
+		return false
+	end
+
+	local function equipNamed(name)
+		local t = backpackTool(name)
+		local h = getHum()
+		if t and h and t.Parent ~= getChar() then pcall(function() h:EquipTool(t) end) end
+		return t
+	end
+
+	local function stepSea2(keep)
+		local r = invoke("TravelDressrosa")
+		if type(r) ~= "string" or not r:find("Cannot") then
+			S.Status = "Traveling to Sea 2..."
+			task.wait(8)
+			return
+		end
+		local data = invoke("DressrosaQuestProgress") or {}
+		if not data.UsedKey then
+			if not data.TalkedDetective then
+				S.Status = "Sea 2: talking to Military Detective"
+				invoke("DressrosaQuestProgress", "Detective")
+			else
+				S.Status = "Sea 2: using key"
+				equipNamed("Key")
+			end
+			invoke("DressrosaQuestProgress", "UseKey")
+			task.wait(1)
+		elseif not data.KilledIceBoss then
+			S.Status = "Sea 2: defeating Ice Admiral"
+			huntBoss("Ice Admiral", keep, Vector3.new(1328, 43, -1346))
+		else
+			invoke("TravelDressrosa")
+			task.wait(8)
+		end
+	end
+
+	local BARTILO = Vector3.new(-461.5, 72.3, 300.3)
+	local function stepBartilo(keep)
+		local prog = invoke("BartiloQuestProgress") or {}
+		if prog.DidPlates then
+			S.AutoBartilo = false
+			if notifyHook then notifyHook("Bartilo", "Bartilo quest complete ✔", 6) end
+			return
+		end
+		if prog.KilledBandits == false then
+			if not hasQuest("Swan Pirate") then
+				S.Status = "Bartilo: taking quest"
+				tweenTo(CFrame.new(BARTILO + Vector3.new(0, 3, 4)), keep)
+				invoke("BartiloQuestProgress", "Bartilo")
+				invoke("StartQuest", "BartiloQuest", 1)
+				task.wait(1)
+				return
+			end
+			local m = findMob("Swan Pirate")
+			if m then
+				S.Status = "Bartilo: farming Swan Pirates"
+				killMob(m, function() return keep() and hasQuest("Swan Pirate") end)
+			else
+				waitAt(Vector3.new(932.6, 126.1, 1180.3), keep)
+			end
+			return
+		end
+		local stage = invoke("BartiloQuestProgress", "Bartilo")
+		if stage == 1 then
+			S.Status = "Bartilo: defeating Jeremy"
+			huntBoss("Jeremy", keep, Vector3.new(2129, 449, 779))
+		elseif stage == 2 then
+			for i = 1, 8 do
+				if not keep() then return end
+				local plate
+				pcall(function() plate = workspace.Map.Dressrosa.BartiloPlates["Plate" .. i] end)
+				if plate then
+					S.Status = ("Bartilo: plate %d/8"):format(i)
+					tweenTo(CFrame.new(plate.Position + Vector3.new(0, 4, 0)), keep)
+					touchPart(plate)
+					task.wait(0.3)
+				end
+			end
+		else
+			task.wait(2)
+		end
+	end
+
+	local function stepSea3(keep)
+		local r = invoke("TravelZou")
+		if type(r) ~= "string" or not r:find("Cannot") then
+			S.Status = "Traveling to Sea 3..."
+			task.wait(8)
+			return
+		end
+		local unlock = invoke("GetUnlockables") or {}
+		if not unlock.FlamingoAccess then
+			-- این مرحله یه میوه‌ی 1M+ از اینونتوری مصرف می‌کنه؛ خودکار انجامش نمیدیم
+			S.Status = "Sea 3: give Trevor a $1M+ fruit yourself first"
+			task.wait(5)
+			return
+		end
+		local check = invoke("ZQuestProgress", "Check")
+		if check == 0 then
+			S.Status = "Sea 3: rip_indra"
+			invoke("ZQuestProgress", "Begin")
+			huntBoss("rip_indra", keep)
+		elseif check == 1 then
+			invoke("TravelZou")
+			task.wait(8)
+		else
+			S.Status = "Sea 3: defeating Don Swan"
+			if huntBoss("Don Swan", keep, Vector3.new(2288, 15, 863)) then
+				invoke("ZQuestProgress", "Begin")
+			end
+		end
+	end
+
+	local function stepSaber(keep)
+		local data = invoke("ProQuestProgress") or {}
+		if data.UsedRelic then
+			if hasItem("Saber") then
+				S.AutoSaber = false
+				if notifyHook then notifyHook("Saber", "You have Saber ✔", 6) end
+				return
+			end
+			S.Status = "Saber: fighting Saber Expert"
+			local sp
+			pcall(function() sp = ReplicatedStorage.FortBuilderReplicatedSpawnPositionsFolder["Saber Expert"].Position end)
+			huntBoss("Saber Expert", keep, sp)
+			return
+		end
+		local plates
+		pcall(function() plates = workspace.Map.Jungle.QuestPlates end)
+		if not (plates and plates:FindFirstChild("Door")) then
+			S.Status = "Saber: going to jungle puzzle"
+			waitAt(Vector3.new(-1254.3, 18.4, 342.3), keep)
+			return
+		end
+		if plates.Door.Transparency == 0 then
+			S.Status = "Saber: pressing jungle plates"
+			for _, v in ipairs(plates:GetChildren()) do
+				if v:IsA("Model") and v.Name:find("Plate") and v:FindFirstChild("Button") then
+					tweenTo(CFrame.new(v.Button.Position + Vector3.new(0, 4, 0)), keep)
+					touchPart(v.Button)
+				end
+			end
+			return
+		end
+		if not data.UsedTorch then
+			S.Status = "Saber: torch"
+			if backpackTool("Torch") then
+				invoke("ProQuestProgress", "DestroyTorch")
+			else
+				invoke("ProQuestProgress", "GetTorch")
+			end
+		elseif not data.UsedCup then
+			S.Status = "Saber: filling cup"
+			invoke("ProQuestProgress", "GetCup")
+			local cup = equipNamed("Cup")
+			if cup then invoke("ProQuestProgress", "FillCup", cup) end
+			invoke("ProQuestProgress", "SickMan")
+		elseif not data.TalkedSon then
+			S.Status = "Saber: talking to Rich Son"
+			invoke("ProQuestProgress", "RichSon")
+		elseif not data.KilledMob then
+			S.Status = "Saber: defeating Mob Leader"
+			huntBoss("Mob Leader", keep)
+		else
+			S.Status = "Saber: placing relic"
+			invoke("ProQuestProgress", "RichSon")
+			equipNamed("Relic")
+			invoke("ProQuestProgress", "PlaceRelic")
+		end
+		task.wait(1)
+	end
+
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(1)
+			-- انتخاب تیم وقتی هنوز تیم نداری
+			if S.AutoTeam and not player.Team then pcall(invoke, "SetTeam", S.TeamChoice) end
+			if alive() then
+				local lv = dataValue("Level") or 0
+				local step, flag
+				if S.AutoSea2 and Sea == 1 and lv >= 700 then step, flag = stepSea2, "AutoSea2"
+				elseif S.AutoBartilo and Sea == 2 and lv >= 850 then step, flag = stepBartilo, "AutoBartilo"
+				elseif S.AutoSea3 and Sea == 2 and lv >= 1500 then step, flag = stepSea3, "AutoSea3"
+				elseif S.AutoSaber and Sea == 1 and lv >= 200 then step, flag = stepSaber, "AutoSaber"
+				end
+				if step then
+					local ok, err = pcall(step, function() return S[flag] end)
+					if not ok then
+						logError(flag, err)
+						task.wait(2)
+					end
+				end
+			end
+		end
+	end)
+end
 
 -- Chests
 local chestCache, chestCacheTime = {}, 0
@@ -2821,6 +3037,18 @@ Combat:Toggle("Auto Observation (Ken)", "AutoKen")
 Combat:Toggle("Auto Race Skill (T)", "AutoRace")
 Combat:Slider("Farm Height", 0, 60, "FarmDistance")
 Combat:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
+
+local Progress = createTab("Progress", "⇪")
+Progress:Section("Team")
+Progress:Dropdown("Team", function() return { "Pirates", "Marines" } end, "TeamChoice")
+Progress:Toggle("Auto Pick Team", "AutoTeam")
+Progress:Section("Unlock Seas (turn off Auto Farm)")
+Progress:Toggle("Auto Unlock Sea 2 (Sea 1, Lv 700+)", "AutoSea2", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Bartilo Quest (Sea 2, Lv 850+)", "AutoBartilo", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Unlock Sea 3 (Sea 2, Lv 1500+)", "AutoSea3", function(on) if not on then stopTween() end end)
+Progress:Section("Quests")
+Progress:Toggle("Auto Saber (Sea 1, Lv 200+)", "AutoSaber", function(on) if not on then stopTween() end end)
+Progress:Label(function() return "Status: <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
 
 local Mastery = createTab("Mastery", "✪")
 Mastery:Section("Mastery Farm")
