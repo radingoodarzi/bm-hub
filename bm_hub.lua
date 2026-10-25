@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.28" }
+local Hub = { Connections = {}, Running = true, Version = "1.29" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -138,6 +138,7 @@ local S = {
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
 	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
 	AutoBoneGamble = false, AutoAbilities = false,
+	AutoTushita = false, AutoCDK = false, AutoRaceV2 = false, AutoRaceV3 = false, AutoSoulGuitar = false, AutoStyles = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
 	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
@@ -180,6 +181,7 @@ local function mainFarmBusy()
 	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast
+		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
 end
 
 local function anyFarm()
@@ -187,6 +189,7 @@ local function anyFarm()
 		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast
+		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
 end
 
 ---------------------------------------------------------------------
@@ -1864,6 +1867,430 @@ do
 	end)
 end
 
+---------------------------------------------------------------------
+-- کوئست‌های بلند: Tushita، CDK، Race V2/V3، Soul Guitar، فایتینگ استایل‌ها
+-- دستورها از کد بازی/Kaitun؛ همه‌ی جابجایی‌ها با پرواز امن (بدون پرش مستقیم)
+---------------------------------------------------------------------
+do
+	local function go(pos, keep)
+		tweenTo(typeof(pos) == "CFrame" and pos or CFrame.new(pos + Vector3.new(0, 3, 0)), keep)
+	end
+	local function has(name) return backpackTool(name) ~= nil end
+	local function equip(name)
+		local t, h = backpackTool(name), getHum()
+		if t and h and t.Parent ~= getChar() then pcall(function() h:EquipTool(t) end) end
+		return t
+	end
+	local function aliveNamed(pattern)
+		for _, f in ipairs({ workspace:FindFirstChild("Enemies"), ReplicatedStorage }) do
+			if f then
+				for _, m in ipairs(f:GetChildren()) do
+					if m:IsA("Model") and m.Name:find(pattern) and isAliveMob(m) then return m end
+				end
+			end
+		end
+	end
+	local function killNearby(radius, keep)
+		local root = getRoot()
+		local enemies = workspace:FindFirstChild("Enemies")
+		if not (root and enemies) then return false end
+		for _, m in ipairs(enemies:GetChildren()) do
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= radius then
+				killMob(m, keep)
+				return true
+			end
+		end
+		return false
+	end
+
+	-- Tushita (Sea 3، لول 2200): Longma → مشعل مقدس → 5 مشعل
+	local function stepTushita(keep)
+		if hasItem("Tushita") then
+			S.AutoTushita = false
+			if notifyHook then notifyHook("Tushita", "You have Tushita ✔", 6) end
+			return
+		end
+		local turtle = workspace.Map:FindFirstChild("Turtle")
+		if turtle and not turtle:FindFirstChild("TushitaGate") then
+			S.Status = "Tushita: defeating Longma"
+			if not fightBoss("Longma", keep) then task.wait(2) end
+			return
+		end
+		if not aliveNamed("indra") then
+			S.Status = "Tushita: needs rip_indra spawned in server"
+			task.wait(3)
+			return
+		end
+		if not has("Holy Torch") then
+			S.Status = "Tushita: getting Holy Torch"
+			local door
+			pcall(function() door = workspace.Map.Waterfall.SecretRoom.Room.Door.Door.Hitbox end)
+			if door then
+				go(door.CFrame, keep)
+				touchPart(door)
+			end
+			task.wait(1)
+			return
+		end
+		for i = 1, 5 do
+			if not keep() then return end
+			local torch
+			pcall(function() torch = workspace.Map.Turtle.QuestTorches["Torch" .. i] end)
+			if torch then
+				S.Status = ("Tushita: torch %d/5"):format(i)
+				equip("Holy Torch")
+				local part = torch:IsA("BasePart") and torch or torch:FindFirstChildWhichIsA("BasePart", true)
+				if part then
+					go(part.Position, keep)
+					touchPart(part)
+					task.wait(0.5)
+				end
+			end
+		end
+	end
+
+	-- CDK (Sea 3): Trial های Evil و Good
+	local function stepCDK(keep)
+		if hasItem("Cursed Dual Katana") then
+			S.AutoCDK = false
+			if notifyHook then notifyHook("CDK", "You have Cursed Dual Katana ✔", 6) end
+			return
+		end
+		if invoke("CDKQuest", "OpenDoor") == "can" then invoke("CDKQuest", "OpenDoor", true) end
+		local q = invoke("CDKQuest", "Progress")
+		if type(q) ~= "table" then
+			S.Status = "CDK: needs Yama + Tushita (350 mastery each)"
+			task.wait(5)
+			return
+		end
+		local evil, good = q.Evil, q.Good
+		if evil == 0 or evil == -3 then
+			S.Status = "CDK Evil 1: Mythological Pirate"
+			invoke("CDKQuest", "StartTrial", "Evil")
+			local m = aliveNamed("Mythological Pirate")
+			if m and m.Parent == workspace.Enemies then
+				go(m.HumanoidRootPart.CFrame * CFrame.new(5, 0, 0), keep)
+				task.wait(1)
+			else
+				go(Vector3.new(-13239, 520, -6813), keep)
+			end
+		elseif evil == 1 or evil == -4 then
+			S.Status = "CDK Evil 2: haze mobs"
+			invoke("CDKQuest", "StartTrial", "Evil")
+			local haze = player:FindFirstChild("QuestHaze")
+			if haze then
+				for _, v in ipairs(haze:GetChildren()) do
+					if v:IsA("ValueBase") and tonumber(v.Value) and v.Value > 0 then
+						local m = findMob(v.Name)
+						if m then
+							killMob(m, keep)
+						else
+							local sp
+							pcall(function() sp = ReplicatedStorage.FortBuilderReplicatedSpawnPositionsFolder[v.Name].Position end)
+							if sp then go(sp + Vector3.new(0, 30, 0), keep) end
+						end
+						return
+					end
+				end
+			end
+			task.wait(1)
+		elseif evil == 2 or evil == -5 then
+			S.Status = "CDK Evil 3: Soul Reaper / Hell Dimension"
+			invoke("CDKQuest", "StartTrial", "Evil")
+			local hell = workspace.Map:FindFirstChild("HellDimension")
+			if hell then
+				if killNearby(300, keep) then return end
+				for i = 1, 3 do
+					local t = hell:FindFirstChild("Torch" .. i)
+					local pp = t and t:FindFirstChildOfClass("ProximityPrompt")
+					if pp and pp.Enabled then
+						go(t.Position, keep)
+						if fireproximityprompt then pcall(fireproximityprompt, pp) end
+						return
+					end
+				end
+			elseif aliveNamed("Soul Reaper") then
+				local m = aliveNamed("Soul Reaper")
+				go(m:GetPivot(), keep)
+			elseif has("Hallow Essence") then
+				equip("Hallow Essence")
+				local det
+				pcall(function() det = workspace.Map["Haunted Castle"].Summoner.Detection end)
+				if det then
+					go(det.Position, keep)
+					touchPart(det)
+				end
+			else
+				S.Status = "CDK Evil 3: farming bones for Hallow Essence"
+				local m
+				for _, n in ipairs({ "Reborn Skeleton", "Living Zombie", "Demonic Soul", "Posessed Mummy" }) do
+					m = m or findMob(n)
+				end
+				if m then killMob(m, keep) else go(Vector3.new(-9515, 194, 5786), keep) end
+			end
+		elseif good == 0 or good == -3 then
+			S.Status = "CDK Good 1: finding boats"
+			invoke("CDKQuest", "StartTrial", "Good")
+			for _, pos in ipairs({ Vector3.new(-9550, 21, 4690), Vector3.new(-6120, 16, -2250), Vector3.new(-9530, 7, -8370) }) do
+				if not keep() then return end
+				go(pos, keep)
+				task.wait(1)
+				local npcs = workspace:FindFirstChild("NPCs")
+				if npcs then
+					for _, n in ipairs(npcs:GetChildren()) do
+						if n.Name:find("Boat") then invoke("CDKQuest", "BoatQuest", n) end
+					end
+				end
+			end
+		elseif good == 1 or good == -4 then
+			S.Status = "CDK Good 2: reaching objective"
+			invoke("CDKQuest", "StartTrial", "Good")
+			go(Vector3.new(6148.4, 294.4, -6741.1), keep)
+			task.wait(2)
+		elseif good == 2 or good == -5 then
+			S.Status = "CDK Good 3: Heavenly Dimension"
+			invoke("CDKQuest", "StartTrial", "Good")
+			local heaven = workspace.Map:FindFirstChild("HeavenlyDimension")
+			if heaven then
+				if killNearby(300, keep) then return end
+				for i = 1, 3 do
+					local t = heaven:FindFirstChild("Torch" .. i)
+					local pp = t and t:FindFirstChildOfClass("ProximityPrompt")
+					if pp and pp.Enabled then
+						go(t.Position, keep)
+						if fireproximityprompt then pcall(fireproximityprompt, pp) end
+						return
+					end
+				end
+				local exit = heaven:FindFirstChild("Exit")
+				if exit then
+					go(exit.Position, keep)
+					touchPart(exit)
+				end
+			else
+				S.Status = "CDK Good 3: waiting for Cake Queen"
+				if not fightBoss("Cake Queen", keep) then task.wait(3) end
+			end
+		else
+			S.Status = "CDK: final step, talk to the CDK door"
+			task.wait(5)
+		end
+	end
+
+	-- Race V2 (Sea 2): Alchemist + 3 گل
+	local function stepRaceV2(keep)
+		local race = player:FindFirstChild("Data") and player.Data:FindFirstChild("Race")
+		if race and race:FindFirstChild("Evolved") then
+			S.AutoRaceV2 = false
+			if notifyHook then notifyHook("Race V2", "Race evolved to V2 ✔", 6) end
+			return
+		end
+		local check = invoke("Alchemist", "1")
+		if check == 0 then
+			S.Status = "Race V2: talking to Alchemist"
+			invoke("Alchemist", "2")
+		elseif check == 1 then
+			for i = 1, 2 do
+				if not has("Flower " .. i) then
+					local f = workspace:FindFirstChild("Flower" .. i)
+					S.Status = "Race V2: flower " .. i
+					if f then
+						go(f.Position, keep)
+						touchPart(f)
+					end
+					return
+				end
+			end
+			if not has("Flower 3") then
+				S.Status = "Race V2: flower 3 (Zombies)"
+				local z = findMob("Zombie")
+				if z then killMob(z, function() return keep() and not has("Flower 3") end) else go(Vector3.new(-5685, 78, -853), keep) end
+			end
+		elseif check == 2 then
+			S.Status = "Race V2: submitting flowers"
+			invoke("Alchemist", "3")
+		end
+		task.wait(1)
+	end
+
+	-- Race V3 (Sea 2): Wenlocktoad
+	local humanStage = 0
+	local function stepRaceV3(keep)
+		local check = invoke("Wenlocktoad", "1")
+		if check == 0 then
+			S.Status = "Race V3: starting quest"
+			invoke("Wenlocktoad", "2")
+			task.wait(1)
+			return
+		elseif check ~= 1 then
+			S.Status = "Race V3: done or not available (" .. tostring(check) .. ")"
+			S.AutoRaceV3 = false
+			return
+		end
+		local race = dataValue("Race")
+		if race == "Human" then
+			local bosses = { { "Jeremy", Vector3.new(2333, 449, 700) }, { "Diamond", Vector3.new(-1714, 199, -104) }, { "Orbitus", Vector3.new(-2149, 73, -4304) } }
+			local b = bosses[humanStage + 1]
+			if b then
+				S.Status = "Race V3: defeating " .. b[1]
+				if fightBoss(b[1], keep) then
+					if not findMobAnywhere(b[1]) then humanStage += 1 end
+				else
+					go(b[2] + Vector3.new(0, 30, 0), keep)
+				end
+			else
+				invoke("Wenlocktoad", "3")
+			end
+		elseif race == "Rabbit" then
+			S.Status = "Race V3: collecting chests (keep Auto Chest on)"
+			S.AutoChest = true
+			invoke("Wenlocktoad", "3")
+			task.wait(10)
+		elseif race == "Fishman" then
+			S.Status = "Race V3: kill a Sea Beast (Sea Events tab)"
+			invoke("Wenlocktoad", "3")
+			task.wait(10)
+		else
+			S.Status = "Race V3: " .. tostring(race) .. " trial must be done manually"
+			task.wait(10)
+		end
+	end
+
+	-- Soul Guitar (Sea 3): مراسم ماه کامل + پازل‌ها + ساخت
+	local function stepSoulGuitar(keep)
+		if hasItem("Skull Guitar") then
+			S.AutoSoulGuitar = false
+			if notifyHook then notifyHook("Soul Guitar", "You have Skull Guitar ✔", 6) end
+			return
+		end
+		local check = invoke("GuitarPuzzleProgress", "Check")
+		if not check then
+			local full = false
+			pcall(function()
+				full = Lighting.Sky.MoonTextureId == "http://www.roblox.com/asset/?id=9709149431" and (Lighting.ClockTime > 16 or Lighting.ClockTime < 5)
+			end)
+			if full then
+				S.Status = "Soul Guitar: gravestone ritual"
+				go(Vector3.new(-8654, 140, 6167), keep)
+				invoke("gravestoneEvent", 2)
+				invoke("gravestoneEvent", 2, true)
+			else
+				S.Status = "Soul Guitar: waiting for full moon night"
+			end
+			task.wait(3)
+		elseif check.Swamp == false then
+			S.Status = "Soul Guitar: clearing swamp zombies"
+			local z = findMob("Living Zombie")
+			if z then killMob(z, keep) else go(Vector3.new(-10170, 168, 5939), keep) end
+		elseif check.Gravestones == false then
+			invoke("GuitarPuzzleProgress", "Gravestones")
+		elseif check.Ghost == false then
+			invoke("GuitarPuzzleProgress", "Ghost")
+		elseif check.Trophies == false then
+			invoke("GuitarPuzzleProgress", "Trophies")
+		elseif check.Pipes == false then
+			invoke("GuitarPuzzleProgress", "Pipes")
+		else
+			local frag = dataValue("Fragments") or 0
+			if frag >= 5000 and materialCount("Bones") >= 500 and materialCount("Ectoplasm") >= 250 then
+				S.Status = "Soul Guitar: crafting"
+				invoke("soulGuitarBuy")
+			else
+				S.Status = ("Soul Guitar: need 5000 frag (%d), 500 bones (%d), 250 ecto (%d)"):format(frag, materialCount("Bones"), materialCount("Ectoplasm"))
+				task.wait(10)
+			end
+		end
+		task.wait(1)
+	end
+
+	-- فایتینگ استایل‌ها به ترتیب؛ مکان معلم هر Sea از Kaitun
+	local STYLE_CHAIN = {
+		{ "Black Leg", "BuyBlackLeg", { Vector3.new(-985, 14, 3988), Vector3.new(-4754, 35, -4849), Vector3.new(-5045, 372, -3178) } },
+		{ "Electro", "BuyElectro", { Vector3.new(-5384, 14, -2149), Vector3.new(-4864, 35, -4765), Vector3.new(-4994, 315, -3201) } },
+		{ "Fishman Karate", "BuyFishmanKarate", { Vector3.new(61585, 19, 987), Vector3.new(-4957, 35, -4668), Vector3.new(-5022, 372, -3187) } },
+		{ "Dragon Claw", "DragonClaw", { nil, Vector3.new(702, 187, 653), Vector3.new(-4980, 372, -3205) } },
+		{ "Superhuman", "BuySuperhuman", { nil, Vector3.new(1379, 247, -5190), Vector3.new(-5004, 372, -3194) } },
+		{ "Death Step", "BuyDeathStep", { nil, Vector3.new(6356, 296, -6763), Vector3.new(-4997, 315, -3220) } },
+		{ "Sharkman Karate", "BuySharkmanKarate", { nil, Vector3.new(-2602, 239, -10317), Vector3.new(-4974, 315, -3221) } },
+		{ "Electric Claw", "BuyElectricClaw", { nil, nil, Vector3.new(-10371, 331, -10131) } },
+		{ "Dragon Talon", "BuyDragonTalon", { nil, nil, Vector3.new(5661, 1210, 863) } },
+		{ "Godhuman", "BuyGodhuman", { nil, nil, nil } },
+	}
+	local styleTried = {}
+	-- فقط استایل «بعدی» نسبت به استایل فعلی؛ هیچ‌وقت به استایل ضعیف‌تر برنمی‌گرده
+	local function currentStyleIndex()
+		for _, cont in ipairs({ getChar(), player:FindFirstChild("Backpack") }) do
+			if cont then
+				for _, t in ipairs(cont:GetChildren()) do
+					if t:IsA("Tool") and t.ToolTip == "Melee" then
+						for i, st in ipairs(STYLE_CHAIN) do
+							if st[1] == t.Name then return i end
+						end
+					end
+				end
+			end
+		end
+		return 0
+	end
+	local function stepStyles(keep)
+		local nextIdx = currentStyleIndex() + 1
+		local st = STYLE_CHAIN[nextIdx]
+		if not st then
+			S.AutoStyles = false
+			if notifyHook then notifyHook("Fighting Styles", "You already have the best style ✔", 6) end
+			return
+		end
+		for _, st in ipairs({ st }) do
+			local name, cmd, spots = st[1], st[2], st[3]
+			if (styleTried[name] or 0) < tick() then
+				styleTried[name] = tick() + 300
+				local pos = spots[Sea]
+				if pos then
+					S.Status = "Styles: going to " .. name .. " teacher"
+					go(pos, keep)
+					task.wait(0.4)
+				end
+				local r
+				if cmd == "DragonClaw" then
+					invoke("BlackbeardReward", "DragonClaw", "1")
+					r = invoke("BlackbeardReward", "DragonClaw", "2")
+				else
+					invoke(cmd, true)
+					r = invoke(cmd)
+				end
+				S.Status = "Styles: " .. name .. " -> " .. tostring(r)
+				if notifyHook then notifyHook("Fighting Style", name .. ": " .. tostring(r), 5) end
+				return
+			end
+		end
+		S.Status = "Styles: nothing to buy right now (retry in 5 min)"
+		task.wait(10)
+	end
+
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(0.5)
+			if alive() then
+				local step, flag
+				if S.AutoTushita and Sea == 3 then step, flag = stepTushita, "AutoTushita"
+				elseif S.AutoCDK and Sea == 3 then step, flag = stepCDK, "AutoCDK"
+				elseif S.AutoRaceV2 and Sea == 2 then step, flag = stepRaceV2, "AutoRaceV2"
+				elseif S.AutoRaceV3 and Sea == 2 then step, flag = stepRaceV3, "AutoRaceV3"
+				elseif S.AutoSoulGuitar and Sea == 3 then step, flag = stepSoulGuitar, "AutoSoulGuitar"
+				elseif S.AutoStyles then step, flag = stepStyles, "AutoStyles"
+				end
+				if step then
+					local ok, err = pcall(step, function() return S[flag] end)
+					if not ok then
+						logError(flag, err)
+						task.wait(2)
+					end
+				end
+			end
+		end
+	end)
+end
+
 -- Chests
 local chestCache, chestCacheTime = {}, 0
 local function getChests()
@@ -3134,7 +3561,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true }
 
 local function saveSettings()
 	local data = {}
@@ -3233,6 +3660,14 @@ Progress:Toggle("Auto Bartilo Quest (Sea 2, Lv 850+)", "AutoBartilo", function(o
 Progress:Toggle("Auto Unlock Sea 3 (Sea 2, Lv 1500+)", "AutoSea3", function(on) if not on then stopTween() end end)
 Progress:Section("Quests")
 Progress:Toggle("Auto Saber (Sea 1, Lv 200+)", "AutoSaber", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Race V2 (Sea 2, Alchemist)", "AutoRaceV2", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Race V3 (Sea 2, Human/Rabbit/Fishman)", "AutoRaceV3", function(on) if not on then stopTween() end end)
+Progress:Section("Sea 3 Items")
+Progress:Toggle("Auto Tushita (Lv 2200+)", "AutoTushita", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto CDK (Yama + Tushita 350 mastery)", "AutoCDK", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Soul Guitar (full moon, spends mats)", "AutoSoulGuitar", function(on) if not on then stopTween() end end)
+Progress:Section("Fighting Styles")
+Progress:Toggle("Auto Next Fighting Style (spends!)", "AutoStyles", function(on) if not on then stopTween() end end)
 Progress:Label(function() return "Status: <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
 
 Farm:Section("Mastery Farm")
