@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.18" }
+local Hub = { Connections = {}, Running = true, Version = "1.19" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -134,6 +134,7 @@ local S = {
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
 	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true, AutoLegendary = false, AutoAllBosses = false,
+	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
 	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
@@ -173,12 +174,12 @@ local function dataValue(name)
 end
 -- فارم‌های اصلی اولویت دارن؛ صندوق/میوه وقتی اینا روشنن صبر می‌کنن تا سر حرکت دعوا نشه
 local function mainFarmBusy()
-	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses
+	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 end
 
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
-		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses
+		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 end
 
 ---------------------------------------------------------------------
@@ -1216,6 +1217,142 @@ task.spawn(function()
 		wasSpawned = now
 	end
 end)
+
+---------------------------------------------------------------------
+-- Raid و Darkbeard (Sea 2) — مختصات و قطعه‌ها از اسکن خود بازی
+---------------------------------------------------------------------
+do
+	local SCIENTIST = Vector3.new(-6561.4, 309.3, -4749.1) -- Mysterious Scientist (خرید چیپ)
+	local DARK_SUMMONER = Vector3.new(3778.7, 14.9, -3499.4) -- DarkbeardArena.Summoner.Detection
+
+	-- وقتی توی Raid هستی، جزیره‌های Island 1..5 توی Locations ظاهر میشن
+	local function raidIsland()
+		local loc = workspace:FindFirstChild("_WorldOrigin") and workspace._WorldOrigin:FindFirstChild("Locations")
+		if not loc then return nil end
+		for i = 5, 1, -1 do
+			local p = loc:FindFirstChild("Island " .. i)
+			if p then return p, i end
+		end
+	end
+
+	local function raidChip()
+		for _, cont in ipairs({ getChar(), player:FindFirstChild("Backpack") }) do
+			if cont then
+				for _, t in ipairs(cont:GetChildren()) do
+					if t:IsA("Tool") and t.Name:find("Microchip") then return t end
+				end
+			end
+		end
+	end
+
+	-- دکمه‌ی شروع Raid (RaidSummon2.Button.Main با ClickDetector)، نزدیک‌ترینش
+	local function raidButton()
+		local root = getRoot()
+		local best, bestDist
+		pcall(function()
+			for _, m in ipairs(workspace.Map.CircleIsland:GetChildren()) do
+				if m.Name == "RaidSummon2" then
+					local b = m:FindFirstChild("Button") and m.Button:FindFirstChild("Main")
+					if b and b:FindFirstChildOfClass("ClickDetector") then
+						local d = (b.Position - root.Position).Magnitude
+						if not bestDist or d < bestDist then best, bestDist = b, d end
+					end
+				end
+			end
+		end)
+		return best
+	end
+
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(0.3)
+			if S.AutoRaid and alive() then
+				local keep = function() return S.AutoRaid end
+				local ok, err = pcall(function()
+					local island, idx = raidIsland()
+					if island then
+						-- توی Raid: نزدیک‌ترین دشمن رو بزن، اگه نبود برو جزیره‌ی بعدی
+						local root = getRoot()
+						local enemies = workspace:FindFirstChild("Enemies")
+						local target, bestDist
+						if enemies then
+							for _, m in ipairs(enemies:GetChildren()) do
+								if isAliveMob(m) then
+									local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+									if d < 3000 and (not bestDist or d < bestDist) then target, bestDist = m, d end
+								end
+							end
+						end
+						if target then
+							S.Status = ("Raid island %d: %s"):format(idx, mobBaseName(target.Name))
+							killMob(target, keep)
+						else
+							S.Status = "Raid: going to island " .. idx
+							tweenTo(island.CFrame * CFrame.new(0, 60, 0), keep)
+						end
+						return
+					end
+					local chip = raidChip()
+					if chip then
+						local btn = raidButton()
+						if not btn then
+							S.Status = "Going to raid lab"
+							tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 20, 0)), keep)
+							return
+						end
+						S.Status = "Starting raid"
+						tweenTo(btn.CFrame * CFrame.new(0, 3, 0), keep)
+						task.wait(0.3)
+						if fireclickdetector then pcall(fireclickdetector, btn:FindFirstChildOfClass("ClickDetector")) end
+						task.wait(5)
+						return
+					end
+					if not S.AutoBuyChip then
+						S.Status = "Raid: no Microchip (turn on Auto Buy Chip)"
+						task.wait(2)
+						return
+					end
+					if (dataValue("Level") or 0) < 1100 then
+						S.Status = "Raid needs level 1100"
+						task.wait(3)
+						return
+					end
+					S.Status = "Buying " .. S.RaidType .. " chip"
+					tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 3, 4)), keep)
+					task.wait(0.3)
+					local r = invoke("RaidsNpc", "Select", S.RaidType)
+					task.wait(1.5)
+					if not raidChip() then
+						S.Status = "Chip not bought: " .. tostring(r)
+						task.wait(10)
+					end
+				end)
+				if not ok then logError("AutoRaid", err) end
+			elseif S.AutoDarkbeard and alive() then
+				local keep = function() return S.AutoDarkbeard end
+				local ok, err = pcall(function()
+					if fightBoss("Darkbeard", keep) then return end
+					local fist = backpackTool("Fist of Darkness")
+					if not fist then
+						S.Status = "Darkbeard: need Fist of Darkness (drops from chests)"
+						task.wait(3)
+						return
+					end
+					-- با Fist of Darkness توی دست، Summoner رو لمس می‌کنیم
+					S.Status = "Summoning Darkbeard"
+					local h = getHum()
+					if h and fist.Parent ~= getChar() then h:EquipTool(fist) end
+					tweenTo(CFrame.new(DARK_SUMMONER + Vector3.new(0, 3, 0)), keep)
+					local det
+					pcall(function() det = workspace.Map.DarkbeardArena.Summoner.Detection end)
+					touchPart(det)
+					task.wait(4)
+				end)
+				if not ok then logError("AutoDarkbeard", err) end
+			end
+		end
+	end)
+end
 
 -- خرید خودکار شمشیر افسانه‌ای: وقتی Dealer اسپاون شد میره پیشش و مثل دیالوگ خود بازی (1,2,3) می‌خره
 local LEGENDARY_SWORDS = { "Shisui", "Saddi", "Wando" }
@@ -2418,7 +2555,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true }
 
 local function saveSettings()
 	local data = {}
@@ -2524,6 +2661,21 @@ SeaFarm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
 end)
 SeaFarm:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", function(on)
 	if not on then stopTween() S.Status = "Idle" end
+end)
+SeaFarm:Section("Raid (level 1100+)")
+SeaFarm:Dropdown("Raid Type", function()
+	return { "Flame", "Ice", "Quake", "Light", "Dark", "Spider", "Magma", "Buddha", "Sand", "Phoenix", "Dough" }
+end, "RaidType")
+SeaFarm:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
+SeaFarm:Toggle("Auto Raid (start + clear islands)", "AutoRaid", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+SeaFarm:Section("Darkbeard")
+SeaFarm:Toggle("Auto Darkbeard (summon + fight)", "AutoDarkbeard", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+SeaFarm:Label(function()
+	return "Fist of Darkness: " .. (backpackTool("Fist of Darkness") and "✔ have it" or "✖ (get from chests)")
 end)
 local Items = createTab("Items", "✧")
 Items:Section("Rengoku")
