@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.11" }
+local Hub = { Connections = {}, Running = true, Version = "1.12" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -130,6 +130,7 @@ local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
+	InstantTP = false, InstantTPFarm = false,
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
 	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true,
@@ -286,11 +287,37 @@ function FastTP.hop(target, keepGoing)
 	return false
 end
 
-tweenTo = function(cf, keepGoing)
+-- پرش مستقیم (Instant TP): اگه سرور برگردوند، 2 دقیقه برمی‌گرده سر پرواز تا پشت سر هم رد نشه
+local instantBlockedUntil = 0
+local function tryInstant(cf)
+	if tick() < instantBlockedUntil then return false end
+	local root = getRoot()
+	if not root then return false end
+	stopTween()
+	setFloat(true)
+	root.CFrame = cf
+	task.wait(0.5)
+	local r = getRoot()
+	if r and (r.Position - cf.Position).Magnitude < 40 then
+		Hub.InstantOK = (Hub.InstantOK or 0) + 1
+		return true
+	end
+	instantBlockedUntil = tick() + 120
+	Hub.InstantRejected = (Hub.InstantRejected or 0) + 1
+	if notifyHook then notifyHook("Instant TP", "Server pulled you back — using flight for 2 min", 5) end
+	return false
+end
+
+-- manual = true یعنی دکمه‌ی تلپورت دستی (نه فارم)
+tweenTo = function(cf, keepGoing, manual)
 	local root = getRoot()
 	if not root or not cf then return false end
 	if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
-	if (root.Position - cf.Position).Magnitude > 1000 and FastTP.hop(cf.Position, keepGoing) then
+	local farDist = (root.Position - cf.Position).Magnitude
+	if S.InstantTP and farDist > 60 and (manual or S.InstantTPFarm) and tryInstant(cf) then
+		return true
+	end
+	if farDist > 1000 and FastTP.hop(cf.Position, keepGoing) then
 		root = getRoot()
 		if not root then return false end
 	end
@@ -2402,6 +2429,8 @@ end)
 -- Pages
 ---------------------------------------------------------------------
 do -- صفحه‌ها (متغیرهاشون فقط همین‌جا لازمن)
+-- تلپورت دستی (دکمه‌ها): اگه Instant TP روشن باشه فوری میره
+local function goTo(cf) return tweenTo(cf, nil, true) end
 local Home = createTab("Home", "⌂")
 Home:Profile()
 Home:Section("Stats")
@@ -2483,7 +2512,7 @@ end)
 Items:Section("Midnight Blade")
 Items:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  needs 100" end)
 Items:Button("Go to El Admin (buy Midnight Blade)", function()
-	tweenTo(CFrame.new(EL_ADMIN + Vector3.new(0, 3, 4)))
+	goTo(CFrame.new(EL_ADMIN + Vector3.new(0, 3, 4)))
 	notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
 end)
 Items:Section("True Triple Katana")
@@ -2494,10 +2523,10 @@ Items:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
 Items:Button("Go to Legendary Sword Dealer", function()
 	local cf = dealerPosition()
 	if not cf then return notify("Sword Dealer", "Not spawned right now") end
-	tweenTo(cf * CFrame.new(0, 0, 4))
+	goTo(cf * CFrame.new(0, 0, 4))
 end)
 Items:Button("Go to Mysterious Man (TTK)", function()
-	tweenTo(CFrame.new(MYSTERIOUS_MAN + Vector3.new(0, 3, 4)))
+	goTo(CFrame.new(MYSTERIOUS_MAN + Vector3.new(0, 3, 4)))
 end)
 Items:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
 
@@ -2595,7 +2624,7 @@ Boss:Dropdown("Boss Spawn", function()
 end, "SelectedBossSpawn")
 Boss:Button("Teleport to Boss Spawn", function()
 	for _, b in ipairs(bossSpawns()) do
-		if b.name == S.SelectedBossSpawn then return tweenTo(b.cf * CFrame.new(0, 40, 0)) end
+		if b.name == S.SelectedBossSpawn then return goTo(b.cf * CFrame.new(0, 40, 0)) end
 	end
 	notify("Boss", "Select a boss spawn first")
 end)
@@ -2651,6 +2680,14 @@ local QUICK_PLACES = {
 		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
 	},
 }
+Tp:Section("Instant Teleport ⚡")
+Tp:Toggle("Instant Teleport (risky)", "InstantTP")
+Tp:Toggle("Use Instant TP in farms (more risky)", "InstantTPFarm")
+Tp:Label(function()
+	local blocked = tick() < instantBlockedUntil
+	return ("Accepted: %d  •  Rejected: %d  •  %s"):format(Hub.InstantOK or 0, Hub.InstantRejected or 0,
+		blocked and ("<font color=\"#FF6B6B\">paused " .. math.ceil(instantBlockedUntil - tick()) .. "s</font>") or "<font color=\"#7CFF9B\">ready</font>")
+end)
 Tp:Section("Game Portals ⚡")
 for _, p in ipairs(FastTP.Portals) do
 	if p.sea == Sea then
@@ -2667,7 +2704,7 @@ end
 Tp:Section("Quick Places (Sea " .. (Sea > 0 and Sea or "?") .. ")")
 for _, place in ipairs(QUICK_PLACES[Sea] or {}) do
 	Tp:Button(place[1], function()
-		tweenTo(CFrame.new(place[2] + Vector3.new(0, 40, 0)))
+		goTo(CFrame.new(place[2] + Vector3.new(0, 40, 0)))
 	end)
 end
 Tp:Section("Seas")
@@ -2678,21 +2715,21 @@ Tp:Section("Islands")
 Tp:Dropdown("Island", islandList, "SelectedIsland")
 Tp:Button("Teleport to Island", function()
 	if not S.SelectedIsland then return notify("Teleport", "Select an island first") end
-	tweenTo(islandCFrame(S.SelectedIsland))
+	goTo(islandCFrame(S.SelectedIsland))
 end)
 Tp:Section("NPCs & Players")
 Tp:Dropdown("NPC", npcList, "SelectedNPC")
 Tp:Button("Teleport to NPC", function()
 	local cf = S.SelectedNPC and findNPC(S.SelectedNPC)
 	if not cf then return notify("Teleport", "NPC not found") end
-	tweenTo(cf * CFrame.new(0, 0, 4))
+	goTo(cf * CFrame.new(0, 0, 4))
 end)
 Tp:Dropdown("Player", playerList, "SelectedPlayer")
 Tp:Button("Teleport to Player", function()
 	local p = S.SelectedPlayer and Players:FindFirstChild(S.SelectedPlayer)
 	local r = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
 	if not r then return notify("Teleport", "Player not found") end
-	tweenTo(r.CFrame * CFrame.new(0, 5, 0))
+	goTo(r.CFrame * CFrame.new(0, 5, 0))
 end)
 Tp:Button("Stop Teleport", function() stopTween() end)
 
