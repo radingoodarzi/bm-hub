@@ -3,7 +3,13 @@
 	loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader.lua"))()
 ]]
 
+-- کش گیت‌هاب گاهی چند دقیقه نسخه‌ی قدیمی رو میده؛ با شناسه‌ی آخرین commit مستقیم جدیدترین رو می‌گیریم
 local URL = "https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/bm_hub.lua?t=" .. tostring(os.time())
+pcall(function()
+	local body = game:HttpGet("https://api.github.com/repos/radingoodarzi/bm-hub/commits/main")
+	local sha = body:match('"sha"%s*:%s*"(%x+)"')
+	if sha then URL = "https://raw.githubusercontent.com/radingoodarzi/bm-hub/" .. sha .. "/bm_hub.lua" end
+end)
 
 local function note(text)
 	print("[BM Hub loader] " .. text)
