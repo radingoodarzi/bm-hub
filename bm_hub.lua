@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.26" }
+local Hub = { Connections = {}, Running = true, Version = "1.27" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -3050,77 +3050,77 @@ Progress:Section("Quests")
 Progress:Toggle("Auto Saber (Sea 1, Lv 200+)", "AutoSaber", function(on) if not on then stopTween() end end)
 Progress:Label(function() return "Status: <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
 
-local Mastery = createTab("Mastery", "✪")
-Mastery:Section("Mastery Farm")
-Mastery:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
-Mastery:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
-Mastery:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
-Mastery:Section("Skills")
-Mastery:Toggle("Use Skills", "UseSkills")
-Mastery:Toggle("Skill Z", "SkillZ")
-Mastery:Toggle("Skill X", "SkillX")
-Mastery:Toggle("Skill C", "SkillC")
-Mastery:Toggle("Skill V", "SkillV")
-Mastery:Label(function() return "Turn on Auto Farm too. Weak mobs get finished with your mastery weapon." end)
+Farm:Section("Mastery Farm")
+Farm:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
+Farm:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
+Farm:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
+Farm:Section("Skills")
+Farm:Toggle("Use Skills", "UseSkills")
+Farm:Toggle("Skill Z", "SkillZ")
+Farm:Toggle("Skill X", "SkillX")
+Farm:Toggle("Skill C", "SkillC")
+Farm:Toggle("Skill V", "SkillV")
+Farm:Label(function() return "Turn on Auto Farm too. Weak mobs get finished with your mastery weapon." end)
 
-local SeaFarm = createTab("Sea Farms", "⚓")
-SeaFarm:Section("Second Sea")
-SeaFarm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
+local SeaEvents = createTab("Sea Events", "⚓")
+SeaEvents:Section("Sea Beasts & Sea Events")
+SeaEvents:Label(function() return "Sea Beast, Terrorshark, Leviathan... coming in phase 2" end)
+Farm:Section("Sea 2 Farms")
+Farm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
-SeaFarm:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", function(on)
+Farm:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
-SeaFarm:Label(function()
+Farm:Label(function()
 	return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  Sea " .. (Sea > 0 and Sea or "?")
 end)
-SeaFarm:Section("Raid (level 1100+)")
-SeaFarm:Dropdown("Raid Type", function()
+Farm:Section("Raid (level 1100+)")
+Farm:Dropdown("Raid Type", function()
 	return { "Flame", "Ice", "Quake", "Light", "Dark", "Spider", "Magma", "Buddha", "Sand", "Phoenix", "Dough" }
 end, "RaidType")
-SeaFarm:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
-SeaFarm:Toggle("Auto Raid (start + clear islands)", "AutoRaid", function(on)
+Farm:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
+Farm:Toggle("Auto Raid (start + clear islands)", "AutoRaid", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
-local Items = createTab("Items", "✧")
-Items:Section("Rengoku")
-Items:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", function(on)
+Farm:Section("Items: Rengoku")
+Farm:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
-Items:Label(function()
+Farm:Label(function()
 	local key = backpackTool("Hidden Key") and "✔ have key" or "no key yet"
 	return "Hidden Key: " .. key .. "  •  drops from Ice Admiral / Ice Castle mobs"
 end)
-Items:Section("Dragon Trident")
-Items:Toggle("Auto Dragon Trident (Tide Keeper)", "AutoTrident", function(on)
+Farm:Section("Dragon Trident")
+Farm:Toggle("Auto Dragon Trident (Tide Keeper)", "AutoTrident", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
-Items:Section("Midnight Blade")
-Items:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  needs 100" end)
-Items:Button("Go to El Admin (buy Midnight Blade)", function()
+Farm:Section("Midnight Blade")
+Farm:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  needs 100" end)
+Farm:Button("Go to El Admin (buy Midnight Blade)", function()
 	goTo(CFrame.new(EL_ADMIN + Vector3.new(0, 3, 4)))
 	notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
 end)
-Items:Section("True Triple Katana")
-Items:Label(function()
+Farm:Section("True Triple Katana")
+Farm:Label(function()
 	return "Sword Dealer: " .. (dealerPosition() and "<font color=\"#7CFF9B\">SPAWNED</font>" or "not spawned")
 end)
-Items:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
-Items:Toggle("Auto Buy Legendary Sword ($2M each)", "AutoLegendary")
-Items:Label(function()
+Farm:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
+Farm:Toggle("Auto Buy Legendary Sword ($2M each)", "AutoLegendary")
+Farm:Label(function()
 	local have = {}
 	for _, sw in ipairs({ "Shisui", "Saddi", "Wando" }) do table.insert(have, sw .. (hasItem(sw) and " ✔" or " ✖")) end
 	return table.concat(have, "   ")
 end)
-Items:Button("Go to Legendary Sword Dealer", function()
+Farm:Button("Go to Legendary Sword Dealer", function()
 	local cf = dealerPosition()
 	if not cf then return notify("Sword Dealer", "Not spawned right now") end
 	goTo(cf * CFrame.new(0, 0, 4))
 end)
-Items:Button("Go to Mysterious Man (TTK)", function()
+Farm:Button("Go to Mysterious Man (TTK)", function()
 	goTo(CFrame.new(MYSTERIOUS_MAN + Vector3.new(0, 3, 4)))
 end)
-Items:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
+Farm:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
 
 -- کلکسیون: کدوم آیتم‌های مهم رو داری و کدوم‌ها مونده (از اینونتوری خود بازی)
 local COLLECTION = {
@@ -3128,7 +3128,7 @@ local COLLECTION = {
 	{ "Sea 2", { "Rengoku", "Dragon Trident", "Midnight Blade", "True Triple Katana", "Koko", "Dual-Headed Blade", "Kabucha", "Bizarre Revolver", "Acidum Rifle" } },
 	{ "Sea 3", { "Yama", "Tushita", "Cursed Dual Katana", "Hallow Scythe", "Shark Anchor", "Canvander", "Buddy Sword", "Twin Hooks", "Spikey Trident", "Dark Dagger", "Skull Guitar", "Fox Lamp", "Venom Bow", "Dragonstorm" } },
 }
-Items:Section("Collection")
+Farm:Section("Collection")
 for _, group in ipairs(COLLECTION) do
 	local seaName, list = group[1], group[2]
 	local function missing()
@@ -3138,12 +3138,12 @@ for _, group in ipairs(COLLECTION) do
 		end
 		return out
 	end
-	Items:Label(function()
+	Farm:Label(function()
 		local m = #missing()
 		local color = m == 0 and "#7CFF9B" or "#FFD166"
 		return ("%s:  <font color=\"%s\">%d/%d owned</font>"):format(seaName, color, #list - m, #list)
 	end)
-	Items:Dropdown("Missing (" .. seaName .. ")", function()
+	Farm:Dropdown("Missing (" .. seaName .. ")", function()
 		local m = missing()
 		return #m > 0 and m or { "Nothing missing ✔" }
 	end, "ViewMissing" .. seaName:gsub(" ", ""))
