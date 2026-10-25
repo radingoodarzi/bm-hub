@@ -92,5 +92,9 @@ end)
 
 if not okRun then add("SCAN ERROR:", runErr) end
 local copied = copyNow()
-notify(copied and "Done ✔ copied - tell Claude" or "Done, check F9")
-print(table.concat(out, "\n"))
+-- هر خط جدا چاپ میشه چون لاگ Roblox پیام‌های بلند رو کوتاه می‌کنه
+for i, line in ipairs(out) do
+	print(("[BMTP %03d] %s"):format(i, line))
+	if i % 50 == 0 then task.wait() end
+end
+notify(copied and "Done ✔ - tell Claude" or "Done, tell Claude")
