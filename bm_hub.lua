@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.12.1" }
+local Hub = { Connections = {}, Running = true, Version = "1.13" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -130,7 +130,6 @@ local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
-	InstantTP = false, InstantTPFarm = false,
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
 	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true,
@@ -287,29 +286,8 @@ function FastTP.hop(target, keepGoing)
 	return false
 end
 
--- پرش مستقیم (Instant TP): اگه سرور برگردوند، 2 دقیقه برمی‌گرده سر پرواز تا پشت سر هم رد نشه
-local instantBlockedUntil = 0
-local function tryInstant(cf)
-	if tick() < instantBlockedUntil then return false end
-	local root = getRoot()
-	if not root then return false end
-	stopTween()
-	setFloat(true)
-	root.CFrame = cf
-	task.wait(0.5)
-	local r = getRoot()
-	if r and (r.Position - cf.Position).Magnitude < 40 then
-		Hub.InstantOK = (Hub.InstantOK or 0) + 1
-		return true
-	end
-	-- سرور قبول نکرد (برگردوند یا کشت): کامل خاموش میشه که پشت سر هم رد نشه
-	instantBlockedUntil = tick() + 120
-	Hub.InstantRejected = (Hub.InstantRejected or 0) + 1
-	S.InstantTP = false
-	S.InstantTPFarm = false
-	if notifyHook then notifyHook("Instant TP", "Server rejected the jump — Instant TP turned OFF", 6) end
-	return false
-end
+-- سرعت پرواز بیشتر از 300 ریسک بن داره؛ هیچ‌وقت ازش بالاتر نمیره
+local MAX_SAFE_SPEED = 300
 
 -- manual = true یعنی دکمه‌ی تلپورت دستی (نه فارم)
 tweenTo = function(cf, keepGoing, manual)
@@ -317,9 +295,6 @@ tweenTo = function(cf, keepGoing, manual)
 	if not root or not cf then return false end
 	if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
 	local farDist = (root.Position - cf.Position).Magnitude
-	if S.InstantTP and farDist > 60 and (manual or S.InstantTPFarm) and tryInstant(cf) then
-		return true
-	end
 	if farDist > 1000 and FastTP.hop(cf.Position, keepGoing) then
 		root = getRoot()
 		if not root then return false end
@@ -331,7 +306,7 @@ tweenTo = function(cf, keepGoing, manual)
 	end
 	stopTween()
 	setFloat(true)
-	local t = TweenService:Create(root, TweenInfo.new(dist / math.max(S.TweenSpeed, 50), Enum.EasingStyle.Linear), { CFrame = cf })
+	local t = TweenService:Create(root, TweenInfo.new(dist / math.clamp(S.TweenSpeed, 50, MAX_SAFE_SPEED), Enum.EasingStyle.Linear), { CFrame = cf })
 	activeTween = t
 	t:Play()
 	while t.PlaybackState == Enum.PlaybackState.Playing do
@@ -2476,7 +2451,7 @@ Farm:Toggle("Auto Haki (Buso)", "AutoHaki")
 Farm:Toggle("Auto Observation (Ken)", "AutoKen")
 Farm:Toggle("Auto Race Skill (T)", "AutoRace")
 Farm:Slider("Farm Height", 0, 60, "FarmDistance")
-Farm:Slider("Tween Speed", 100, 350, "TweenSpeed")
+Farm:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
 
 local Mastery = createTab("Mastery", "✪")
 Mastery:Section("Mastery Farm")
@@ -2683,14 +2658,6 @@ local QUICK_PLACES = {
 		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
 	},
 }
-Tp:Section("Instant Teleport ⚡")
-Tp:Toggle("Instant Teleport (risky)", "InstantTP")
-Tp:Toggle("Use Instant TP in farms (more risky)", "InstantTPFarm")
-Tp:Label(function()
-	local blocked = tick() < instantBlockedUntil
-	return ("Accepted: %d  •  Rejected: %d  •  %s"):format(Hub.InstantOK or 0, Hub.InstantRejected or 0,
-		blocked and ("<font color=\"#FF6B6B\">paused " .. math.ceil(instantBlockedUntil - tick()) .. "s</font>") or "<font color=\"#7CFF9B\">ready</font>")
-end)
 Tp:Section("Game Portals ⚡")
 for _, p in ipairs(FastTP.Portals) do
 	if p.sea == Sea then
