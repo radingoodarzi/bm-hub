@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.9.5" }
+local Hub = { Connections = {}, Running = true, Version = "1.10" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -202,10 +202,58 @@ local function setFloat(on)
 end
 
 -- تا رسیدن صبر می‌کنه؛ اگه keepGoing false بشه وسط راه قطع میشه
+-- تلپورت فوری با سیستم ورودی‌های خود بازی (requestEntrance)؛ سرور اینو قانونی می‌دونه
+local FastTP = {
+	Entrances = {
+		-- inside = ورودی کشتی، outside = خروجی به خشکی
+		{ name = "Cursed Ship", sea = 2, inside = Vector3.new(923.21, 126.98, 32852.83), outside = Vector3.new(-6508.56, 89.03, -132.84) },
+	},
+}
+
+function FastTP.entrance(pos)
+	local root = getRoot()
+	if not root then return false end
+	local before = root.Position
+	stopTween()
+	invoke("requestEntrance", pos)
+	-- اگه تا 2 ثانیه جابجا شدیم یعنی کار کرد
+	local t = 0
+	while t < 2 do
+		t += task.wait(0.1)
+		local r = getRoot()
+		if r and (r.Position - before).Magnitude > 300 then return true end
+	end
+	return false
+end
+
+-- اگه مسیر از یه ورودی رد میشه، اول با ورودی میریم (فوری) بعد بقیه‌ی راه رو پرواز
+function FastTP.hop(target)
+	local root = getRoot()
+	if not root then return false end
+	for _, e in ipairs(FastTP.Entrances) do
+		if e.sea == Sea then
+			local targetInside = (target - e.inside).Magnitude < 2000
+			local amInside = (root.Position - e.inside).Magnitude < 2000
+			if targetInside and not amInside then
+				S.Status = "Entering " .. e.name .. " (instant)"
+				return FastTP.entrance(e.inside)
+			elseif amInside and not targetInside then
+				S.Status = "Leaving " .. e.name .. " (instant)"
+				return FastTP.entrance(e.outside)
+			end
+		end
+	end
+	return false
+end
+
 local function tweenTo(cf, keepGoing)
 	local root = getRoot()
 	if not root or not cf then return false end
 	if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
+	if (root.Position - cf.Position).Magnitude > 3000 and FastTP.hop(cf.Position) then
+		root = getRoot()
+		if not root then return false end
+	end
 	local dist = (root.Position - cf.Position).Magnitude
 	if dist <= 10 then
 		root.CFrame = cf
@@ -2525,6 +2573,40 @@ end)
 Fruit:Toggle("Chest ESP", "ChestESP")
 
 local Tp = createTab("Teleport", "➤")
+-- مکان‌های مهم هر Sea (مختصات از اسکن خود بازی)
+local QUICK_PLACES = {
+	[2] = {
+		{ "Cafe", Vector3.new(-380.4, 72.8, 303.2) },
+		{ "Kingdom of Rose", Vector3.new(-195.1, 155.3, 279.9) },
+		{ "Mansion", Vector3.new(-393.3, 367.3, 687.5) },
+		{ "Dark Arena (Darkbeard)", Vector3.new(3807.1, 11.8, -3452.2) },
+		{ "Factory", Vector3.new(431.0, 238.4, -433.2) },
+		{ "Colosseum", Vector3.new(-1836.4, 72.8, 1360.2) },
+		{ "Green Zone", Vector3.new(-2340.8, 155.3, -3396.3) },
+		{ "Graveyard Island", Vector3.new(-5577.9, 87.6, -782.2) },
+		{ "Snow Mountain", Vector3.new(856.2, 50.3, -5278.3) },
+		{ "Hot and Cold", Vector3.new(-5734.3, 49.4, -5146.4) },
+		{ "Ice Castle", Vector3.new(6062.3, 155.3, -6880.9) },
+		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
+	},
+}
+Tp:Section("Instant (game entrances)")
+Tp:Button("Cursed Ship ⚡ instant", function()
+	if Sea ~= 2 then return notify("Teleport", "Cursed Ship is in Sea 2") end
+	local ok = FastTP.entrance(FastTP.Entrances[1].inside)
+	notify("Cursed Ship", ok and "Teleported ✔" or "Entrance didn't respond, flying instead", 4)
+	if not ok then tweenTo(CFrame.new(900.9, 184, 33072.6)) end
+end)
+Tp:Button("Leave Cursed Ship ⚡ instant", function()
+	local ok = FastTP.entrance(FastTP.Entrances[1].outside)
+	notify("Cursed Ship", ok and "Back on land ✔" or "Exit didn't respond", 4)
+end)
+Tp:Section("Quick Places (Sea " .. (Sea > 0 and Sea or "?") .. ")")
+for _, place in ipairs(QUICK_PLACES[Sea] or {}) do
+	Tp:Button(place[1], function()
+		tweenTo(CFrame.new(place[2] + Vector3.new(0, 40, 0)))
+	end)
+end
 Tp:Section("Seas")
 Tp:Button("Travel to Sea 1", function() invoke("TravelMain") end)
 Tp:Button("Travel to Sea 2", function() invoke("TravelDressrosa") end)
