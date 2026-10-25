@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.9.4" }
+local Hub = { Connections = {}, Running = true, Version = "1.9.5" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -570,28 +570,35 @@ local function questBlocked(q)
 end
 
 local function takeQuest(q, keepGoing)
+	local started = tick()
 	local g = questGui()
-	-- فقط کوئست اشتباه/تموم‌شده رو ول می‌کنیم
-	if g and g.Visible and not hasQuest(q.mob) then invoke("AbandonQuest") end
+	-- فقط کوئست یه ماب دیگه رو ول می‌کنیم؛ کوئست تموم‌شده (8/8) خودش تحویل میشه
+	if g and g.Visible and not hasQuest(q.mob) then
+		local title = ""
+		pcall(function() title = g.Container.QuestTitle.Title.Text end)
+		if not questDone(title) then invoke("AbandonQuest") end
+	end
 	S.Status = "Taking quest: " .. q.mob
 	if not tweenTo(q.npc, keepGoing) then return end
-	-- سرور موقعیت جدید رو با تاخیر می‌بینه؛ قبل از درخواست کمی صبر
+	-- سرور موقعیت جدید رو با کمی تاخیر می‌بینه
 	setFloat(true)
-	task.wait(0.7)
+	task.wait(0.3)
 	local key = q.quest .. q.index
 	local res
-	for attempt = 1, 3 do
+	for attempt = 1, 4 do
 		if (keepGoing and not keepGoing()) or not alive() then return end
-		S.Status = ("Taking quest: %s (try %d/3)"):format(q.mob, attempt)
+		S.Status = ("Taking quest: %s (try %d/4)"):format(q.mob, attempt)
 		local root = getRoot()
 		if root then root.CFrame = q.npc end
 		res = invoke("StartQuest", q.quest, q.index)
 		local waited = 0
-		while waited < 1.5 and not hasQuest(q.mob) do
-			waited += task.wait(0.15)
+		while waited < 0.9 and not hasQuest(q.mob) do
+			waited += task.wait(0.1)
 		end
 		if hasQuest(q.mob) then
 			questFailures[key] = 0
+			Hub.LastQuestTime = tick() - started
+			S.Status = ("Quest taken in %.1fs: %s"):format(Hub.LastQuestTime, q.mob)
 			return
 		end
 	end
@@ -1704,6 +1711,7 @@ local function debugReport()
 	local title = "?"
 	pcall(function() title = g.Container.QuestTitle.Title.Text end)
 	add("quest gui:", g and g:GetFullName() or "nil", "| visible:", g and g.Visible, "| title:", title)
+	add("last quest take time:", Hub.LastQuestTime and ("%.1fs"):format(Hub.LastQuestTime) or "n/a")
 	local enemies = workspace:FindFirstChild("Enemies")
 	add("Enemies folder:", enemies ~= nil, "| count:", enemies and #enemies:GetChildren() or 0)
 	if enemies then
