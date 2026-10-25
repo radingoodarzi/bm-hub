@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.29" }
+local Hub = { Connections = {}, Running = true, Version = "1.30" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -225,11 +225,65 @@ local tweenTo -- پایین‌تر تعریف میشه
 -- سرعت پرواز بیشتر از 300 ریسک بن داره؛ هیچ‌وقت ازش بالاتر نمیره
 local MAX_SAFE_SPEED = 300
 
+-- پورتال‌های خود بازی: باید روی «نقطه‌ی ورود» بایستی و بعد requestEntrance با «مقصد» بفرستی
+-- (همون کاری که اسکریپت AnimateEntrance خود بازی می‌کنه). هر ردیف: { مقصد، نقطه‌ی ورود }
+local portalHop
+do
+local PORTALS = {
+	[1] = {
+		{ Vector3.new(61163.9, 11.7, 1819.8), Vector3.new(4050.3, -1.7, -1814.1) }, -- ورود به شهر زیر آب
+		{ Vector3.new(3864.9, 6.7, -1926.8), Vector3.new(61170.0, -2, 1952.8) }, -- خروج از شهر زیر آب
+		{ Vector3.new(-4166.6, 1093.7, -347.2), Vector3.new(-6020.3, 5469.2, 2209.8) }, -- آسمان
+	},
+	[3] = {
+		{ Vector3.new(-5027.0, 316.5, -3206.7), Vector3.new(5650.9, 1017.3, -350.4) }, -- Hydra → Castle on the Sea
+		{ Vector3.new(5650.9, 1017.3, -350.4), Vector3.new(-5027.0, 316.5, -3206.7) }, -- Castle → Hydra
+		{ Vector3.new(-12463.6, 378.3, -7566.1), Vector3.new(-5060.4, 316.5, -3193.2) }, -- Castle → Mansion
+		{ Vector3.new(-5060.4, 318.5, -3193.2), Vector3.new(-12463.6, 376.4, -7566.1) }, -- Mansion → Castle
+	},
+}
+local portalBusy, lastPortal = false, 0
+
+-- اگه «پرواز تا نقطه‌ی ورود + فاصله‌ی مقصد تا هدف» کوتاه‌تر از پرواز مستقیم باشه، از پورتال میریم
+portalHop = function(target, keepGoing)
+	local list = PORTALS[Sea]
+	local root = getRoot()
+	if portalBusy or not list or not root or tick() - lastPortal < 2 then return end
+	local best, bestCost
+	for _, p in ipairs(list) do
+		local cost = (target - p[1]).Magnitude + (root.Position - p[2]).Magnitude
+		if not bestCost or cost < bestCost then best, bestCost = p, cost end
+	end
+	if not best or bestCost >= (root.Position - target).Magnitude * 0.8 then return end
+	portalBusy = true
+	lastPortal = tick()
+	local prevStatus = S.Status
+	S.Status = "Using portal ⚡"
+	tweenTo(CFrame.new(best[2] + Vector3.new(0, 3, 0)), keepGoing)
+	task.wait(0.4)
+	if not CollectionService:HasTag(player, "Teleporting") then invoke("requestEntrance", best[1]) end
+	-- تا 4 ثانیه صبر می‌کنیم تا سرور جابجامون کنه
+	local t = 0
+	while t < 4 do
+		t += task.wait(0.1)
+		local r = getRoot()
+		if r and (r.Position - best[1]).Magnitude < (r.Position - best[2]).Magnitude then break end
+	end
+	S.Status = prevStatus
+	portalBusy = false
+end
+end -- پورتال‌ها
+
 -- manual = true یعنی دکمه‌ی تلپورت دستی (نه فارم)
 tweenTo = function(cf, keepGoing, manual)
 	local root = getRoot()
 	if not root or not cf then return false end
 	if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
+	if (root.Position - cf.Position).Magnitude > 1500 then
+		pcall(portalHop, cf.Position, keepGoing)
+		root = getRoot()
+		if not root then return false end
+	end
 	local dist = (root.Position - cf.Position).Magnitude
 	if dist <= 10 then
 		root.CFrame = cf
@@ -1742,13 +1796,23 @@ do
 			task.wait(3)
 			return
 		end
-		if not hasQuest(elite) then
+		-- متن کوئست Elite ممکنه اسم باس رو نداشته باشه؛ پس هر کوئست فعالِ تموم‌نشده رو کوئست Elite حساب می‌کنیم
+		local g = questGui()
+		local title = ""
+		pcall(function() title = g.Container.QuestTitle.Title.Text end)
+		local active = g and g.Visible and not questDone(title)
+		if not active then
 			S.Status = "Elite Hunter: taking quest"
 			invoke("EliteHunter")
-			task.wait(1)
+			task.wait(1.5)
 			return
 		end
-		fightBoss(elite, keep)
+		-- اگه کوئست اسم یه Elite دیگه رو داره، همون رو بزن
+		for _, n in ipairs(ELITES) do
+			if title:lower():find(n:lower(), 1, true) then elite = n end
+		end
+		S.Status = "Elite Hunter: hunting " .. elite
+		if not fightBoss(elite, keep) then task.wait(1) end
 	end
 
 	local function stepYama(keep)
@@ -3917,6 +3981,19 @@ local QUICK_PLACES = {
 		{ "Hot and Cold", Vector3.new(-5734.3, 49.4, -5146.4) },
 		{ "Ice Castle", Vector3.new(6062.3, 155.3, -6880.9) },
 		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
+	},
+	[3] = {
+		{ "Castle on the Sea", Vector3.new(-5027.0, 316.5, -3206.7) },
+		{ "Mansion", Vector3.new(-12463.6, 378.3, -7566.1) },
+		{ "Hydra Island", Vector3.new(5650.9, 1017.3, -350.4) },
+		{ "Port Town", Vector3.new(-290.1, 42.9, 5581.6) },
+		{ "Great Tree", Vector3.new(2180.5, 27.8, -6741.6) },
+		{ "Floating Turtle", Vector3.new(-13234.0, 331.5, -7625.4) },
+		{ "Haunted Castle", Vector3.new(-9515.0, 164.0, 5786.0) },
+		{ "Sea of Treats (Cake)", Vector3.new(-2021.3, 37.8, -12028.7) },
+		{ "Peanut / Ice Cream Island", Vector3.new(-820.7, 65.8, -10965.8) },
+		{ "Chocolate Island", Vector3.new(233.2, 29.9, -12201.2) },
+		{ "Tiki Outpost", Vector3.new(-16547.8, 61.1, -173.4) },
 	},
 }
 Tp:Section("Quick Places (Sea " .. (Sea > 0 and Sea or "?") .. ")")
