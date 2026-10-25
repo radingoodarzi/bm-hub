@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.13" }
+local Hub = { Connections = {}, Running = true, Version = "1.14" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -130,6 +130,7 @@ local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
+	ShipHome = "", ArenaHome = "",
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
 	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true,
@@ -319,6 +320,93 @@ tweenTo = function(cf, keepGoing, manual)
 	if activeTween == t then activeTween = nil end
 	local r = getRoot()
 	return r ~= nil and (r.Position - cf.Position).Magnitude < 20
+end
+
+---------------------------------------------------------------------
+-- Home Point: بعد از ریست، خود سرور تو رو کنار Home زنده می‌کنه (تلپورت قانونی)
+---------------------------------------------------------------------
+local HomePoint = {
+	ShipHint = Vector3.new(863.5, 121.4, 32857.6), -- Set Home Point روی Cursed Ship (از اسکن)
+	DarkArena = Vector3.new(3807.1, 11.8, -3452.2),
+}
+
+function HomePoint.points()
+	local out = {}
+	for _, folder in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
+		if folder then
+			for _, n in ipairs(folder:GetChildren()) do
+				if n.Name == "Set Home Point" then
+					local ok, cf = pcall(function() return n:GetPivot() end)
+					if ok and cf.Position.Y > -500 then table.insert(out, cf) end
+				end
+			end
+		end
+	end
+	return out
+end
+
+function HomePoint.nearest(pos)
+	local best, bestDist
+	for _, cf in ipairs(HomePoint.points()) do
+		local d = (cf.Position - pos).Magnitude
+		if not bestDist or d < bestDist then best, bestDist = cf, d end
+	end
+	return best, bestDist
+end
+
+function HomePoint.current()
+	return dataValue("SpawnPoint")
+end
+
+-- مثل دیالوگ خود NPC: کنارش وایمیستیم و SetSpawnPoint می‌فرستیم
+function HomePoint.set(cf, keepGoing)
+	if not tweenTo(cf * CFrame.new(0, 0, 4), keepGoing) then return false end
+	task.wait(0.4)
+	local before = HomePoint.current()
+	local res = invoke("SetSpawnPoint")
+	task.wait(0.8)
+	local now = HomePoint.current()
+	return now ~= nil and (now ~= before or res == true), now
+end
+
+-- مثل دکمه‌ی Reset خود Roblox
+function HomePoint.respawn()
+	local hum = getHum()
+	if not hum then return false end
+	stopTween()
+	local oldChar = getChar()
+	hum.Health = 0
+	local t = 0
+	while t < 20 do
+		t += task.wait(0.25)
+		local c = getChar()
+		local h = getHum()
+		if c and c ~= oldChar and c:FindFirstChild("HumanoidRootPart") and h and h.Health > 0 then
+			task.wait(0.5)
+			return true
+		end
+	end
+	return false
+end
+
+-- اگه Home الان همون‌جاست فقط ریست؛ وگرنه یه بار میریم و Home رو اونجا میذاریم
+function HomePoint.travel(key, homeCF, finalPos)
+	if not homeCF then
+		if notifyHook then notifyHook("Home Point", "No Set Home Point found for this place", 5) end
+		return
+	end
+	if S[key] ~= "" and HomePoint.current() == S[key] then
+		S.Status = "Respawning at home ⚡"
+		HomePoint.respawn()
+	else
+		S.Status = "Setting home here (first time only)..."
+		local ok, name = HomePoint.set(homeCF)
+		if ok and name then S[key] = name end
+		if notifyHook then
+			notifyHook("Home Point", ok and "Home set ✔ next time it's instant" or "Couldn't set home (Pirates only?)", 6)
+		end
+	end
+	if finalPos then tweenTo(CFrame.new(finalPos + Vector3.new(0, 40, 0)), nil, true) end
 end
 
 ---------------------------------------------------------------------
@@ -2658,6 +2746,20 @@ local QUICK_PLACES = {
 		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
 	},
 }
+Tp:Section("Home Point ⚡ (respawn teleport)")
+Tp:Label(function() return "Current home: <font color=\"#00D2FF\">" .. tostring(HomePoint.current() or "?") .. "</font>" end)
+Tp:Button("Cursed Ship ⚡ (via Home)", function()
+	if Sea ~= 2 then return notify("Teleport", "Cursed Ship is in Sea 2") end
+	HomePoint.travel("ShipHome", HomePoint.nearest(HomePoint.ShipHint) or CFrame.new(HomePoint.ShipHint), nil)
+end)
+Tp:Button("Dark Arena ⚡ (via Home)", function()
+	if Sea ~= 2 then return notify("Teleport", "Dark Arena is in Sea 2") end
+	HomePoint.travel("ArenaHome", HomePoint.nearest(HomePoint.DarkArena), HomePoint.DarkArena)
+end)
+Tp:Button("Go Home now (respawn)", function()
+	HomePoint.respawn()
+end)
+Tp:Label(function() return "First press flies there & sets Home. After that: instant respawn." end)
 Tp:Section("Game Portals ⚡")
 for _, p in ipairs(FastTP.Portals) do
 	if p.sea == Sea then
