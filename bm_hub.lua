@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.23" }
+local Hub = { Connections = {}, Running = true, Version = "1.24" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -2238,15 +2238,16 @@ local function applyLogo(holder)
 end
 
 local Theme = {
-	Bg = Color3.fromRGB(12, 13, 19),
-	Panel = Color3.fromRGB(18, 19, 28),
-	Card = Color3.fromRGB(25, 26, 38),
-	CardHover = Color3.fromRGB(33, 35, 52),
-	Text = Color3.fromRGB(236, 239, 255),
-	SubText = Color3.fromRGB(135, 140, 168),
-	Accent1 = Color3.fromRGB(130, 90, 255),
+	-- تم BloxyMax: مشکی + آبی (هماهنگ با لوگو)
+	Bg = Color3.fromRGB(7, 8, 10),
+	Panel = Color3.fromRGB(13, 14, 17),
+	Card = Color3.fromRGB(20, 22, 26),
+	CardHover = Color3.fromRGB(28, 32, 40),
+	Text = Color3.fromRGB(238, 242, 250),
+	SubText = Color3.fromRGB(128, 138, 156),
+	Accent1 = Color3.fromRGB(0, 110, 255),
 	Accent2 = Color3.fromRGB(0, 210, 255),
-	Off = Color3.fromRGB(52, 54, 74),
+	Off = Color3.fromRGB(44, 48, 56),
 }
 
 local function new(class, props, children)
@@ -2347,7 +2348,7 @@ local main = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(0, 0),
 	BackgroundColor3 = Theme.Bg, ClipsDescendants = true, Visible = false, Parent = root,
 }, { corner(14) })
-new("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(22, 22, 34), Color3.fromRGB(10, 10, 16)), Rotation = 90, Parent = main })
+new("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(16, 17, 20), Color3.fromRGB(5, 6, 8)), Rotation = 90, Parent = main })
 local mainStroke = new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 2, Parent = main })
 animated(gradient(), 70).Parent = mainStroke
 
@@ -2779,7 +2780,7 @@ Home:Profile()
 Home:Section("Stats")
 Home:Label(function() return "Level:  <font color=\"#00D2FF\">" .. formatNumber(dataValue("Level") or 0) .. "</font>" end)
 Home:Label(function() return "Beli:  <font color=\"#7CFF9B\">$" .. formatNumber(dataValue("Beli") or 0) .. "</font>" end)
-Home:Label(function() return "Fragments:  <font color=\"#C79BFF\">" .. formatNumber(dataValue("Fragments") or 0) .. "</font>" end)
+Home:Label(function() return "Fragments:  <font color=\"#7FC8FF\">" .. formatNumber(dataValue("Fragments") or 0) .. "</font>" end)
 Home:Label(function() return "Stat Points:  " .. formatNumber(dataValue("Points") or 0) end)
 Home:Label(function() return "Status:  <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
 Home:Section("Info")
