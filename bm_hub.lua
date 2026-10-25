@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.10.1" }
+local Hub = { Connections = {}, Running = true, Version = "1.10.2" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -141,6 +141,7 @@ local S = {
 	AutoHaki = true,
 	AutoStats = false, StatType = "Melee", StatAmount = 3,
 	AutoChest = false, AutoFruit = false, AutoStore = false, AutoRandomFruit = false,
+	FruitMinBeli = 500000, FruitMinBeliK = 500, FruitMaxBuys = 3,
 	FruitESP = false, ChestESP = false, PlayerESP = false,
 	SpeedOn = false, WalkSpeed = 60, JumpOn = false, JumpPower = 80,
 	Noclip = false, InfJump = false, AntiAFK = true,
@@ -1376,14 +1377,29 @@ local function buyRandomFruit()
 	return false, "no response (cooldown / not enough beli?)"
 end
 
+-- محدودیت‌های ایمنی: حداقل بلی که نگه داره + حداکثر خرید در هر بار روشن کردن
+Hub.FruitBuys = 0
 task.spawn(function()
 	local delay = 30
 	while Hub.Running do
 		if S.AutoRandomFruit then
-			local ok, info = buyRandomFruit()
-			S.Status = "Random fruit: " .. info
-			-- اگه نشد کم‌کم صبر بیشتر (تا 5 دقیقه)
-			delay = ok and 30 or math.min(delay * 2, 300)
+			local beli = dataValue("Beli") or 0
+			if beli < S.FruitMinBeli then
+				S.AutoRandomFruit = false
+				if notifyHook then notifyHook("Auto Random Fruit", "Stopped: beli below " .. S.FruitMinBeli, 6) end
+			elseif Hub.FruitBuys >= S.FruitMaxBuys then
+				S.AutoRandomFruit = false
+				if notifyHook then notifyHook("Auto Random Fruit", "Stopped: bought " .. Hub.FruitBuys .. " fruits (limit)", 6) end
+			else
+				local ok, info = buyRandomFruit()
+				S.Status = "Random fruit: " .. info
+				if ok then
+					Hub.FruitBuys += 1
+					if notifyHook then notifyHook("Random Fruit (" .. Hub.FruitBuys .. "/" .. S.FruitMaxBuys .. ")", info, 4) end
+				end
+				-- اگه نشد کم‌کم صبر بیشتر (تا 5 دقیقه)
+				delay = ok and 30 or math.min(delay * 2, 300)
+			end
 		end
 		task.wait(delay)
 	end
@@ -2311,7 +2327,8 @@ end
 -- Settings save / load (پوشه‌ی workspace خود executor)
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
-local SKIP_SAVE = { Status = true }
+-- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true }
 
 local function saveSettings()
 	local data = {}
@@ -2558,7 +2575,11 @@ Fruit:Toggle("Auto Collect Fruits", "AutoFruit", function(on)
 	if not on then stopTween() end
 end)
 Fruit:Toggle("Auto Store Fruits", "AutoStore")
-Fruit:Toggle("Auto Random Fruit (Cousin)", "AutoRandomFruit")
+Fruit:Toggle("Auto Random Fruit (spends beli!)", "AutoRandomFruit", function(on)
+	if on then Hub.FruitBuys = 0 end
+end)
+Fruit:Slider("Keep At Least Beli (x1000)", 0, 5000, "FruitMinBeliK", function(v) S.FruitMinBeli = v * 1000 end)
+Fruit:Slider("Max Fruits Per Run", 1, 20, "FruitMaxBuys")
 Fruit:Toggle("Fruit ESP", "FruitESP")
 Fruit:Toggle("Fruit Spawn Alert", "FruitNotify")
 Fruit:Button("Buy Random Fruit", function()
