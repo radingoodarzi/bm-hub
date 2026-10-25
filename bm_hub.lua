@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.19" }
+local Hub = { Connections = {}, Running = true, Version = "1.20" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -146,7 +146,7 @@ local S = {
 	FruitMinBeli = 500000, FruitMinBeliK = 500, FruitMaxBuys = 3,
 	FruitESP = false, ChestESP = false, PlayerESP = false,
 	SpeedOn = false, WalkSpeed = 60, JumpOn = false, JumpPower = 80,
-	Noclip = false, InfJump = false, AntiAFK = true,
+	Noclip = false, InfJump = false, AntiAFK = true, WalkOnWater = false, AutoBerries = false, Fullbright = false, NoFog = false,
 	SelectedIsland = nil, SelectedNPC = nil, SelectedPlayer = nil,
 	Status = "Idle",
 }
@@ -179,7 +179,7 @@ end
 
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
-		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
+		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
 end
 
 ---------------------------------------------------------------------
@@ -1723,6 +1723,131 @@ connect(RunService.Heartbeat, function()
 	if not anyFarm() and not activeTween then setFloat(false) end
 end)
 
+---------------------------------------------------------------------
+-- راه رفتن روی آب، بری‌ها، نور و مه
+---------------------------------------------------------------------
+do
+	-- سطح آب از قطعه‌ی WaterBody خود بازی؛ یه سکوی نامرئی محلی زیر پا میذاریم (فقط روی کامپیوتر خودت)
+	local platform, waterY, waterCheck = nil, nil, 0
+	local function readWaterTop()
+		local ok, list = pcall(CollectionService.GetTagged, CollectionService, "WaterBody")
+		local w = ok and list[1]
+		if not w then return nil end
+		if w:IsA("BasePart") then return w.Position.Y + w.Size.Y / 2 end
+		if w:IsA("Model") then
+			local cf, size = w:GetBoundingBox()
+			return cf.Position.Y + size.Y / 2
+		end
+	end
+	connect(RunService.Heartbeat, function()
+		if not S.WalkOnWater then
+			if platform then
+				platform:Destroy()
+				platform = nil
+			end
+			return
+		end
+		if tick() - waterCheck > 5 then
+			waterCheck = tick()
+			waterY = readWaterTop() or waterY
+		end
+		local root = getRoot()
+		if not root or not waterY then return end
+		if not platform then
+			platform = Instance.new("Part")
+			platform.Name = "BMWaterWalk"
+			platform.Anchored = true
+			platform.Transparency = 1
+			platform.Size = Vector3.new(24, 1, 24)
+			platform.CanQuery = false
+			platform.Parent = workspace
+		end
+		-- فقط وقتی نزدیک سطح آبی (نه وقتی بالای جزیره یا زیر آب)
+		if root.Position.Y > waterY - 2 and root.Position.Y < waterY + 12 then
+			platform.CanCollide = true
+			platform.CFrame = CFrame.new(root.Position.X, waterY - 0.5, root.Position.Z)
+		else
+			platform.CanCollide = false
+		end
+	end)
+
+	-- بری‌ها: مثل بازیکن واقعی دکمه‌ی E خود بازی (ProximityPrompt) رو می‌زنیم
+	local function promptPos(p)
+		local par = p.Parent
+		if par and par:IsA("Attachment") then return par.WorldPosition end
+		if par and par:IsA("BasePart") then return par.Position end
+		if par and par:IsA("Model") then return par:GetPivot().Position end
+	end
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(1)
+			if S.AutoBerries and alive() and not mainFarmBusy() then
+				pcall(function()
+					local root = getRoot()
+					local best, bestDist, bestPos
+					for _, bush in ipairs(CollectionService:GetTagged("BerryBush")) do
+						for _, d in ipairs(bush:GetDescendants()) do
+							if d:IsA("ProximityPrompt") and d.Enabled then
+								local pos = promptPos(d)
+								if pos then
+									local dist = (pos - root.Position).Magnitude
+									if not bestDist or dist < bestDist then best, bestDist, bestPos = d, dist, pos end
+								end
+							end
+						end
+					end
+					if not best then
+						S.Status = "No berries ready nearby"
+						task.wait(4)
+						return
+					end
+					S.Status = "Collecting berry"
+					tweenTo(CFrame.new(bestPos + Vector3.new(0, 3, 0)), function() return S.AutoBerries and best.Parent ~= nil end)
+					task.wait(0.3)
+					if fireproximityprompt then pcall(fireproximityprompt, best) end
+					task.wait(0.6)
+				end)
+			end
+		end
+	end)
+
+	-- نور کامل و بدون مه (فقط روی صفحه‌ی خودت)
+	local saved = {}
+	local function applyLighting()
+		if S.Fullbright or S.NoFog then
+			if not saved.stored then
+				saved = { stored = true, Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd,
+					GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient }
+			end
+			if S.Fullbright then
+				Lighting.Brightness = 2
+				Lighting.ClockTime = 14
+				Lighting.GlobalShadows = false
+				Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+			end
+			if S.NoFog then
+				Lighting.FogEnd = 1e9
+				for _, a in ipairs(Lighting:GetChildren()) do
+					if a:IsA("Atmosphere") then a.Density = 0 end
+				end
+			end
+		elseif saved.stored then
+			Lighting.Brightness = saved.Brightness
+			Lighting.ClockTime = saved.ClockTime
+			Lighting.FogEnd = saved.FogEnd
+			Lighting.GlobalShadows = saved.GlobalShadows
+			Lighting.Ambient = saved.Ambient
+			saved = {}
+		end
+	end
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(1)
+			pcall(applyLighting)
+		end
+	end)
+end
+
 connect(UserInputService.JumpRequest, function()
 	if S.InfJump then
 		local hum = getHum()
@@ -2846,6 +2971,11 @@ Fruit:Button("Find Fruits In Server", function()
 	for _, f in ipairs(list) do table.insert(names, f.obj.Name) end
 	notify("Fruits (" .. #list .. ")", table.concat(names, ", "), 6)
 end)
+Fruit:Section("Berries")
+Fruit:Toggle("Auto Collect Berries", "AutoBerries", function(on)
+	if not on then stopTween() end
+end)
+Fruit:Label(function() return "Berry bushes loaded: " .. #CollectionService:GetTagged("BerryBush") end)
 Fruit:Section("Chests")
 Fruit:Toggle("Auto Chest", "AutoChest", function(on)
 	if not on then stopTween() end
@@ -2928,6 +3058,10 @@ end)
 Misc:Slider("Jump", 50, 300, "JumpPower")
 Misc:Toggle("Infinite Jump", "InfJump")
 Misc:Toggle("Noclip", "Noclip")
+Misc:Toggle("Walk on Water", "WalkOnWater")
+Misc:Section("Visual")
+Misc:Toggle("Fullbright (always bright)", "Fullbright")
+Misc:Toggle("No Fog", "NoFog")
 Misc:Section("Server")
 Misc:Toggle("Anti AFK", "AntiAFK")
 Misc:Button("Server Hop", function()
