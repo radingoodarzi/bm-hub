@@ -8,8 +8,8 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 
-local SPEEDS = { 350, 400, 450, 500, 600 }
-local DISTANCE = 300
+local SPEEDS = { 800, 1200, 1800, 2500, 3500, 5000 }
+local DISTANCE = 700
 local SAFE_BACK_SPEED = 250
 
 local out = { "== BM SPEED TEST ==" }
