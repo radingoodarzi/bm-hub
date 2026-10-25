@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.14" }
+local Hub = { Connections = {}, Running = true, Version = "1.15" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1968,6 +1968,40 @@ end
 ---------------------------------------------------------------------
 -- UI
 ---------------------------------------------------------------------
+-- لوگوی BloxyMax: یه بار از گیت‌هاب دانلود میشه توی پوشه‌ی executor و با getcustomasset نمایش داده میشه
+local LOGO
+pcall(function()
+	if not (getcustomasset and writefile and isfile) then return end
+	pcall(function()
+		if makefolder and not (isfolder and isfolder("BMHub")) then makefolder("BMHub") end
+	end)
+	local path = "BMHub/logo.png"
+	if not isfile(path) then
+		writefile(path, game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/assets/logo.png"))
+	end
+	LOGO = getcustomasset(path)
+end)
+
+-- اگه لوگو در دسترس باشه، جای متن "BM" رو می‌گیره؛ وگرنه همون متن می‌مونه
+local function applyLogo(holder)
+	if not LOGO then return nil end
+	for _, c in ipairs(holder:GetChildren()) do
+		if c:IsA("TextLabel") then c.Visible = false end
+	end
+	if holder:IsA("TextButton") then holder.Text = "" end
+	holder.BackgroundTransparency = 1
+	local img = Instance.new("ImageLabel")
+	img.Name = "Logo"
+	img.BackgroundTransparency = 1
+	img.Size = UDim2.fromScale(1, 1)
+	img.Image = LOGO
+	img.ScaleType = Enum.ScaleType.Fit
+	img.ZIndex = holder.ZIndex + 1
+	img.Parent = holder
+	Instance.new("UICorner", img).CornerRadius = UDim.new(1, 0)
+	return img
+end
+
 local Theme = {
 	Bg = Color3.fromRGB(12, 13, 19),
 	Panel = Color3.fromRGB(18, 19, 28),
@@ -2107,6 +2141,7 @@ new("TextLabel", {
 	BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBlack, TextSize = 14,
 	TextColor3 = Color3.new(1, 1, 1), Text = "BM", Parent = logo,
 })
+applyLogo(logo)
 local titleLbl = new("TextLabel", {
 	BackgroundTransparency = 1, Position = UDim2.fromOffset(54, 7), Size = UDim2.fromOffset(200, 22),
 	Font = Enum.Font.GothamBlack, TextSize = 19, TextColor3 = Color3.new(1, 1, 1), TextXAlignment = Enum.TextXAlignment.Left,
@@ -3018,6 +3053,7 @@ local floatBtn = new("TextButton", {
 }, { corner(26) })
 animated(gradient(), 120).Parent = floatBtn
 new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 2, Transparency = 0.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = floatBtn })
+applyLogo(floatBtn)
 local floatScale = new("UIScale", { Parent = floatBtn })
 makeDraggable(floatBtn, floatBtn, function()
 	floatScale.Scale = 0.85
@@ -3052,6 +3088,12 @@ local function playSplash()
 		BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBlack, TextSize = 18,
 		TextColor3 = Color3.new(1, 1, 1), TextTransparency = 1, Text = "BM", Parent = bigLogo,
 	})
+	local bigLogoImg = applyLogo(bigLogo)
+	if bigLogoImg then
+		bigLogo.Size = UDim2.fromOffset(56, 56)
+		bigLogo.Position = UDim2.new(0.5, 0, 0, 10)
+		bigLogoImg.ImageTransparency = 1
+	end
 	local sTitle = new("TextLabel", {
 		BackgroundTransparency = 1, Position = UDim2.fromOffset(0, 70), Size = UDim2.new(1, 0, 0, 36),
 		Font = Enum.Font.GothamBlack, TextSize = 32, TextColor3 = Color3.new(1, 1, 1), TextTransparency = 1,
@@ -3074,7 +3116,8 @@ local function playSplash()
 	tween(sScale, 0.7, { Scale = 1 }, Enum.EasingStyle.Back)
 	tween(splash, fade, { BackgroundTransparency = 0.05 })
 	tween(sStroke, fade, { Transparency = 0 })
-	tween(bigLogo, fade, { BackgroundTransparency = 0 })
+	tween(bigLogo, fade, { BackgroundTransparency = bigLogoImg and 1 or 0 })
+	if bigLogoImg then tween(bigLogoImg, fade, { ImageTransparency = 0 }) end
 	tween(bigLogoText, fade, { TextTransparency = 0 })
 	tween(sTitle, fade, { TextTransparency = 0 })
 	tween(sSub, fade, { TextTransparency = 0 })
@@ -3087,6 +3130,7 @@ local function playSplash()
 	tween(sScale, 0.5, { Scale = 1.15 })
 	for _, o in ipairs(splash:GetDescendants()) do
 		if o:IsA("TextLabel") then tween(o, 0.4, { TextTransparency = 1 }) end
+		if o:IsA("ImageLabel") then tween(o, 0.4, { ImageTransparency = 1 }) end
 		if o:IsA("Frame") then tween(o, 0.4, { BackgroundTransparency = 1 }) end
 		if o:IsA("UIStroke") then tween(o, 0.4, { Transparency = 1 }) end
 	end
