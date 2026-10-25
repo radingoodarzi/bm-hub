@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.22" }
+local Hub = { Connections = {}, Running = true, Version = "1.23" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1024,10 +1024,12 @@ task.spawn(function()
 	end
 end)
 
+do
 -- Sea 2: Factory (Core) و Ectoplasm (ماب‌های Cursed Ship)
 local FACTORY_POS = Vector3.new(431, 238, -433)
 local CURSED_SHIP_POS = Vector3.new(900.9, 144, 33072.6)
 local ECTO_MOBS = { "Ship Deckhand", "Ship Engineer", "Ship Steward", "Ship Officer" }
+local ECTO_BOSSES = { "Cursed Captain" }
 
 task.spawn(function()
 	while Hub.Running do
@@ -1051,6 +1053,19 @@ task.spawn(function()
 		elseif S.AutoEcto and alive() then
 			local keep = function() return S.AutoEcto end
 			local ok, err = pcall(function()
+				-- اگه باس کشتی اسپاون شده، اول اون
+				for _, bossName in ipairs(ECTO_BOSSES) do
+					local boss = findMobAnywhere(bossName)
+					if boss then
+						if boss.Parent ~= workspace:FindFirstChild("Enemies") then
+							S.Status = "Going to " .. bossName
+							tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmDistance, 0), keep)
+						else
+							killMob(boss, keep)
+						end
+						return
+					end
+				end
 				-- بهترین کوئست کشتی برای لولت (پول و XP بیشتر کنار Ectoplasm)
 				local shipQuest
 				local lv = dataValue("Level") or 1
@@ -1092,6 +1107,7 @@ task.spawn(function()
 		end
 	end
 end)
+end -- Factory / Ectoplasm
 
 ---------------------------------------------------------------------
 -- Sea 2 items (Rengoku, Dragon Trident, Legendary Sword Dealer)
@@ -1388,6 +1404,7 @@ do
 	end)
 end
 
+do
 -- خرید خودکار شمشیر افسانه‌ای: وقتی Dealer اسپاون شد میره پیشش و مثل دیالوگ خود بازی (1,2,3) می‌خره
 local LEGENDARY_SWORDS = { "Shisui", "Saddi", "Wando" }
 local LEGENDARY_PRICE = 2000000
@@ -1444,6 +1461,7 @@ task.spawn(function()
 		end
 	end
 end)
+end -- شمشیر افسانه‌ای
 
 -- Chests
 local chestCache, chestCacheTime = {}, 0
