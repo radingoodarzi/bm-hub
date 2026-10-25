@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.17" }
+local Hub = { Connections = {}, Running = true, Version = "1.18" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -133,7 +133,7 @@ local S = {
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
-	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true, AutoLegendary = false,
+	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true, AutoLegendary = false, AutoAllBosses = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
 	CPUSaver = false, FPSCapOn = false, FPSCap = 30, AutoRejoin = true, StatType2 = "None",
@@ -173,12 +173,12 @@ local function dataValue(name)
 end
 -- فارم‌های اصلی اولویت دارن؛ صندوق/میوه وقتی اینا روشنن صبر می‌کنن تا سر حرکت دعوا نشه
 local function mainFarmBusy()
-	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident
+	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses
 end
 
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
-		or S.AutoRengoku or S.AutoTrident
+		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses
 end
 
 ---------------------------------------------------------------------
@@ -1496,6 +1496,38 @@ local function bossNames()
 	return out
 end
 
+-- همه‌ی باس‌های اسپاون‌شده‌ی این Sea یکی‌یکی (نزدیک‌ترین اول)، با کوئستشون اگه Take Boss Quest روشن باشه
+task.spawn(function()
+	while Hub.Running do
+		task.wait(0.5)
+		if S.AutoAllBosses and alive() then
+			local keep = function() return S.AutoAllBosses end
+			local ok, err = pcall(function()
+				local root = getRoot()
+				local target, bestDist
+				for _, name in ipairs(bossNames()) do
+					local b = findMobAnywhere(name)
+					if b then
+						local d = (b:GetPivot().Position - root.Position).Magnitude
+						if not bestDist or d < bestDist then target, bestDist = name, d end
+					end
+				end
+				if not target then
+					S.Status = "No bosses spawned right now"
+					task.wait(3)
+					return
+				end
+				local q = questForMob(target)
+				if S.BossQuest and q and not questBlocked(q) and not hasQuest(q.mob) then
+					takeQuest(q, keep)
+				end
+				fightBoss(target, keep)
+			end)
+			if not ok then logError("AutoAllBosses", err) end
+		end
+	end
+end)
+
 task.spawn(function()
 	local present, first = {}, true
 	while Hub.Running do
@@ -2082,6 +2114,8 @@ local pageHolder = new("Frame", {
 local Pages, Tabs, tabCount = {}, {}, 0
 local currentPage
 local dynamicLabels = {}
+-- کلیدها با وضعیت واقعی هماهنگ می‌مونن (وقتی اسکریپت خودش یه گزینه رو خاموش می‌کنه)
+local toggleSyncers = {}
 
 local function hoverCard(card, trigger)
 	trigger.MouseEnter:Connect(function() tween(card, 0.15, { BackgroundColor3 = Theme.CardHover }) end)
@@ -2183,8 +2217,10 @@ local function createTab(name, icon)
 			AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(16, 16),
 			BackgroundColor3 = Color3.fromRGB(190, 192, 210), Parent = sw,
 		}, { corner(8) })
+		local shown
 		local function render()
 			local on = S[key]
+			shown = on
 			swGrad.Enabled = on
 			tween(sw, 0.2, { BackgroundColor3 = on and Color3.new(1, 1, 1) or Theme.Off })
 			tween(knob, 0.3, {
@@ -2200,6 +2236,9 @@ local function createTab(name, icon)
 		end)
 		hoverCard(c, hit)
 		render()
+		table.insert(toggleSyncers, function()
+			if S[key] ~= shown then render() end
+		end)
 	end
 
 	function api:Button(text, cb)
@@ -2600,6 +2639,9 @@ Boss:Toggle("Auto Farm Boss", "AutoBoss", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
 Boss:Toggle("Take Boss Quest", "BossQuest")
+Boss:Toggle("Auto All Bosses (nearest spawned first)", "AutoAllBosses", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
 Boss:Button("Check Boss Spawned", function()
 	if not S.SelectedBoss then return notify("Boss", "Select a boss first") end
 	local b = findMobAnywhere(S.SelectedBoss)
@@ -2847,6 +2889,7 @@ task.spawn(function()
 				end
 			end
 		end)
+		for _, sync in ipairs(toggleSyncers) do pcall(sync) end
 		for _, d in ipairs(dynamicLabels) do
 			pcall(function() d.label.Text = d.fn() end)
 		end
