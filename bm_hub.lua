@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.12" }
+local Hub = { Connections = {}, Running = true, Version = "1.12.1" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -302,9 +302,12 @@ local function tryInstant(cf)
 		Hub.InstantOK = (Hub.InstantOK or 0) + 1
 		return true
 	end
+	-- سرور قبول نکرد (برگردوند یا کشت): کامل خاموش میشه که پشت سر هم رد نشه
 	instantBlockedUntil = tick() + 120
 	Hub.InstantRejected = (Hub.InstantRejected or 0) + 1
-	if notifyHook then notifyHook("Instant TP", "Server pulled you back — using flight for 2 min", 5) end
+	S.InstantTP = false
+	S.InstantTPFarm = false
+	if notifyHook then notifyHook("Instant TP", "Server rejected the jump — Instant TP turned OFF", 6) end
 	return false
 end
 
