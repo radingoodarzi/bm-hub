@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.32" }
+local Hub = { Connections = {}, Running = true, Version = "1.33" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -135,7 +135,7 @@ local S = {
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
 	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
-	AutoBoneGamble = false, AutoAbilities = false,
+	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true,
 	AutoTushita = false, AutoCDK = false, AutoRaceV2 = false, AutoRaceV3 = false, AutoSoulGuitar = false, AutoStyles = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
@@ -178,7 +178,7 @@ end
 local function mainFarmBusy()
 	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
-		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
 end
 
@@ -186,7 +186,7 @@ local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
-		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
 end
 
@@ -1891,12 +1891,35 @@ do
 		task.wait(0.2)
 	end
 
+	-- Pirate Raid: دزدهای دریایی که به Castle on the Sea حمله می‌کنن
+	local CASTLE = Vector3.new(-5100, 315, -3000)
+	local function stepPirateRaid(keep)
+		local enemies = workspace:FindFirstChild("Enemies")
+		local root = getRoot()
+		local best, bestDist
+		for _, m in ipairs(enemies and enemies:GetChildren() or {}) do
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - CASTLE).Magnitude < 900 then
+				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+				if not bestDist or d < bestDist then best, bestDist = m, d end
+			end
+		end
+		if not best then
+			S.Status = "Pirate Raid: waiting at Castle on the Sea"
+			tweenTo(CFrame.new(CASTLE + Vector3.new(0, 60, 0)), keep)
+			task.wait(2)
+			return
+		end
+		S.Status = "Pirate Raid: fighting " .. mobBaseName(best.Name)
+		killMob(best, keep)
+	end
+
 	task.spawn(function()
 		while Hub.Running do
 			task.wait(0.3)
 			if alive() then
 				local step, flag
 				if S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
+				elseif S.AutoPirateRaid and Sea == 3 then step, flag = stepPirateRaid, "AutoPirateRaid"
 				elseif S.AutoElite and Sea == 3 then step, flag = stepElite, "AutoElite"
 				elseif S.AutoYama and Sea == 3 then step, flag = stepYama, "AutoYama"
 				elseif S.AutoBone and Sea == 3 then step, flag = function(k) farmList(BONE_MOBS, k, HAUNTED) end, "AutoBone"
@@ -2633,6 +2656,37 @@ end)
 connect(workspace.ChildAdded, function(v)
 	if S.FruitNotify and notifyHook and (v:IsA("Tool") or v:IsA("Model")) and v.Name:find("Fruit") then
 		notifyHook("Fruit Spawned", v.Name .. " is on the map!", 8)
+	end
+end)
+
+-- رویدادهای دنیا (Mirage، Kitsune، Prehistoric، Frozen Dimension و ...) — فقط نگاه می‌کنه و خبر میده
+Hub.Events = {}
+task.spawn(function()
+	local KEYS = { "mirage", "mystic", "kitsune", "prehistoric", "frozen", "leviathan" }
+	local first = true
+	while Hub.Running do
+		pcall(function()
+			local found = {}
+			local wo = workspace:FindFirstChild("_WorldOrigin")
+			for _, folder in ipairs({ wo and wo:FindFirstChild("Locations"), workspace:FindFirstChild("Map") }) do
+				for _, c in ipairs(folder and folder:GetChildren() or {}) do
+					local l = c.Name:lower()
+					for _, k in ipairs(KEYS) do
+						if l:find(k, 1, true) and (c:IsA("BasePart") or c:IsA("Model")) then
+							found[k] = found[k] or c
+						end
+					end
+				end
+			end
+			for k, obj in pairs(found) do
+				if not Hub.Events[k] and not first and S.EventNotify and notifyHook then
+					notifyHook("World Event", obj.Name .. " spawned!", 10)
+				end
+			end
+			Hub.Events = found
+			first = false
+		end)
+		task.wait(5)
 	end
 end)
 
@@ -3758,6 +3812,28 @@ SeaEvents:Label(function()
 	local f = workspace:FindFirstChild("SeaBeasts")
 	return "Sea Beasts in server: " .. (f and #f:GetChildren() or 0)
 end)
+SeaEvents:Section("Pirate Raid (Sea 3, Castle on the Sea)")
+SeaEvents:Toggle("Auto Pirate Raid (kill raiders at Castle)", "AutoPirateRaid", function(on) if not on then stopTween() end end)
+SeaEvents:Section("World Events")
+SeaEvents:Toggle("Event Spawn Alert", "EventNotify")
+SeaEvents:Label(function()
+	local names = {}
+	for _, obj in pairs(Hub.Events) do table.insert(names, obj.Name) end
+	local full = false
+	pcall(function()
+		full = Lighting.Sky.MoonTextureId == "http://www.roblox.com/asset/?id=9709149431" and (Lighting.ClockTime > 16 or Lighting.ClockTime < 5)
+	end)
+	return "Events: " .. (#names > 0 and table.concat(names, ", ") or "none") .. "  •  Full moon night: " .. (full and "YES" or "no")
+end)
+for _, ev in ipairs({ { "Mirage Island", { "mirage", "mystic" } }, { "Kitsune Island", { "kitsune" } }, { "Prehistoric Island", { "prehistoric" } }, { "Frozen Dimension", { "frozen" } } }) do
+	SeaEvents:Button("Go to " .. ev[1], function()
+		local obj
+		for _, k in ipairs(ev[2]) do obj = obj or Hub.Events[k] end
+		if not obj then return notify(ev[1], "Not spawned in this server") end
+		local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
+		goTo(CFrame.new(pos + Vector3.new(0, 80, 0)))
+	end)
+end
 Farm:Section("Sea 2 Farms")
 Farm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
 	if not on then stopTween() S.Status = "Idle" end
