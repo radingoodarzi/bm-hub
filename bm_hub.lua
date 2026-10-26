@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.43" }
+local Hub = { Connections = {}, Running = true, Version = "1.44" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -3344,6 +3344,7 @@ local function debugReport()
 	for n in pairs(inventoryNames()) do table.insert(invNames, n) end
 	add("inventory (" .. #invNames .. "):", table.concat(invNames, ", "))
 	add("dealer spawned:", dealerPosition() ~= nil, "| hidden key:", backpackTool("Hidden Key") ~= nil)
+	pcall(function() add("bones:", materialCount("Bones"), "| gamble wait:", math.max(0, math.floor((Hub.BoneGambleWait or 0) - tick())), "s | Bones Check:", tostring(invoke("Bones", "Check")), "| AutoBone:", S.AutoBone, "AutoBoneGamble:", S.AutoBoneGamble) end)
 	add("errors:", #Hub.Errors > 0 and table.concat(Hub.Errors, " || ") or "none")
 	return table.concat(lines, "\n")
 end
@@ -3958,6 +3959,11 @@ end)
 Home:Button("Copy Debug Report", function()
 	local report = debugReport()
 	local copied = pcall(function() (setclipboard or toclipboard)(report) end)
+	-- کپی همیشه به Claude نمی‌رسه؛ توی فایل هم ذخیره می‌کنیم
+	pcall(function()
+		if makefolder and not (isfolder and isfolder("bmscan")) then makefolder("bmscan") end
+		writefile("bmscan/debug.txt", report)
+	end)
 	print(report)
 	notify("Debug Report", copied and "Copied ✔ — paste it to Claude" or "Printed to console (F9)", 5)
 end)
