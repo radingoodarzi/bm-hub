@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.38" }
+local Hub = { Connections = {}, Running = true, Version = "1.37" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1814,14 +1814,12 @@ do
 			end
 		end
 		if not best then
-			-- ماب کوئست هنوز لود نشده (مثلاً پیش NPC وایسادیم)؛ مستقیم میریم محل اسپاونش
-			local spot = inList and spawnCentroid(questMob) or waitPos
-			S.Status = "Going to " .. (inList and questMob or "mobs")
-			if (root.Position - spot).Magnitude > 60 then
-				tweenTo(CFrame.new(spot + Vector3.new(0, 40, 0)), keep)
+			S.Status = "Waiting for " .. (inList and questMob or "mobs") .. " to spawn"
+			-- فقط وقتی دوریم پرواز می‌کنیم؛ کنار جزیره همون‌جا صبر می‌کنیم
+			if (root.Position - waitPos).Magnitude > 300 then
+				tweenTo(CFrame.new(waitPos + Vector3.new(0, 40, 0)), keep)
 			else
-				S.Status = "Waiting for " .. (inList and questMob or "mobs") .. " to spawn"
-				task.wait(0.5)
+				task.wait(1)
 			end
 			return
 		end
