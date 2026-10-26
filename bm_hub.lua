@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.38" }
+local Hub = { Connections = {}, Running = true, Version = "1.39" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -646,6 +646,9 @@ local function hasQuest(mob)
 	if not ok then return mob == nil end
 	if questDone(txt) then return false end
 	if not mob then return true end
+	-- متن کوئست همیشه با اسم ماب یکی نیست (مثلاً Posessed/Possessed)؛ کوئستی که خودمون گرفتیم رو یادمونه
+	local mine = Hub.QuestTaken
+	if mine and mine.base == txt:gsub("%(.-%)", "") then return mine.mob == mob end
 	return txt:lower():find(mob:lower(), 1, true) ~= nil
 end
 
@@ -711,6 +714,10 @@ local function takeQuest(q, keepGoing)
 		if taken() then
 			questFailures[key] = 0
 			Hub.LastQuestTime = tick() - started
+			pcall(function()
+				local t = questGui().Container.QuestTitle.Title.Text
+				Hub.QuestTaken = { base = t:gsub("%(.-%)", ""), mob = q.mob }
+			end)
 			S.Status = ("Quest taken in %.1fs: %s"):format(Hub.LastQuestTime, q.mob)
 			return
 		end
@@ -994,6 +1001,7 @@ local function activeQuestMob()
 	if not title or title == "" or questDone(title) then return nil end
 	-- متن کوئست با پیشرفت عوض میشه، پس بدون (x/y) کش می‌کنیم
 	local base = title:gsub("%(.-%)", "")
+	if Hub.QuestTaken and Hub.QuestTaken.base == base then return Hub.QuestTaken.mob end
 	if questMobCache.title == base and tick() - questMobCache.t < 10 then return questMobCache.mob end
 	local lower = base:lower()
 	if tick() - candidateCache.t > 10 then
