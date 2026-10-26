@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.30" }
+local Hub = { Connections = {}, Running = true, Version = "1.31" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -38,7 +38,7 @@ end
 ---------------------------------------------------------------------
 -- Game info
 ---------------------------------------------------------------------
-local SEA_BY_PLACE = { [2753915549] = 1, [4442272183] = 2, [7449423635] = 3, [79091703265657] = 2 }
+local SEA_BY_PLACE = { [2753915549] = 1, [4442272183] = 2, [7449423635] = 3, [79091703265657] = 2, [100117331123089] = 3 }
 local Sea = SEA_BY_PLACE[game.PlaceId] or 0
 
 -- PlaceId ها عوض میشن، پس از اسم جزیره‌ها هم Sea رو تشخیص میدیم
@@ -247,27 +247,33 @@ local portalBusy, lastPortal = false, 0
 -- اگه «پرواز تا نقطه‌ی ورود + فاصله‌ی مقصد تا هدف» کوتاه‌تر از پرواز مستقیم باشه، از پورتال میریم
 portalHop = function(target, keepGoing)
 	local list = PORTALS[Sea]
-	local root = getRoot()
-	if portalBusy or not list or not root or tick() - lastPortal < 2 then return end
-	local best, bestCost
-	for _, p in ipairs(list) do
-		local cost = (target - p[1]).Magnitude + (root.Position - p[2]).Magnitude
-		if not bestCost or cost < bestCost then best, bestCost = p, cost end
-	end
-	if not best or bestCost >= (root.Position - target).Magnitude * 0.8 then return end
+	if portalBusy or not list or not getRoot() or tick() - lastPortal < 2 then return end
 	portalBusy = true
-	lastPortal = tick()
 	local prevStatus = S.Status
-	S.Status = "Using portal ⚡"
-	tweenTo(CFrame.new(best[2] + Vector3.new(0, 3, 0)), keepGoing)
-	task.wait(0.4)
-	if not CollectionService:HasTag(player, "Teleporting") then invoke("requestEntrance", best[1]) end
-	-- تا 4 ثانیه صبر می‌کنیم تا سرور جابجامون کنه
-	local t = 0
-	while t < 4 do
-		t += task.wait(0.1)
-		local r = getRoot()
-		if r and (r.Position - best[1]).Magnitude < (r.Position - best[2]).Magnitude then break end
+	-- تا 3 پورتال پشت سر هم (مثلاً Hydra → Castle → Mansion)
+	for _ = 1, 3 do
+		local root = getRoot()
+		if not root or (keepGoing and not keepGoing()) then break end
+		local best, bestCost
+		for _, p in ipairs(list) do
+			local cost = (target - p[1]).Magnitude + (root.Position - p[2]).Magnitude
+			if not bestCost or cost < bestCost then best, bestCost = p, cost end
+		end
+		if not best or bestCost >= (root.Position - target).Magnitude * 0.8 then break end
+		S.Status = "Using portal ⚡"
+		tweenTo(CFrame.new(best[2] + Vector3.new(0, 3, 0)), keepGoing)
+		task.wait(0.4)
+		if not CollectionService:HasTag(player, "Teleporting") then invoke("requestEntrance", best[1]) end
+		-- تا 4 ثانیه صبر می‌کنیم تا سرور جابجامون کنه
+		local moved, t = false, 0
+		while t < 4 do
+			t += task.wait(0.1)
+			local r = getRoot()
+			if r and (r.Position - best[1]).Magnitude < (r.Position - best[2]).Magnitude then moved = true break end
+		end
+		lastPortal = tick()
+		if not moved then break end
+		task.wait(0.5)
 	end
 	S.Status = prevStatus
 	portalBusy = false
