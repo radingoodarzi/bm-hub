@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.35" }
+local Hub = { Connections = {}, Running = true, Version = "1.36" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -672,9 +672,23 @@ local function takeQuest(q, keepGoing)
 	end
 	S.Status = "Taking quest: " .. q.mob
 	if not tweenTo(q.npc, keepGoing) then return end
+	-- جای ذخیره‌شده ممکنه چند قدم با NPC واقعی فرق کنه؛ الان که لود شده، خود NPC رو پیدا می‌کنیم
+	local npcCF, npcName = q.npc, "saved position"
+	pcall(function()
+		local bestD
+		for _, folder in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
+			for _, npc in ipairs(folder and folder:GetChildren() or {}) do
+				local d = (npc:GetPivot().Position - q.npc.Position).Magnitude
+				if npc.Name:find("Quest") and d < 80 and (not bestD or d < bestD) then
+					npcCF, npcName, bestD = npc:GetPivot(), npc.Name, d
+				end
+			end
+		end
+	end)
+	if npcCF ~= q.npc then tweenTo(npcCF, keepGoing) end
 	-- سرور موقعیت جدید رو با کمی تاخیر می‌بینه
 	setFloat(true)
-	task.wait(0.2)
+	task.wait(0.5)
 	-- متن کوئست همیشه دقیقاً اسم ماب نیست؛ هر کوئست فعال و تموم‌نشده یعنی گرفته شد
 	local function taken()
 		if hasQuest(q.mob) then return true end
@@ -688,7 +702,7 @@ local function takeQuest(q, keepGoing)
 		if (keepGoing and not keepGoing()) or not alive() then return end
 		S.Status = ("Taking quest: %s (try %d/2)"):format(q.mob, attempt)
 		local root = getRoot()
-		if root then root.CFrame = q.npc end
+		if root then root.CFrame = npcCF end
 		res = invoke("StartQuest", q.quest, q.index)
 		local waited = 0
 		while waited < 1.2 and not taken() do
@@ -702,10 +716,11 @@ local function takeQuest(q, keepGoing)
 		end
 	end
 	questFailures[key] = (questFailures[key] or 0) + 1
-	logError("StartQuest " .. key, "not accepted (" .. tostring(res) .. ")")
+	local r = getRoot()
+	logError("StartQuest " .. key, ("not accepted (%s) npc=%s dist=%.0f"):format(tostring(res), npcName, r and (r.Position - npcCF.Position).Magnitude or -1))
 	if questFailures[key] >= 2 then
 		-- مدت کوتاه بدون کوئست، بعد دوباره تلاش
-		questBlockedUntil[key] = tick() + 30
+		questBlockedUntil[key] = tick() + 120
 		questFailures[key] = 0
 	end
 end
@@ -1810,7 +1825,8 @@ do
 		end
 		local name = mobBaseName(best.Name)
 		local q = questForMob(name)
-		if S.TakeQuest and q and not inList and not questBlocked(q) and not hasQuest(name) then
+		-- Bone و ماب‌های کیک بدون کوئست هم دراپ میدن؛ کوئست فقط XP میده که توی لول مکس (2800) بی‌فایده‌ست
+		if S.TakeQuest and q and (dataValue("Level") or 0) < 2800 and not inList and not questBlocked(q) and not hasQuest(name) then
 			takeQuest(q, keep)
 			return
 		end
