@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.57" }
+local Hub = { Connections = {}, Running = true, Version = "1.58" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -4411,6 +4411,68 @@ do
 	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
 	T:Slider("Attack Range", 10, 150, "AttackRange")
 	T:Toggle("Bring Mobs", "BringMobs")
+	T:Button("Attack Test (stand next to a mob, hold your weapon)", function()
+		-- هر روش کلیک رو 4 ثانیه امتحان می‌کنه و کم شدن جون ماب رو توی لاگ می‌نویسه
+		task.spawn(function()
+			local log = Hub.LiveLog or print
+			local root, char = getRoot(), getChar()
+			local tool = char and char:FindFirstChildOfClass("Tool")
+			local best, bestD
+			for _, m in ipairs(workspace.Enemies:GetChildren()) do
+				if isAliveMob(m) then
+					local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+					if not bestD or d < bestD then best, bestD = m, d end
+				end
+			end
+			if not tool or not best or bestD > 12 then
+				return notify("Attack Test", "Hold a weapon and stand within 10 studs of a mob", 5)
+			end
+			local savedClick = S.AutoClick
+			S.AutoClick = false
+			local vs = camera.ViewportSize
+			-- یه نقطه از صفحه که هیچ UI روش نیست
+			local free = Vector2.new(vs.X * 0.5, vs.Y * 0.5)
+			local pg = player:FindFirstChild("PlayerGui")
+			for _, pt in ipairs({ { 0.5, 0.5 }, { 0.5, 0.35 }, { 0.3, 0.5 }, { 0.7, 0.6 }, { 0.5, 0.75 } }) do
+				local v = Vector2.new(vs.X * pt[1], vs.Y * pt[2])
+				local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(v.X, v.Y) end)
+				if ok and #objs == 0 then free = v break end
+			end
+			local methods = {
+				{ "tool:Activate()", function() tool:Activate() end },
+				{ "VirtualUser click", function()
+					Svc.VirtualUser:CaptureController()
+					Svc.VirtualUser:Button1Down(free, camera.CFrame)
+					task.wait(0.03)
+					Svc.VirtualUser:Button1Up(free, camera.CFrame)
+				end },
+				{ "VirtualInputManager click", function()
+					VIM:SendMouseButtonEvent(free.X, free.Y, 0, true, game, 0)
+					task.wait(0.03)
+					VIM:SendMouseButtonEvent(free.X, free.Y, 0, false, game, 0)
+				end },
+			}
+			log(("ATTACK TEST start: tool=%s[%s] mob=%s dist=%d freeClick=(%d,%d)"):format(tool.Name, tostring(tool.ToolTip), mobBaseName(best.Name), math.floor(bestD), free.X, free.Y))
+			notify("Attack Test", "Testing 3 methods (12 s)... don't touch the mouse", 5)
+			for _, m in ipairs(methods) do
+				local h = best:FindFirstChildOfClass("Humanoid")
+				if not h or h.Health <= 0 then break end
+				local before, err = h.Health, "ok"
+				local t0 = tick()
+				while tick() - t0 < 4 do
+					local r = getRoot()
+					local p = best.HumanoidRootPart.Position
+					if r then r.CFrame = CFrame.lookAt(r.Position, Vector3.new(p.X, r.Position.Y, p.Z)) end
+					local ok, e = pcall(m[2])
+					if not ok then err = tostring(e) end
+					task.wait(0.25)
+				end
+				log(("ATTACK TEST %s: hp %d -> %d (%s) err=%s"):format(m[1], math.floor(before), math.floor(h.Health), h.Health < before and "DAMAGE ✔" or "no damage", err))
+			end
+			S.AutoClick = savedClick
+			notify("Attack Test", "Done ✔ - tell Claude", 6)
+		end)
+	end)
 	T:Section("Haki & Race")
 	T:Toggle("Auto Haki (Buso)", "AutoHaki")
 	T:Toggle("Auto Observation (Ken)", "AutoKen")
