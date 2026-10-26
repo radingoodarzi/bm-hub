@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.44" }
+local Hub = { Connections = {}, Running = true, Version = "1.45" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1781,7 +1781,17 @@ end
 ---------------------------------------------------------------------
 local function materialCount(name)
 	local v = inventoryNames()[name]
-	return type(v) == "number" and v or 0
+	if type(v) == "number" and v > 0 then return v end
+	-- Bone توی لیست inventory نمیاد؛ خود Death King تعدادش رو میگه (کش 3 ثانیه)
+	if name == "Bones" then
+		local c = Hub.BoneCache
+		if not c or tick() - c.t > 3 then
+			c = { t = tick(), v = tonumber(invoke("Bones", "Check")) or 0 }
+			Hub.BoneCache = c
+		end
+		return c.v
+	end
+	return 0
 end
 
 do
@@ -1907,8 +1917,13 @@ do
 		if S.AutoBoneGamble and tick() > (Hub.BoneGambleWait or 0) and materialCount("Bones") >= 50 then
 			local dk
 			for _, f in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
-				local n = f and f:FindFirstChild("Death King")
-				if n and not dk then pcall(function() dk = n:GetPivot() end) end
+				for _, n in ipairs(f and f:GetChildren() or {}) do
+					if not dk and (n.Name:find("Death King") or n.Name:find("Halloween")) then pcall(function() dk = n:GetPivot() end) end
+				end
+			end
+			if not dk then
+				Hub.BoneGambleWait = tick() + 300
+				logError("BoneGamble", "Death King NPC not found")
 			end
 			if dk then
 				S.Status = "Bone: trading 50 bones at Death King"
@@ -1918,6 +1933,7 @@ do
 				local r = invoke("Bones", "Buy", 1, 1)
 				task.wait(0.6)
 				inventoryTime = 0
+				Hub.BoneCache = nil
 				if materialCount("Bones") >= before then
 					-- قبول نشد (احتمالاً سقف ترید هر 2 ساعت پر شده)؛ 5 دقیقه بعد دوباره
 					Hub.BoneGambleWait = tick() + 300
@@ -1926,7 +1942,9 @@ do
 				return
 			end
 		end
+		-- اگه موقع اجرای اسکریپت دور بودیم، این کوئست توی لیست نیست؛ خودمون می‌سازیمش
 		local q = questForMob("Posessed Mummy")
+			or { quest = "HauntedQuest2", index = 2, level = 2050, mob = "Posessed Mummy", npc = CFrame.new(-9516.99, 172.02, 6078.47) }
 		if mummyQuestActive() then
 			Hub.MummyGoneAt = nil
 		elseif S.TakeQuest and q and not questBlocked(q) then
@@ -2137,6 +2155,7 @@ do
 					invoke("Bones", "Buy", 1, 1)
 					task.wait(0.6)
 					inventoryTime = 0
+					Hub.BoneCache = nil
 					if materialCount("Bones") >= before then Hub.BoneGambleWait = tick() + 300 end
 				end
 			end
@@ -4081,7 +4100,7 @@ Farm:Label(function()
 end)
 Farm:Toggle("Auto Bone (Haunted Castle)", "AutoBone", function(on) if not on then stopTween() end end)
 Farm:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
-Farm:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) .. "  •  Death King: " .. tostring(invokeCached("boneCheck", 60, "Bones", "Check") or "?") .. " (turn on Auto Bone to trade)" end)
+Farm:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) .. "  (gamble trades with Auto Bone on)" end)
 Farm:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", function(on) if not on then stopTween() end end)
 Farm:Label(function()
 	if Sea ~= 3 then return "Cake Prince: Sea 3 only" end
