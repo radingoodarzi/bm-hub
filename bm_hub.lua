@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.54" }
+local Hub = { Connections = {}, Running = true, Version = "1.55" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -3396,6 +3396,29 @@ do
 					local pos = root and ("(%d, %d, %d)"):format(math.floor(root.Position.X), math.floor(root.Position.Y), math.floor(root.Position.Z)) or "dead"
 					push(("%s | pos %s | hp %d | moving %s"):format(state, pos, hum and math.floor(hum.Health) or 0, tostring(activeTween ~= nil)))
 					last, lastBeat = state, tick()
+				end
+				-- حمله: هر 3 ثانیه وقتی ماب نزدیکه (برای فهمیدن این‌که دمیج می‌خوره یا نه)
+				local char = getChar()
+				local enemies = workspace:FindFirstChild("Enemies")
+				if root and char and enemies and tick() - (Hub.AtkLogAt or 0) > 3 then
+					local near, best, bestD = 0, nil, nil
+					for _, m in ipairs(enemies:GetChildren()) do
+						if isAliveMob(m) then
+							local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+							if d <= S.AttackRange then near += 1 end
+							if not bestD or d < bestD then best, bestD = m, d end
+						end
+					end
+					if near > 0 then
+						Hub.AtkLogAt = tick()
+						local held = char:FindFirstChildOfClass("Tool")
+						local a = Hub.AttackInfo
+						local function flag(n) local v = char:FindFirstChild(n) return v and tostring(v.Value) or "-" end
+						push(("ATTACK held=%s near=%d target=%s hp=%d dist=%d | clicks=%d activates=%d err=%s | Stun=%s Busy=%s Sit=%s"):format(
+							held and (held.Name .. "[" .. tostring(held.ToolTip) .. "]") or "none", near, mobBaseName(best.Name),
+							math.floor(best.Humanoid.Health), math.floor(bestD), a.click, a.tool, tostring(a.lastError),
+							flag("Stun"), flag("Busy"), tostring(hum and hum.Sit)))
+					end
 				end
 				if dirty then
 					dirty = false
