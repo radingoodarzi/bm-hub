@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.31" }
+local Hub = { Connections = {}, Running = true, Version = "1.32" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -20,11 +20,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local TeleportService = game:GetService("TeleportService")
-local HttpService = game:GetService("HttpService")
+local Svc = { Teleport = game:GetService("TeleportService"), Http = game:GetService("HttpService"), VirtualUser = game:GetService("VirtualUser") }
 local CollectionService = game:GetService("CollectionService")
 local Lighting = game:GetService("Lighting")
-local VirtualUser = game:GetService("VirtualUser")
 
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
@@ -752,9 +750,9 @@ local function clickScreen()
 	local vs = camera.ViewportSize
 	local pos = Vector2.new(vs.X * 0.85, vs.Y * 0.45)
 	local ok, err = pcall(function()
-		VirtualUser:CaptureController()
-		VirtualUser:Button1Down(pos, camera.CFrame)
-		VirtualUser:Button1Up(pos, camera.CFrame)
+		Svc.VirtualUser:CaptureController()
+		Svc.VirtualUser:Button1Down(pos, camera.CFrame)
+		Svc.VirtualUser:Button1Up(pos, camera.CFrame)
 	end)
 	if not ok and VIM then
 		ok, err = pcall(function()
@@ -769,11 +767,11 @@ local function clickScreen()
 	end
 end
 
-local lastRemote = 0
+local cooldown = { remote = 0, click = 0, skill = 0 }
 local function remoteAttack(root)
 	if not (RegisterAttack and RegisterHit) then return end
-	if tick() - lastRemote < 0.1 then return end
-	lastRemote = tick()
+	if tick() - cooldown.remote < 0.1 then return end
+	cooldown.remote = tick()
 	local hits = {}
 	local enemies = workspace:FindFirstChild("Enemies")
 	if enemies then
@@ -795,14 +793,13 @@ local function remoteAttack(root)
 	end
 end
 
-local lastClick = 0
 local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
 	if S.FastAttack and (m == "Auto" or m == "Remote") then remoteAttack(root) end
-	if tick() - lastClick < 0.12 then return end
-	lastClick = tick()
+	if tick() - cooldown.click < 0.12 then return end
+	cooldown.click = tick()
 	if m == "Auto" or m == "Tool" then
 		local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
 		if tool and pcall(function() tool:Activate() end) then
@@ -814,10 +811,9 @@ end
 
 -- استفاده از اسکیل‌ها (Z X C V) با شبیه‌سازی کیبورد
 local SKILL_KEYS = { Z = Enum.KeyCode.Z, X = Enum.KeyCode.X, C = Enum.KeyCode.C, V = Enum.KeyCode.V }
-local lastSkill = 0
 local function useSkills()
-	if not S.UseSkills or not VIM or tick() - lastSkill < 0.6 then return end
-	lastSkill = tick()
+	if not S.UseSkills or not VIM or tick() - cooldown.skill < 0.6 then return end
+	cooldown.skill = tick()
 	for _, k in ipairs({ "Z", "X", "C", "V" }) do
 		if S["Skill" .. k] then
 			pcall(function()
@@ -1182,11 +1178,13 @@ end -- Factory / Ectoplasm
 ---------------------------------------------------------------------
 -- Sea 2 items (Rengoku, Dragon Trident, Legendary Sword Dealer)
 ---------------------------------------------------------------------
-local RENGOKU_CHEST = Vector3.new(6571.2, 299.4, -6967.4)
-local ICE_CASTLE = Vector3.new(6062.3, 155.3, -6880.9)
-local FORGOTTEN_ISLAND = Vector3.new(-3194.2, 155.3, -10795.3)
-local EL_ADMIN = Vector3.new(1321.0, 121.8, 33134.8)
-local MYSTERIOUS_MAN = Vector3.new(-2573.5, 1620.7, -3745.2)
+local POS = {
+	RengokuChest = Vector3.new(6571.2, 299.4, -6967.4),
+	IceCastle = Vector3.new(6062.3, 155.3, -6880.9),
+	ForgottenIsland = Vector3.new(-3194.2, 155.3, -10795.3),
+	ElAdmin = Vector3.new(1321.0, 121.8, 33134.8),
+	MysteriousMan = Vector3.new(-2573.5, 1620.7, -3745.2),
+}
 
 local function backpackTool(name)
 	for _, cont in ipairs({ getChar(), player:FindFirstChild("Backpack") }) do
@@ -1278,7 +1276,7 @@ task.spawn(function()
 					S.Status = "Opening Rengoku chest"
 					local h = getHum()
 					if h and key.Parent ~= getChar() then h:EquipTool(key) end
-					tweenTo(CFrame.new(RENGOKU_CHEST), keep)
+					tweenTo(CFrame.new(POS.RengokuChest), keep)
 					local det
 					pcall(function() det = workspace.Map.IceCastle.RengokuChest.Detection end)
 					touchPart(det)
@@ -1287,7 +1285,7 @@ task.spawn(function()
 				end
 				-- Awakened Ice Admiral شانس بیشتری داره (حدود 5%)
 				if not fightBoss("Awakened Ice Admiral", keep) then
-					farmNearestOf({ "Arctic Warrior", "Snow Lurker" }, keep, ICE_CASTLE)
+					farmNearestOf({ "Arctic Warrior", "Snow Lurker" }, keep, POS.IceCastle)
 				end
 			end)
 			if not ok then logError("AutoRengoku", err) end
@@ -1307,7 +1305,7 @@ task.spawn(function()
 				end
 				if not fightBoss("Tide Keeper", keep) then
 					S.Status = "Tide Keeper not spawned, waiting at Forgotten Island"
-					tweenTo(CFrame.new(FORGOTTEN_ISLAND + Vector3.new(0, 60, 0)), keep)
+					tweenTo(CFrame.new(POS.ForgottenIsland + Vector3.new(0, 60, 0)), keep)
 					task.wait(2)
 				end
 			end)
@@ -2643,7 +2641,7 @@ pcall(function()
 	connect(game:GetService("GuiService").ErrorMessageChanged, function(msg)
 		if S.AutoRejoin and msg and msg ~= "" then
 			task.wait(3)
-			pcall(function() TeleportService:Teleport(game.PlaceId, player) end)
+			pcall(function() Svc.Teleport:Teleport(game.PlaceId, player) end)
 		end
 	end)
 end)
@@ -2808,8 +2806,8 @@ end)
 connect(player.Idled, function()
 	if S.AntiAFK then
 		pcall(function()
-			VirtualUser:CaptureController()
-			VirtualUser:ClickButton2(Vector2.new())
+			Svc.VirtualUser:CaptureController()
+			Svc.VirtualUser:ClickButton2(Vector2.new())
 		end)
 	end
 end)
@@ -2824,7 +2822,7 @@ local function serverHop(lowest)
 		return game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=" .. order .. "&limit=100")
 	end)
 	if ok then
-		local data = HttpService:JSONDecode(body)
+		local data = Svc.Http:JSONDecode(body)
 		local best
 		for _, s in ipairs(data.data or {}) do
 			if s.id ~= game.JobId and s.playing < s.maxPlayers then
@@ -2836,7 +2834,7 @@ local function serverHop(lowest)
 			end
 		end
 		if best then
-			TeleportService:TeleportToPlaceInstance(game.PlaceId, best.id, player)
+			Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, best.id, player)
 			return true
 		end
 	end
@@ -3639,13 +3637,13 @@ local function saveSettings()
 		local t = type(v)
 		if not SKIP_SAVE[k] and (t == "boolean" or t == "number" or t == "string") then data[k] = v end
 	end
-	return pcall(function() writefile(SETTINGS_FILE, HttpService:JSONEncode(data)) end)
+	return pcall(function() writefile(SETTINGS_FILE, Svc.Http:JSONEncode(data)) end)
 end
 
 local function loadSettings()
 	local ok, data = pcall(function()
 		if isfile and not isfile(SETTINGS_FILE) then return nil end
-		return HttpService:JSONDecode(readfile(SETTINGS_FILE))
+		return Svc.Http:JSONDecode(readfile(SETTINGS_FILE))
 	end)
 	if not ok or type(data) ~= "table" then return false end
 	for k, v in pairs(data) do
@@ -3808,7 +3806,7 @@ end)
 Farm:Section("Midnight Blade")
 Farm:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  needs 100" end)
 Farm:Button("Go to El Admin (buy Midnight Blade)", function()
-	goTo(CFrame.new(EL_ADMIN + Vector3.new(0, 3, 4)))
+	goTo(CFrame.new(POS.ElAdmin + Vector3.new(0, 3, 4)))
 	notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
 end)
 Farm:Section("True Triple Katana")
@@ -3828,7 +3826,7 @@ Farm:Button("Go to Legendary Sword Dealer", function()
 	goTo(cf * CFrame.new(0, 0, 4))
 end)
 Farm:Button("Go to Mysterious Man (TTK)", function()
-	goTo(CFrame.new(MYSTERIOUS_MAN + Vector3.new(0, 3, 4)))
+	goTo(CFrame.new(POS.MysteriousMan + Vector3.new(0, 3, 4)))
 end)
 Farm:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
 
@@ -4074,7 +4072,7 @@ Misc:Button("Hop to Low Player Server", function()
 end)
 Misc:Toggle("Auto Hop When Player Near", "AutoHopNear")
 Misc:Slider("Hop Distance", 50, 1000, "HopDistance")
-Misc:Button("Rejoin", function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
+Misc:Button("Rejoin", function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
 Misc:Section("Performance & AFK")
 Misc:Button("FPS Boost", function()
 	fpsBoost()
