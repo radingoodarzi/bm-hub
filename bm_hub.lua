@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.58" }
+local Hub = { Connections = {}, Running = true, Version = "1.59" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -823,21 +823,34 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 
 Hub.AttackInfo = { remote = 0, click = 0, tool = 0, lastError = "none" }
 
+-- کلیک روی یه جای خالی صفحه (کلیک روی منو رو بازی حساب نمی‌کنه)، با هر دو روش
+local freePoint, freeAt = nil, 0
 local function clickScreen()
 	local vs = camera.ViewportSize
-	local pos = Vector2.new(vs.X * 0.85, vs.Y * 0.45)
-	local ok, err = pcall(function()
+	if not freePoint or tick() - freeAt > 2 then
+		freeAt = tick()
+		freePoint = Vector2.new(vs.X * 0.5, vs.Y * 0.5)
+		local pg = player:FindFirstChild("PlayerGui")
+		for _, pt in ipairs({ { 0.5, 0.5 }, { 0.5, 0.35 }, { 0.35, 0.5 }, { 0.65, 0.6 }, { 0.5, 0.7 }, { 0.3, 0.3 } }) do
+			local v = Vector2.new(vs.X * pt[1], vs.Y * pt[2])
+			local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(v.X, v.Y) end)
+			if ok and #objs == 0 then
+				freePoint = v
+				break
+			end
+		end
+	end
+	local pos = freePoint
+	local ok1 = VIM and pcall(function()
+		VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+		VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+	end)
+	local ok2, err = pcall(function()
 		Svc.VirtualUser:CaptureController()
 		Svc.VirtualUser:Button1Down(pos, camera.CFrame)
 		Svc.VirtualUser:Button1Up(pos, camera.CFrame)
 	end)
-	if not ok and VIM then
-		ok, err = pcall(function()
-			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
-		end)
-	end
-	if ok then
+	if ok1 or ok2 then
 		Hub.AttackInfo.click += 1
 	else
 		Hub.AttackInfo.lastError = "click: " .. tostring(err)
