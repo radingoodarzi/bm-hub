@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.59" }
+local Hub = { Connections = {}, Running = true, Version = "1.60" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -823,57 +823,54 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 
 Hub.AttackInfo = { remote = 0, click = 0, tool = 0, lastError = "none" }
 
--- کلیک روی یه جای خالی صفحه (کلیک روی منو رو بازی حساب نمی‌کنه)، با هر دو روش
-local freePoint, freeAt = nil, 0
-local function clickScreen()
-	local vs = camera.ViewportSize
-	if not freePoint or tick() - freeAt > 2 then
-		freeAt = tick()
-		freePoint = Vector2.new(vs.X * 0.5, vs.Y * 0.5)
-		local pg = player:FindFirstChild("PlayerGui")
-		for _, pt in ipairs({ { 0.5, 0.5 }, { 0.5, 0.35 }, { 0.35, 0.5 }, { 0.65, 0.6 }, { 0.5, 0.7 }, { 0.3, 0.3 } }) do
-			local v = Vector2.new(vs.X * pt[1], vs.Y * pt[2])
-			local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(v.X, v.Y) end)
-			if ok and #objs == 0 then
-				freePoint = v
-				break
-			end
-		end
+-- حمله‌ی M1 درست مثل کلیک خود بازیکن: موس رو روی خود ماب می‌زنیم.
+-- از کد بازی: موقع حمله کاراکتر به سمت نقطه‌ی موس می‌چرخه؛ کلیک وسط صفحه = ضربه به هوا.
+local cooldown = { click = 0, skill = 0 }
+local function clickAt(x, y)
+	if VIM and pcall(function()
+		VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+		VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+	end) then
+		return true
 	end
-	local pos = freePoint
-	local ok1 = VIM and pcall(function()
-		VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
-		VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
-	end)
-	local ok2, err = pcall(function()
+	return (pcall(function()
 		Svc.VirtualUser:CaptureController()
-		Svc.VirtualUser:Button1Down(pos, camera.CFrame)
-		Svc.VirtualUser:Button1Up(pos, camera.CFrame)
-	end)
-	if ok1 or ok2 then
-		Hub.AttackInfo.click += 1
-	else
-		Hub.AttackInfo.lastError = "click: " .. tostring(err)
-	end
+		Svc.VirtualUser:Button1Down(Vector2.new(x, y), camera.CFrame)
+		Svc.VirtualUser:Button1Up(Vector2.new(x, y), camera.CFrame)
+	end))
 end
 
-local cooldown = { remote = 0, click = 0, skill = 0 }
-local function attack()
-	local root = getRoot()
-	if not root then return end
-	local m = S.AttackMethod
-	if m ~= "Tool" and m ~= "Click" then m = "Auto" end
-	-- ضربه‌ی مستقیم با ریموت حذف شد: بازی به هر ضربه یه کد امنیتی (ضدتقلب) می‌چسبونه،
-	-- ضربه‌ی بدون اون کد دمیج نمیده و ممکنه فلگ بشه. فقط حمله‌ی عادی خود ابزار.
-	if tick() - cooldown.click < (S.FastAttack and 0.05 or 0.12) then return end
-	cooldown.click = tick()
-	if m == "Auto" or m == "Tool" then
-		local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
-		if tool and pcall(function() tool:Activate() end) then
-			Hub.AttackInfo.tool += 1
-		end
+-- جای ماب روی صفحه (یه نقطه که منو روش نباشه، چون کلیک روی منو حمله حساب نمیشه)
+local function mobScreenPoint(part)
+	local v, onScreen = camera:WorldToViewportPoint(part.Position)
+	if not onScreen then return nil end
+	local pg = player:FindFirstChild("PlayerGui")
+	local inset = 0
+	pcall(function() inset = game:GetService("GuiService"):GetGuiInset().Y end)
+	for _, off in ipairs({ { 0, 0 }, { 0, -30 }, { 30, 0 }, { -30, 0 }, { 0, 30 } }) do
+		local x, y = v.X + off[1], v.Y + off[2]
+		local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(x, y - inset) end)
+		if ok and #objs == 0 then return x, y end
 	end
-	if m == "Auto" or m == "Click" then clickScreen() end
+	return v.X, v.Y
+end
+
+-- target: ماب (Model) یا یه Part؛ با سلاحی که دستته می‌زنه
+local function attack(target)
+	local char = getChar()
+	local tool = char and char:FindFirstChildOfClass("Tool")
+	if not tool then return end
+	if tick() - cooldown.click < (S.FastAttack and 0.1 or 0.2) then return end
+	cooldown.click = tick()
+	local part = target and (target:IsA("Model") and target:FindFirstChild("HumanoidRootPart") or target)
+	local x, y
+	if part then x, y = mobScreenPoint(part) end
+	if not x then
+		local vs = camera.ViewportSize
+		x, y = vs.X / 2, vs.Y / 2
+	end
+	if S.AttackMethod ~= "Tool" and clickAt(x, y) then Hub.AttackInfo.click += 1 end
+	if S.AttackMethod ~= "Click" and pcall(function() tool:Activate() end) then Hub.AttackInfo.tool += 1 end
 end
 
 -- استفاده از اسکیل‌ها (Z X C V) با شبیه‌سازی کیبورد
@@ -892,45 +889,30 @@ local function useSkills()
 	end
 end
 
-local function enemyInRange()
-	local root = getRoot()
-	local enemies = workspace:FindFirstChild("Enemies")
-	if not root or not enemies then return false end
-	-- ملی و شمشیر فقط حدود 10 استاد جلو رو می‌زنن (هیت‌باکس بازی)؛ دورتر کلیک بی‌فایده‌ست
-	local held = getChar() and getChar():FindFirstChildOfClass("Tool")
-	local reach = (held and (held.ToolTip == "Melee" or held.ToolTip == "Sword")) and math.min(S.AttackRange, 14) or S.AttackRange
-	for _, m in ipairs(enemies:GetChildren()) do
-		if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= reach then
-			return true
-		end
-	end
-	return false
-end
-
--- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه.
--- سلاح رو عوض نمی‌کنه: با همونی که دستته (مثلاً میوه‌ای که خودت کنترل می‌کنی) می‌زنه.
--- سلاح انتخاب‌شده رو فقط خود فارم‌ها برمی‌دارن.
+-- کلیک خودکار: با سلاحی که دستته (عوضش نمی‌کنه) به نزدیک‌ترین ماب داخل برد می‌زنه
 task.spawn(function()
 	while Hub.Running do
-		task.wait(0.1)
-		if S.AutoClick and alive() and enemyInRange() then
+		task.wait(0.05)
+		if S.AutoClick and alive() then
 			pcall(function()
-				local held = getChar():FindFirstChildOfClass("Tool")
+				local char, root = getChar(), getRoot()
+				local held = char:FindFirstChildOfClass("Tool")
 				if not held then return end
-				-- ضربه فقط به ماب «جلو»ی تو ثبت میشه؛ رو به نزدیک‌ترین ماب (تا 15 استاد) می‌چرخیم
-				local root = getRoot()
+				-- ملی و شمشیر فقط حدود 10 استاد جلو رو می‌زنن
+				local reach = (held.ToolTip == "Melee" or held.ToolTip == "Sword") and math.min(S.AttackRange, 14) or S.AttackRange
 				local best, bestD
 				for _, m in ipairs(workspace.Enemies:GetChildren()) do
 					if isAliveMob(m) then
 						local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-						if d <= 15 and (not bestD or d < bestD) then best, bestD = m, d end
+						if d <= reach and (not bestD or d < bestD) then best, bestD = m, d end
 					end
 				end
-				if best and not mainFarmBusy() then
+				if not best then return end
+				if not mainFarmBusy() then
 					local p = best.HumanoidRootPart.Position
 					root.CFrame = CFrame.lookAt(root.Position, Vector3.new(p.X, root.Position.Y, p.Z))
 				end
-				attack()
+				attack(best)
 			end)
 		end
 	end
@@ -996,7 +978,7 @@ local function killMob(mob, keepGoing)
 			equipWeapon()
 		end
 		if S.BringMobs then bringMobs(name, hrp.CFrame) end
-		attack()
+		attack(mob)
 		task.wait(0.08)
 	end
 end
