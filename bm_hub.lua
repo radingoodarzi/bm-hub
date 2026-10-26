@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.37" }
+local Hub = { Connections = {}, Running = true, Version = "1.40" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1885,6 +1885,47 @@ do
 		task.wait(0.5)
 	end
 
+	-- Auto Bone: فقط کوئست مومیایی (Posessed Mummy). متن کوئست رو با «mumm» چک می‌کنیم
+	-- چون اسم ماب Posessed ولی ممکنه توی متن Possessed/Mummies باشه
+	local function mummyQuestActive()
+		local g = questGui()
+		local title = ""
+		pcall(function() title = g.Container.QuestTitle.Title.Text end)
+		return g ~= nil and g.Visible and not questDone(title) and title:lower():find("mumm", 1, true) ~= nil
+	end
+
+	local function stepBone(keep)
+		local q = questForMob("Posessed Mummy")
+		if S.TakeQuest and q and not questBlocked(q) and not mummyQuestActive() then
+			takeQuest(q, keep)
+			return
+		end
+		local target = findMob("Posessed Mummy")
+		-- وقتی مومیایی نیست، بقیه‌ی ماب‌های Bone رو می‌زنیم (بدون کوئست، فقط برای Bone)
+		if not target then
+			local root = getRoot()
+			local bestDist
+			for _, n in ipairs(BONE_MOBS) do
+				local m = findMob(n)
+				if m then
+					local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+					if not bestDist or d < bestDist then target, bestDist = m, d end
+				end
+			end
+		end
+		if not target then
+			S.Status = "Bone: waiting for mobs"
+			if (getRoot().Position - HAUNTED).Magnitude > 300 then
+				tweenTo(CFrame.new(HAUNTED + Vector3.new(0, 40, 0)), keep)
+			else
+				task.wait(1)
+			end
+			return
+		end
+		S.Status = "Bone: " .. mobBaseName(target.Name) .. (mummyQuestActive() and " (mummy quest)" or "")
+		killMob(target, keep)
+	end
+
 	local function stepCake(keep)
 		for _, b in ipairs(CAKE_BOSSES) do
 			if findMobAnywhere(b) then
@@ -1962,7 +2003,7 @@ do
 				elseif S.AutoPirateRaid and Sea == 3 then step, flag = stepPirateRaid, "AutoPirateRaid"
 				elseif S.AutoElite and Sea == 3 then step, flag = stepElite, "AutoElite"
 				elseif S.AutoYama and Sea == 3 then step, flag = stepYama, "AutoYama"
-				elseif S.AutoBone and Sea == 3 then step, flag = function(k) farmList(BONE_MOBS, k, HAUNTED) end, "AutoBone"
+				elseif S.AutoBone and Sea == 3 then step, flag = stepBone, "AutoBone"
 				elseif S.AutoCake and Sea == 3 then step, flag = stepCake, "AutoCake"
 				end
 				if step then
