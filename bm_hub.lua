@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.56" }
+local Hub = { Connections = {}, Running = true, Version = "1.57" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -883,8 +883,11 @@ local function enemyInRange()
 	local root = getRoot()
 	local enemies = workspace:FindFirstChild("Enemies")
 	if not root or not enemies then return false end
+	-- ملی و شمشیر فقط حدود 10 استاد جلو رو می‌زنن (هیت‌باکس بازی)؛ دورتر کلیک بی‌فایده‌ست
+	local held = getChar() and getChar():FindFirstChildOfClass("Tool")
+	local reach = (held and (held.ToolTip == "Melee" or held.ToolTip == "Sword")) and math.min(S.AttackRange, 14) or S.AttackRange
 	for _, m in ipairs(enemies:GetChildren()) do
-		if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
+		if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= reach then
 			return true
 		end
 	end
