@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.46" }
+local Hub = { Connections = {}, Running = true, Version = "1.47" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -113,6 +113,7 @@ local function logError(where, err)
 	table.insert(Hub.Errors, msg)
 	if #Hub.Errors > 8 then table.remove(Hub.Errors, 1) end
 	warn("[BM Hub] " .. msg)
+	if Hub.LiveLog then Hub.LiveLog("ERROR " .. msg) end
 end
 
 local function safeRequire(m)
@@ -3298,6 +3299,51 @@ local function mobOptions()
 end
 
 -- گزارش برای پیدا کردن مشکل‌ها (کپی میشه تا برای Claude بفرستی)
+-- لاگ زنده: چند دقیقه‌ی آخر کارهای اسکریپت توی bmscan/live.txt، که Claude بدون دکمه زدن ببینه چی شده
+do
+	local lines, dirty = {}, false
+	local function push(text)
+		table.insert(lines, os.date("%H:%M:%S") .. "  " .. text)
+		if #lines > 200 then table.remove(lines, 1) end
+		dirty = true
+	end
+	Hub.LiveLog = push
+	pcall(function()
+		if makefolder and not (isfolder and isfolder("bmscan")) then makefolder("bmscan") end
+	end)
+	push(("BM Hub %s started | sea %s | place %s | level %s"):format(Hub.Version, tostring(Sea), tostring(game.PlaceId), tostring(dataValue("Level"))))
+	task.spawn(function()
+		local last, lastBeat = "", 0
+		while Hub.Running do
+			pcall(function()
+				local on = {}
+				for k, v in pairs(S) do
+					if v == true and (k:find("^Auto") or k:find("^Kill") or k:find("^Summon")) and k ~= "AutoSave" and k ~= "AutoRejoin" and k ~= "AutoHaki" then
+						table.insert(on, k)
+					end
+				end
+				table.sort(on)
+				local root, hum = getRoot(), getHum()
+				local q = questGui()
+				local title = ""
+				pcall(function() title = q.Container.QuestTitle.Title.Text end)
+				local state = ("%s | quest: %s | on: %s"):format(S.Status, (q and q.Visible) and title or "none", table.concat(on, ","))
+				-- فقط وقتی چیزی عوض شد، یا هر 15 ثانیه یه خط
+				if state ~= last or tick() - lastBeat > 15 then
+					local pos = root and ("(%d, %d, %d)"):format(math.floor(root.Position.X), math.floor(root.Position.Y), math.floor(root.Position.Z)) or "dead"
+					push(("%s | pos %s | hp %d | moving %s"):format(state, pos, hum and math.floor(hum.Health) or 0, tostring(activeTween ~= nil)))
+					last, lastBeat = state, tick()
+				end
+				if dirty then
+					dirty = false
+					writefile("bmscan/live.txt", table.concat(lines, "\n"))
+				end
+			end)
+			task.wait(1)
+		end
+	end)
+end
+
 local function debugReport()
 	local lines = {}
 	local function add(...)
