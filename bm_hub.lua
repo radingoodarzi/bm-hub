@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.40" }
+local Hub = { Connections = {}, Running = true, Version = "1.41" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1895,6 +1895,12 @@ do
 	end
 
 	local function stepBone(keep)
+		-- Soul Reaper اسپاون شد → اول اون
+		if findMobAnywhere("Soul Reaper") then
+			S.Status = "Bone: fighting Soul Reaper"
+			fightBoss("Soul Reaper", keep)
+			return
+		end
 		local q = questForMob("Posessed Mummy")
 		if S.TakeQuest and q and not questBlocked(q) and not mummyQuestActive() then
 			takeQuest(q, keep)
