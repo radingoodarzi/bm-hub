@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.53" }
+local Hub = { Connections = {}, Running = true, Version = "1.54" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -4115,6 +4115,9 @@ do
 	T:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
 	T:Dropdown("Select Mob", mobOptions, "SelectedMob")
 	T:Toggle("Take Quest", "TakeQuest")
+	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
+	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
+	T:Toggle("Bring Mobs", "BringMobs")
 	if #(Hub.Materials or {}) > 0 then
 		T:Section("Materials (" .. SEA_NAME .. ")")
 		T:Dropdown("Material", function()
