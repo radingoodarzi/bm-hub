@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.45" }
+local Hub = { Connections = {}, Running = true, Version = "1.46" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1913,34 +1913,47 @@ do
 			fightBoss("Soul Reaper", keep)
 			return
 		end
-		-- قمار Bone: باید پیش Death King باشی (مثل دیالوگ خود بازی)
-		if S.AutoBoneGamble and tick() > (Hub.BoneGambleWait or 0) and materialCount("Bones") >= 50 then
-			local dk
-			for _, f in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
-				for _, n in ipairs(f and f:GetChildren() or {}) do
-					if not dk and (n.Name:find("Death King") or n.Name:find("Halloween")) then pcall(function() dk = n:GetPivot() end) end
+		-- قمار Bone دقیقاً مثل دیالوگ Death King (از کد خود بازی):
+		-- Check → (تعداد Bone، لیست آیتم‌ها، تعداد ترید باقی‌مونده، دقیقه تا ریست، سقف)
+		-- Buy, 1, شماره‌ی آیتم → 1 = انجام شد، 2 = Bone کافی نیست، 3 = این آیتم رو داری
+		if S.AutoBoneGamble and tick() > (Hub.BoneGambleWait or 0) then
+			local ok, bones, shop, left, minutes = pcall(CommF.InvokeServer, CommF, "Bones", "Check")
+			bones, left = tonumber(bones) or 0, tonumber(left) or 0
+			local idx, cost = 1, 50
+			pcall(function()
+				for k, item in pairs(shop[1]) do
+					if tonumber(item[2]) == 50 then idx, cost = k, 50 end
 				end
-			end
-			if not dk then
-				Hub.BoneGambleWait = tick() + 300
-				logError("BoneGamble", "Death King NPC not found")
-			end
-			if dk then
-				S.Status = "Bone: trading 50 bones at Death King"
-				tweenTo(dk * CFrame.new(0, 0, -4), keep)
-				task.wait(0.4)
-				local before = materialCount("Bones")
-				local r = invoke("Bones", "Buy", 1, 1)
-				task.wait(0.6)
-				inventoryTime = 0
+			end)
+			if not ok then
+				Hub.BoneGambleWait = tick() + 60
+			elseif left <= 0 then
+				Hub.BoneGambleWait = tick() + math.max(1, tonumber(minutes) or 5) * 60
+				S.Status = ("Bone gamble: 0 trades left, reset in %s min"):format(tostring(minutes))
+			elseif bones >= cost then
+				local dk
+				for _, f in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
+					for _, n in ipairs(f and f:GetChildren() or {}) do
+						if not dk and (n.Name:find("Death King") or n.Name:find("Halloween")) then pcall(function() dk = n:GetPivot() end) end
+					end
+				end
+				S.Status = ("Bone gamble: trading (%d bones, %d trades left)"):format(bones, left)
+				if dk then
+					tweenTo(dk * CFrame.new(0, 0, -4), keep)
+					task.wait(0.4)
+				end
+				local r = invoke("Bones", "Buy", 1, idx)
 				Hub.BoneCache = nil
-				if materialCount("Bones") >= before then
-					-- قبول نشد (احتمالاً سقف ترید هر 2 ساعت پر شده)؛ 5 دقیقه بعد دوباره
-					Hub.BoneGambleWait = tick() + 300
-					logError("BoneGamble", "not accepted: " .. tostring(r) .. " | check: " .. tostring(invoke("Bones", "Check")))
+				if r == 1 then
+					if notifyHook then notifyHook("Bone Gamble", "Trade completed ✔ (" .. (left - 1) .. " left)", 4) end
+				else
+					Hub.BoneGambleWait = tick() + 120
+					logError("BoneGamble", ("result %s (1=ok 2=no bones 3=have item) item #%d dk=%s"):format(tostring(r), idx, tostring(dk ~= nil)))
 				end
+				task.wait(0.5)
 				return
 			end
+			if ok and left > 0 and bones < cost then Hub.BoneGambleWait = tick() + 30 end
 		end
 		-- اگه موقع اجرای اسکریپت دور بودیم، این کوئست توی لیست نیست؛ خودمون می‌سازیمش
 		local q = questForMob("Posessed Mummy")
@@ -2152,11 +2165,10 @@ do
 				inventoryTime = 0
 				local before = materialCount("Bones")
 				if before >= 50 then
-					invoke("Bones", "Buy", 1, 1)
-					task.wait(0.6)
-					inventoryTime = 0
+					local r = invoke("Bones", "Buy", 1, 1)
 					Hub.BoneCache = nil
-					if materialCount("Bones") >= before then Hub.BoneGambleWait = tick() + 300 end
+					-- 1 یعنی ترید انجام شد
+					if r ~= 1 then Hub.BoneGambleWait = tick() + 300 end
 				end
 			end
 			if S.AutoAbilities and alive() then
@@ -3363,7 +3375,7 @@ local function debugReport()
 	for n in pairs(inventoryNames()) do table.insert(invNames, n) end
 	add("inventory (" .. #invNames .. "):", table.concat(invNames, ", "))
 	add("dealer spawned:", dealerPosition() ~= nil, "| hidden key:", backpackTool("Hidden Key") ~= nil)
-	pcall(function() add("bones:", materialCount("Bones"), "| gamble wait:", math.max(0, math.floor((Hub.BoneGambleWait or 0) - tick())), "s | Bones Check:", tostring(invoke("Bones", "Check")), "| AutoBone:", S.AutoBone, "AutoBoneGamble:", S.AutoBoneGamble) end)
+	pcall(function() add("bones:", materialCount("Bones"), "| gamble wait:", math.max(0, math.floor((Hub.BoneGambleWait or 0) - tick())), "s | Death King (bones, trades left, minutes, max):", select(2, pcall(function() local b, _, l, m, x = CommF:InvokeServer("Bones", "Check") return table.concat({ tostring(b), tostring(l), tostring(m), tostring(x) }, ", ") end)), "| AutoBone:", S.AutoBone, "AutoBoneGamble:", S.AutoBoneGamble) end)
 	add("errors:", #Hub.Errors > 0 and table.concat(Hub.Errors, " || ") or "none")
 	return table.concat(lines, "\n")
 end
