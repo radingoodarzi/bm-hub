@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.50" }
+local Hub = { Connections = {}, Running = true, Version = "1.51" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -666,7 +666,7 @@ local function questTitle()
 	local t
 	pcall(function() if g and g.Visible then t = g.Container.QuestTitle.Title.Text end end)
 	if t and t ~= "" then return t end
-	if questLabel and questLabel.Parent and shownOnScreen(questLabel) and questLabel.Text:lower():find("defeat") then
+	if questLabel and questLabel.Parent and shownOnScreen(questLabel) and questLabel.Text:lower():find("^%s*defeat") then
 		return labelQuestText(questLabel)
 	end
 	if tick() - (Hub.QuestScanAt or 0) < 2 then return nil end
@@ -674,7 +674,7 @@ local function questTitle()
 	questLabel = nil
 	local pg = player:FindFirstChild("PlayerGui")
 	for _, d in ipairs(pg and pg:GetDescendants() or {}) do
-		if d:IsA("TextLabel") and d.Text:lower():find("defeat") and d.Parent and d.Parent.Name ~= "BMHub" and shownOnScreen(d) then
+		if d:IsA("TextLabel") and d.Text:lower():find("^%s*defeat") and d.Parent and d.Parent.Name ~= "BMHub" and shownOnScreen(d) then
 			questLabel = d
 			Hub.QuestLabelPath = d:GetFullName()
 			return labelQuestText(d)
@@ -845,42 +845,13 @@ local function clickScreen()
 end
 
 local cooldown = { remote = 0, click = 0, skill = 0 }
-local function remoteAttack(root)
-	if not (RegisterAttack and RegisterHit) then return end
-	if tick() - cooldown.remote < 0.1 then return end
-	cooldown.remote = tick()
-	local hits = {}
-	local enemies = workspace:FindFirstChild("Enemies")
-	if enemies then
-		for _, m in ipairs(enemies:GetChildren()) do
-			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
-				table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
-			end
-		end
-	end
-	if #hits == 0 then return end
-	local ok, err = pcall(function()
-		RegisterAttack:FireServer(0)
-		RegisterHit:FireServer(hits[1][2], hits)
-	end)
-	if ok then
-		Hub.AttackInfo.remote += 1
-	else
-		Hub.AttackInfo.lastError = "remote: " .. tostring(err)
-	end
-end
-
 local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
-	-- از کد بازی: M1 ملی، شمشیر و میوه همه از RegisterAttack میرن (attackMelee)؛
-	-- پس Fast Attack فقط ریموت می‌فرسته، بدون Activate و کلیک که انیمیشن دارن و کندن
-	if S.FastAttack and (m == "Auto" or m == "Remote") and RegisterAttack and RegisterHit then
-		remoteAttack(root)
-		return
-	end
-	if tick() - cooldown.click < 0.12 then return end
+	-- ضربه‌ی مستقیم با ریموت حذف شد: بازی به هر ضربه یه کد امنیتی (ضدتقلب) می‌چسبونه،
+	-- ضربه‌ی بدون اون کد دمیج نمیده و ممکنه فلگ بشه. فقط حمله‌ی عادی خود ابزار.
+	if tick() - cooldown.click < (S.FastAttack and 0.05 or 0.12) then return end
 	cooldown.click = tick()
 	if m == "Auto" or m == "Tool" then
 		local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
@@ -4092,7 +4063,7 @@ Combat:Dropdown("Weapon", function() return { "Melee", "Sword", "Blox Fruit", "G
 Combat:Dropdown("Attack Method", function() return { "Auto", "Remote", "Click", "Tool" } end, "AttackMethod")
 Combat:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
 Combat:Slider("Attack Range", 10, 150, "AttackRange")
-Combat:Toggle("Fast Attack", "FastAttack")
+Combat:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
 Combat:Toggle("Bring Mobs", "BringMobs")
 Combat:Section("Haki & Race")
 Combat:Toggle("Auto Haki (Buso)", "AutoHaki")
