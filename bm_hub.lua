@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.42" }
+local Hub = { Connections = {}, Running = true, Version = "1.43" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1903,6 +1903,29 @@ do
 			fightBoss("Soul Reaper", keep)
 			return
 		end
+		-- قمار Bone: باید پیش Death King باشی (مثل دیالوگ خود بازی)
+		if S.AutoBoneGamble and tick() > (Hub.BoneGambleWait or 0) and materialCount("Bones") >= 50 then
+			local dk
+			for _, f in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
+				local n = f and f:FindFirstChild("Death King")
+				if n and not dk then pcall(function() dk = n:GetPivot() end) end
+			end
+			if dk then
+				S.Status = "Bone: trading 50 bones at Death King"
+				tweenTo(dk * CFrame.new(0, 0, -4), keep)
+				task.wait(0.4)
+				local before = materialCount("Bones")
+				local r = invoke("Bones", "Buy", 1, 1)
+				task.wait(0.6)
+				inventoryTime = 0
+				if materialCount("Bones") >= before then
+					-- قبول نشد (احتمالاً سقف ترید هر 2 ساعت پر شده)؛ 5 دقیقه بعد دوباره
+					Hub.BoneGambleWait = tick() + 300
+					logError("BoneGamble", "not accepted: " .. tostring(r) .. " | check: " .. tostring(invoke("Bones", "Check")))
+				end
+				return
+			end
+		end
 		local q = questForMob("Posessed Mummy")
 		if mummyQuestActive() then
 			Hub.MummyGoneAt = nil
@@ -2106,9 +2129,16 @@ do
 	task.spawn(function()
 		while Hub.Running do
 			task.wait(5)
-			if S.AutoBoneGamble and Sea == 3 then
+			-- وقتی Auto Bone روشنه خودش میره پیش Death King؛ اینجا فقط وقتی خاموشه (بدون حرکت)
+			if S.AutoBoneGamble and Sea == 3 and not S.AutoBone and tick() > (Hub.BoneGambleWait or 0) then
 				inventoryTime = 0
-				if materialCount("Bones") >= 50 then invoke("Bones", "Buy", 1, 1) end
+				local before = materialCount("Bones")
+				if before >= 50 then
+					invoke("Bones", "Buy", 1, 1)
+					task.wait(0.6)
+					inventoryTime = 0
+					if materialCount("Bones") >= before then Hub.BoneGambleWait = tick() + 300 end
+				end
 			end
 			if S.AutoAbilities and alive() then
 				local char = getChar()
@@ -4045,7 +4075,7 @@ Farm:Label(function()
 end)
 Farm:Toggle("Auto Bone (Haunted Castle)", "AutoBone", function(on) if not on then stopTween() end end)
 Farm:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
-Farm:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) end)
+Farm:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) .. "  •  Death King: " .. tostring(invokeCached("boneCheck", 60, "Bones", "Check") or "?") .. " (turn on Auto Bone to trade)" end)
 Farm:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", function(on) if not on then stopTween() end end)
 Farm:Label(function()
 	if Sea ~= 3 then return "Cake Prince: Sea 3 only" end
