@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.33" }
+local Hub = { Connections = {}, Running = true, Version = "1.34" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -135,7 +135,7 @@ local S = {
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
 	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
-	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true,
+	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false,
 	AutoTushita = false, AutoCDK = false, AutoRaceV2 = false, AutoRaceV3 = false, AutoSoulGuitar = false, AutoStyles = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
@@ -1954,6 +1954,24 @@ do
 					end
 				end
 			end
+			-- بیدار کردن اسکیل میوه با Fragment (همون دستوری که NPC خود بازی می‌فرسته)
+			if S.AutoAwaken and alive() and (dataValue("Fragments") or 0) > 0 and tick() - (Hub.AwakenAt or 0) > 60 then
+				Hub.AwakenAt = tick()
+				local check = invoke("Awakener", "Check")
+				if check and check ~= 0 then
+					local r = invoke("Awakener", "Awaken")
+					if r and notifyHook then notifyHook("Auto Awaken", "Result: " .. tostring(type(r) == "table" and (r.Key or r.Name) or r), 6) end
+				end
+			end
+			-- رنگ هاکی از Master of Auras (فقط وقتی اسپاون شده و پول بیشتر از حداقل هست)
+			if S.AutoHakiColor and alive() and (dataValue("Beli") or 0) > S.FruitMinBeli then
+				if invoke("ColorsDealer", "1") then
+					local r = invoke("ColorsDealer", "2")
+					-- هر بار روشن کردن = فقط یه خرید، که پول یه‌جا خرج نشه
+					S.AutoHakiColor = false
+					if notifyHook then notifyHook("Haki Color", "Result: " .. tostring(r) .. " (toggle turned off)", 8) end
+				end
+			end
 		end
 	end)
 end
@@ -3683,7 +3701,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true }
 
 local function saveSettings()
 	local data = {}
@@ -3949,6 +3967,9 @@ Shop:Button("Buy Selected Style", function()
 end)
 Shop:Section("Abilities")
 Shop:Toggle("Auto Buy Buso / Geppo / Soru (when affordable)", "AutoAbilities")
+Shop:Toggle("Auto Awaken Fruit (spends fragments!)", "AutoAwaken")
+Shop:Toggle("Auto Buy Haki Color (spends beli!)", "AutoHakiColor")
+Shop:Label(function() return "Haki color keeps at least " .. formatNumber(S.FruitMinBeli) .. " beli (Fruits tab slider)" end)
 local function shopButton(label, ...)
 	local args = { ... }
 	Shop:Button(label, function()
