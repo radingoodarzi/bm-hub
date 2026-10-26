@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.48" }
+local Hub = { Connections = {}, Running = true, Version = "1.49" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -914,14 +914,16 @@ local function enemyInRange()
 	return false
 end
 
--- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
+-- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه.
+-- سلاح رو عوض نمی‌کنه: با همونی که دستته (مثلاً میوه‌ای که خودت کنترل می‌کنی) می‌زنه.
+-- سلاح انتخاب‌شده رو فقط خود فارم‌ها برمی‌دارن.
 task.spawn(function()
 	while Hub.Running do
 		task.wait(0.1)
 		if S.AutoClick and alive() and enemyInRange() then
 			pcall(function()
-				equipWeapon()
-				attack()
+				local held = getChar():FindFirstChildOfClass("Tool")
+				if held then attack() end
 			end)
 		end
 	end
@@ -4083,7 +4085,7 @@ local Combat = createTab("Combat", "⚔")
 Combat:Section("Weapon & Attack")
 Combat:Dropdown("Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
 Combat:Dropdown("Attack Method", function() return { "Auto", "Remote", "Click", "Tool" } end, "AttackMethod")
-Combat:Toggle("Auto Click (always attack nearby)", "AutoClick")
+Combat:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
 Combat:Slider("Attack Range", 10, 150, "AttackRange")
 Combat:Toggle("Fast Attack", "FastAttack")
 Combat:Toggle("Bring Mobs", "BringMobs")
