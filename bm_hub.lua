@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.52" }
+local Hub = { Connections = {}, Running = true, Version = "1.53" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -136,7 +136,7 @@ local S = {
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
 	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
-	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false,
+	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false, AutoMaterial = false, Material = nil,
 	AutoTushita = false, AutoCDK = false, AutoRaceV2 = false, AutoRaceV3 = false, AutoSoulGuitar = false, AutoStyles = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
@@ -179,7 +179,7 @@ end
 local function mainFarmBusy()
 	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
-		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid or S.AutoMaterial
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
 		or (Hub.SpecialAny ~= nil and Hub.SpecialAny())
 end
@@ -188,7 +188,7 @@ local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
-		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid or S.AutoMaterial
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
 		or (Hub.SpecialAny ~= nil and Hub.SpecialAny())
 end
@@ -2120,6 +2120,61 @@ do
 		end
 	end
 
+	-- فارم متریال: ماب‌هایی که هر متریال رو دراپ می‌کنن (دراپ‌ها سمت سرورن، لیست از اطلاعات Blox Fruits)
+	local MATERIALS = {
+		[1] = {
+			{ "Leather", { "Brute", "Pirate" } },
+			{ "Scrap Metal", { "Brute" } },
+			{ "Angel Wings", { "Royal Soldier", "Royal Squad" } },
+			{ "Magma Ore", { "Military Soldier", "Military Spy" } },
+			{ "Fish Tail", { "Fishman Warrior", "Fishman Commando" } },
+		},
+		[2] = {
+			{ "Leather", { "Marine Captain" } },
+			{ "Scrap Metal", { "Swan Pirate", "Factory Staff" } },
+			{ "Radioactive Material", { "Factory Staff" } },
+			{ "Magma Ore", { "Lava Pirate", "Magma Ninja" } },
+			{ "Mystic Droplet", { "Water Fighter", "Sea Soldier" } },
+			{ "Vampire Fang", { "Vampire" } },
+			{ "Ectoplasm", { "Ship Deckhand", "Ship Engineer", "Ship Steward", "Ship Officer" } },
+		},
+		[3] = {
+			{ "Leather", { "Jungle Pirate" } },
+			{ "Scrap Metal", { "Jungle Pirate" } },
+			{ "Fish Tail", { "Fishman Raider", "Fishman Captain" } },
+			{ "Dragon Scale", { "Dragon Crew Warrior", "Dragon Crew Archer" } },
+			{ "Conjured Cocoa", { "Chocolate Bar Battler", "Cocoa Warrior" } },
+			{ "Gunpowder", { "Pistol Billionaire" } },
+			{ "Mini Tusk", { "Mythological Pirate" } },
+			{ "Demonic Wisp", { "Demonic Soul" } },
+			{ "Bones", { "Reborn Skeleton", "Living Zombie", "Demonic Soul", "Posessed Mummy" } },
+		},
+	}
+	Hub.Materials = MATERIALS[Sea] or {}
+	local function stepMaterial(keep)
+		local entry
+		for _, m in ipairs(Hub.Materials) do
+			if S.Material and S.Material:sub(1, #m[1] + 1) == m[1] .. " " then entry = m end
+		end
+		if not entry then
+			S.Status = "Material: pick one in the Farm tab"
+			task.wait(2)
+			return
+		end
+		-- اگه ماب لود نیست، میریم محل اسپاون یا NPC کوئستش
+		local spot
+		for _, n in ipairs(entry[2]) do
+			local q = questForMob(n)
+			spot = spot or spawnCentroid(n) or (q and q.npc and q.npc.Position)
+		end
+		if not spot then
+			S.Status = "Material: can't find " .. table.concat(entry[2], " / ") .. " in this sea"
+			task.wait(3)
+			return
+		end
+		farmList(entry[2], keep, spot)
+	end
+
 	-- Pirate Raid: دزدهای دریایی که به Castle on the Sea حمله می‌کنن
 	local CASTLE = Vector3.new(-5100, 315, -3000)
 	local function stepPirateRaid(keep)
@@ -2150,6 +2205,7 @@ do
 				local sStep, sFlag = specialAction()
 				if sStep then step, flag = sStep, sFlag
 				elseif S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
+				elseif S.AutoMaterial then step, flag = stepMaterial, "AutoMaterial"
 				elseif S.AutoPirateRaid and Sea == 3 then step, flag = stepPirateRaid, "AutoPirateRaid"
 				elseif S.AutoElite and Sea == 3 then step, flag = stepElite, "AutoElite"
 				elseif S.AutoYama and Sea == 3 then step, flag = stepYama, "AutoYama"
@@ -4059,6 +4115,16 @@ do
 	T:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
 	T:Dropdown("Select Mob", mobOptions, "SelectedMob")
 	T:Toggle("Take Quest", "TakeQuest")
+	if #(Hub.Materials or {}) > 0 then
+		T:Section("Materials (" .. SEA_NAME .. ")")
+		T:Dropdown("Material", function()
+			local out = {}
+			for _, m in ipairs(Hub.Materials) do table.insert(out, m[1] .. " (" .. table.concat(m[2], ", ") .. ")") end
+			return out
+		end, "Material")
+		T:Toggle("Auto Farm Material", "AutoMaterial", stopOff)
+		T:Label(function() return "Farms the mobs that drop it (turn off Auto Farm)" end)
+	end
 	T:Section("Mastery Farm")
 	T:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
 	T:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
