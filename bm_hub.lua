@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.49" }
+local Hub = { Connections = {}, Running = true, Version = "1.50" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -874,7 +874,12 @@ local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
-	if S.FastAttack and (m == "Auto" or m == "Remote") then remoteAttack(root) end
+	-- از کد بازی: M1 ملی، شمشیر و میوه همه از RegisterAttack میرن (attackMelee)؛
+	-- پس Fast Attack فقط ریموت می‌فرسته، بدون Activate و کلیک که انیمیشن دارن و کندن
+	if S.FastAttack and (m == "Auto" or m == "Remote") and RegisterAttack and RegisterHit then
+		remoteAttack(root)
+		return
+	end
 	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
 	if m == "Auto" or m == "Tool" then
