@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.47" }
+local Hub = { Connections = {}, Running = true, Version = "1.48" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -638,18 +638,68 @@ end
 
 -- کوئست با پیشرفت کامل مثل (8/8) تموم‌شده حساب میشه
 local function questDone(txt)
-	local cur, total = txt:match("%((%d+)%s*/%s*(%d+)%)")
+	local cur, total = txt:match("(%d+)%s*/%s*(%d+)")
 	return cur ~= nil and tonumber(cur) >= tonumber(total)
 end
 
+-- متن کوئست فعال (یا nil). بازی جای کادر کوئست رو عوض کرده، پس اگه کادر قدیمی نبود
+-- توی کل PlayerGui دنبال متن «Defeat ... (x/y)» که روی صفحه‌ست می‌گردیم
+local questLabel
+local function shownOnScreen(o)
+	while o and o:IsA("GuiObject") do
+		if not o.Visible then return false end
+		o = o.Parent
+	end
+	return not (o and o:IsA("ScreenGui")) or o.Enabled
+end
+local function labelQuestText(d)
+	local t = d.Text
+	if t:find("%d+%s*/%s*%d+") then return t end
+	-- پیشرفت (x/y) گاهی یه لیبل جداست
+	for _, o in ipairs(d.Parent and d.Parent:GetDescendants() or {}) do
+		if o ~= d and o:IsA("TextLabel") and o.Text:find("^%s*%(?%d+%s*/%s*%d+%)?%s*$") then return t .. " (" .. o.Text:gsub("[%(%)%s]", "") .. ")" end
+	end
+	return t
+end
+local function questTitle()
+	local g = questGui()
+	local t
+	pcall(function() if g and g.Visible then t = g.Container.QuestTitle.Title.Text end end)
+	if t and t ~= "" then return t end
+	if questLabel and questLabel.Parent and shownOnScreen(questLabel) and questLabel.Text:lower():find("defeat") then
+		return labelQuestText(questLabel)
+	end
+	if tick() - (Hub.QuestScanAt or 0) < 2 then return nil end
+	Hub.QuestScanAt = tick()
+	questLabel = nil
+	local pg = player:FindFirstChild("PlayerGui")
+	for _, d in ipairs(pg and pg:GetDescendants() or {}) do
+		if d:IsA("TextLabel") and d.Text:lower():find("defeat") and d.Parent and d.Parent.Name ~= "BMHub" and shownOnScreen(d) then
+			questLabel = d
+			Hub.QuestLabelPath = d:GetFullName()
+			return labelQuestText(d)
+		end
+	end
+end
+
+-- اسم ماب توی متن کوئست: کامل، یا (برای غلط املایی مثل Posessed/Possessed و جمع مثل Mummies)
+-- 3 حرف اول کلمه‌ی اول + 4 حرف اول کلمه‌ی آخر
+local function titleHasMob(txt, mob)
+	local l, m = txt:lower(), mob:lower()
+	if l:find(m, 1, true) then return true end
+	local first, last = m:match("^(%a+)"), m:match("(%a+)$")
+	return first ~= nil and l:find(first:sub(1, 3), 1, true) ~= nil and l:find(last:sub(1, 4), 1, true) ~= nil
+end
+
 local function hasQuest(mob)
-	local q = questGui()
-	if not q or not q.Visible then return false end
-	local ok, txt = pcall(function() return q.Container.QuestTitle.Title.Text end)
-	if not ok then return mob == nil end
+	local txt = questTitle()
+	-- کادر کوئست پیدا نشد ولی سرور گفت قبول شد (0) → تا 60 ثانیه فعال حسابش می‌کنیم
+	if not txt then
+		return Hub.QuestTakenMob ~= nil and (mob == nil or Hub.QuestTakenMob == mob) and tick() - (Hub.QuestTakenAt or 0) < 60
+	end
 	if questDone(txt) then return false end
 	if not mob then return true end
-	return txt:lower():find(mob:lower(), 1, true) ~= nil
+	return titleHasMob(txt, mob)
 end
 
 -- اگه کوئستی چند بار گرفته نشد، یه مدت بدون کوئست فارم می‌کنیم
@@ -660,13 +710,9 @@ end
 
 local function takeQuest(q, keepGoing)
 	local started = tick()
-	local g = questGui()
 	-- فقط کوئست یه ماب دیگه رو ول می‌کنیم؛ کوئست تموم‌شده (8/8) خودش تحویل میشه
-	if g and g.Visible and not hasQuest(q.mob) then
-		local title = ""
-		pcall(function() title = g.Container.QuestTitle.Title.Text end)
-		if not questDone(title) then invoke("AbandonQuest") end
-	end
+	local cur = questTitle()
+	if cur and not questDone(cur) and not titleHasMob(cur, q.mob) then invoke("AbandonQuest") end
 	local key = q.quest .. q.index
 	-- لول کافی نیست → سرور قبول نمی‌کنه؛ اصلاً نمیریم پیش NPC
 	if q.level and q.level > (dataValue("Level") or 0) then
@@ -695,10 +741,8 @@ local function takeQuest(q, keepGoing)
 	-- متن کوئست همیشه دقیقاً اسم ماب نیست؛ هر کوئست فعال و تموم‌نشده یعنی گرفته شد
 	local function taken()
 		if hasQuest(q.mob) then return true end
-		local g2 = questGui()
-		local title = ""
-		pcall(function() title = g2.Container.QuestTitle.Title.Text end)
-		return g2 ~= nil and g2.Visible and title ~= "" and not questDone(title)
+		local title = questTitle()
+		return title ~= nil and not questDone(title)
 	end
 	local res
 	for attempt = 1, 2 do
@@ -707,11 +751,13 @@ local function takeQuest(q, keepGoing)
 		local root = getRoot()
 		if root then root.CFrame = npcCF end
 		res = invoke("StartQuest", q.quest, q.index)
+		-- از کد خود بازی: 0 = قبول شد، 1 = خطا، 2 = قبلاً تموم کردی، بقیه = لول کم
 		local waited = 0
-		while waited < 1.2 and not taken() do
+		while res ~= 0 and waited < 1.2 and not taken() do
 			waited += task.wait(0.1)
 		end
-		if taken() then
+		if res == 0 or taken() then
+			Hub.QuestTakenAt, Hub.QuestTakenMob = tick(), q.mob
 			questFailures[key] = 0
 			Hub.LastQuestTime = tick() - started
 			S.Status = ("Quest taken in %.1fs: %s"):format(Hub.LastQuestTime, q.mob)
@@ -980,20 +1026,7 @@ end
 local candidateCache = { t = 0, set = {} }
 local questMobCache = { t = 0 }
 local function activeQuestMob()
-	local g = questGui()
-	if not g or not g.Visible then return nil end
-	local title
-	pcall(function() title = g.Container.QuestTitle.Title.Text end)
-	if not title then
-		pcall(function()
-			for _, d in ipairs(g:GetDescendants()) do
-				if d:IsA("TextLabel") and d.Text:lower():find("defeat") then
-					title = d.Text
-					break
-				end
-			end
-		end)
-	end
+	local title = questTitle()
 	if not title or title == "" or questDone(title) then return nil end
 	-- متن کوئست با پیشرفت عوض میشه، پس بدون (x/y) کش می‌کنیم
 	local base = title:gsub("%(.-%)", "")
@@ -1854,10 +1887,8 @@ do
 			return
 		end
 		-- متن کوئست Elite ممکنه اسم باس رو نداشته باشه؛ پس هر کوئست فعالِ تموم‌نشده رو کوئست Elite حساب می‌کنیم
-		local g = questGui()
-		local title = ""
-		pcall(function() title = g.Container.QuestTitle.Title.Text end)
-		local active = g and g.Visible and not questDone(title)
+		local title = questTitle() or ""
+		local active = title ~= "" and not questDone(title)
 		if not active then
 			S.Status = "Elite Hunter: taking quest"
 			invoke("EliteHunter")
@@ -1901,10 +1932,9 @@ do
 	-- Auto Bone: فقط کوئست مومیایی (Posessed Mummy). متن کوئست رو با «mumm» چک می‌کنیم
 	-- چون اسم ماب Posessed ولی ممکنه توی متن Possessed/Mummies باشه
 	local function mummyQuestActive()
-		local g = questGui()
-		local title = ""
-		pcall(function() title = g.Container.QuestTitle.Title.Text end)
-		return g ~= nil and g.Visible and not questDone(title) and title:lower():find("mumm", 1, true) ~= nil
+		local title = questTitle()
+		if not title then return hasQuest("Posessed Mummy") end
+		return not questDone(title) and title:lower():find("mumm", 1, true) ~= nil
 	end
 
 	local function stepBone(keep)
@@ -1920,6 +1950,7 @@ do
 		if S.AutoBoneGamble and tick() > (Hub.BoneGambleWait or 0) then
 			local ok, bones, shop, left, minutes = pcall(CommF.InvokeServer, CommF, "Bones", "Check")
 			bones, left = tonumber(bones) or 0, tonumber(left) or 0
+			if Hub.LiveLog then Hub.LiveLog(("Bone gamble check: ok=%s bones=%s tradesLeft=%s resetMin=%s"):format(tostring(ok), tostring(bones), tostring(left), tostring(minutes))) end
 			local idx, cost = 1, 50
 			pcall(function()
 				for k, item in pairs(shop[1]) do
@@ -3324,10 +3355,7 @@ do
 				end
 				table.sort(on)
 				local root, hum = getRoot(), getHum()
-				local q = questGui()
-				local title = ""
-				pcall(function() title = q.Container.QuestTitle.Title.Text end)
-				local state = ("%s | quest: %s | on: %s"):format(S.Status, (q and q.Visible) and title or "none", table.concat(on, ","))
+				local state = ("%s | quest: %s | on: %s"):format(S.Status, questTitle() or "none", table.concat(on, ","))
 				-- فقط وقتی چیزی عوض شد، یا هر 15 ثانیه یه خط
 				if state ~= last or tick() - lastBeat > 15 then
 					local pos = root and ("(%d, %d, %d)"):format(math.floor(root.Position.X), math.floor(root.Position.Y), math.floor(root.Position.Z)) or "dead"
@@ -3380,10 +3408,7 @@ local function debugReport()
 	local q = questForLevel(dataValue("Level") or 1)
 	add("quest for level:", q and (q.quest .. " #" .. tostring(q.index) .. " " .. q.mob .. " @ " .. tostring(q.npc and q.npc.Position)) or "none",
 		"| blocked:", q and questBlocked(q))
-	local g = questGui()
-	local title = "?"
-	pcall(function() title = g.Container.QuestTitle.Title.Text end)
-	add("quest gui:", g and g:GetFullName() or "nil", "| visible:", g and g.Visible, "| title:", title)
+	add("quest title:", questTitle() or "none", "| label:", Hub.QuestLabelPath or "old Main.Quest box")
 	add("last quest take time:", Hub.LastQuestTime and ("%.1fs"):format(Hub.LastQuestTime) or "n/a")
 	local enemies = workspace:FindFirstChild("Enemies")
 	add("Enemies folder:", enemies ~= nil, "| count:", enemies and #enemies:GetChildren() or 0)
