@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.41" }
+local Hub = { Connections = {}, Running = true, Version = "1.42" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -180,6 +180,7 @@ local function mainFarmBusy()
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
+		or (Hub.SpecialAny ~= nil and Hub.SpecialAny())
 end
 
 local function anyFarm()
@@ -188,6 +189,7 @@ local function anyFarm()
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
+		or (Hub.SpecialAny ~= nil and Hub.SpecialAny())
 end
 
 ---------------------------------------------------------------------
@@ -718,9 +720,9 @@ local function takeQuest(q, keepGoing)
 	questFailures[key] = (questFailures[key] or 0) + 1
 	local r = getRoot()
 	logError("StartQuest " .. key, ("not accepted (%s) npc=%s dist=%.0f"):format(tostring(res), npcName, r and (r.Position - npcCF.Position).Magnitude or -1))
-	if questFailures[key] >= 2 then
+	if questFailures[key] >= 3 then
 		-- مدت کوتاه بدون کوئست، بعد دوباره تلاش
-		questBlockedUntil[key] = tick() + 120
+		questBlockedUntil[key] = tick() + 15
 		questFailures[key] = 0
 	end
 end
@@ -1902,9 +1904,16 @@ do
 			return
 		end
 		local q = questForMob("Posessed Mummy")
-		if S.TakeQuest and q and not questBlocked(q) and not mummyQuestActive() then
-			takeQuest(q, keep)
-			return
+		if mummyQuestActive() then
+			Hub.MummyGoneAt = nil
+		elseif S.TakeQuest and q and not questBlocked(q) then
+			-- کوئست تازه تموم شده؛ سرور یه لحظه طول می‌کشه تا کوئست بعدی رو قبول کنه
+			Hub.MummyGoneAt = Hub.MummyGoneAt or tick()
+			if tick() - Hub.MummyGoneAt >= 1.5 then
+				takeQuest(q, keep)
+				if mummyQuestActive() then Hub.MummyGoneAt = nil end
+				return
+			end
 		end
 		local target = findMob("Posessed Mummy")
 		-- وقتی مومیایی نیست، بقیه‌ی ماب‌های Bone رو می‌زنیم (بدون کوئست، فقط برای Bone)
@@ -1978,6 +1987,74 @@ do
 		task.wait(0.2)
 	end
 
+	-- باس‌های خاص: برای هر کدوم یه تیک «بکش» و (اگه احضار داره) یه تیک «احضار» جدا
+	local function equipItem(name)
+		local t = backpackTool(name)
+		local h = getHum()
+		if t and h and t.Parent ~= getChar() then pcall(function() h:EquipTool(t) end) end
+		return t
+	end
+	local SPECIAL = {
+		{ id = "SoulReaper", label = "Soul Reaper", names = { "Soul Reaper" }, sea = 3, cost = "Hallow Essence",
+			ready = function() return backpackTool("Hallow Essence") ~= nil end,
+			summon = function(keep)
+				equipItem("Hallow Essence")
+				local det
+				pcall(function() det = workspace.Map["Haunted Castle"].Summoner.Detection end)
+				if not det then
+					tweenTo(CFrame.new(HAUNTED + Vector3.new(0, 40, 0)), keep)
+					return
+				end
+				tweenTo(CFrame.new(det.Position + Vector3.new(0, 3, 0)), keep)
+				touchPart(det)
+				task.wait(3)
+			end },
+		{ id = "CakePrince", label = "Cake Prince", names = { "Cake Prince" }, sea = 3,
+			ready = function() return true end,
+			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND) end },
+		{ id = "DoughKing", label = "Dough King", names = { "Dough King" }, sea = 3, cost = "Sweet Chalice",
+			ready = function() return backpackTool("Sweet Chalice") ~= nil or hasItem("Sweet Chalice") end,
+			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND) end },
+		{ id = "Indra", label = "rip_indra", names = { "rip_indra True Form", "rip_indra" }, sea = 3 },
+		{ id = "CursedCaptain", label = "Cursed Captain", names = { "Cursed Captain" }, sea = 2 },
+		{ id = "Order", label = "Order", names = { "Order" }, sea = 2 },
+	}
+	Hub.Special = SPECIAL
+	Hub.SpecialAny = function()
+		for _, b in ipairs(SPECIAL) do
+			if S["Kill" .. b.id] or S["Summon" .. b.id] then return true end
+		end
+		return false
+	end
+	local function spawnedName(b)
+		for _, n in ipairs(b.names) do
+			if findMobAnywhere(n) then return n end
+		end
+	end
+	Hub.SpecialSpawned = spawnedName
+	-- کاری که الان باید بکنیم (اگه هست): اول کشتن باس اسپاون‌شده، بعد احضار
+	local function specialAction()
+		for _, b in ipairs(SPECIAL) do
+			if b.sea == Sea and (S["Kill" .. b.id] or S["Summon" .. b.id]) then
+				local n = spawnedName(b)
+				if n then
+					return function(keep)
+						S.Status = "Special boss: fighting " .. n
+						fightBoss(n, keep)
+					end, S["Kill" .. b.id] and "Kill" .. b.id or "Summon" .. b.id
+				end
+			end
+		end
+		for _, b in ipairs(SPECIAL) do
+			if b.sea == Sea and S["Summon" .. b.id] and b.summon and b.ready() then
+				return function(keep)
+					S.Status = "Special boss: summoning " .. b.label
+					b.summon(keep)
+				end, "Summon" .. b.id
+			end
+		end
+	end
+
 	-- Pirate Raid: دزدهای دریایی که به Castle on the Sea حمله می‌کنن
 	local CASTLE = Vector3.new(-5100, 315, -3000)
 	local function stepPirateRaid(keep)
@@ -2005,7 +2082,9 @@ do
 			task.wait(0.3)
 			if alive() then
 				local step, flag
-				if S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
+				local sStep, sFlag = specialAction()
+				if sStep then step, flag = sStep, sFlag
+				elseif S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
 				elseif S.AutoPirateRaid and Sea == 3 then step, flag = stepPirateRaid, "AutoPirateRaid"
 				elseif S.AutoElite and Sea == 3 then step, flag = stepElite, "AutoElite"
 				elseif S.AutoYama and Sea == 3 then step, flag = stepYama, "AutoYama"
@@ -3788,7 +3867,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true }
 
 local function saveSettings()
 	local data = {}
@@ -4084,6 +4163,24 @@ Boss:Toggle("Take Boss Quest", "BossQuest")
 Boss:Toggle("Auto All Bosses (nearest spawned first)", "AutoAllBosses", function(on)
 	if not on then stopTween() S.Status = "Idle" end
 end)
+Boss:Section("Special Bosses (each one separate)")
+for _, b in ipairs(Hub.Special or {}) do
+	if b.sea == Sea then
+		Boss:Toggle("Auto Kill " .. b.label, "Kill" .. b.id, function(on) if not on then stopTween() end end)
+		if b.summon then
+			Boss:Toggle("Auto Summon " .. b.label .. (b.cost and (" (uses " .. b.cost .. "!)") or " (farms cake mobs)"), "Summon" .. b.id, function(on)
+				if not on then stopTween() end
+			end)
+		end
+		Boss:Label(function()
+			local n = Hub.SpecialSpawned(b)
+			local need = ""
+			if b.cost then need = "  •  " .. b.cost .. ": " .. (b.ready() and "✔" or "✖") end
+			return b.label .. ": " .. (n and "SPAWNED ✔" or "not spawned") .. need
+		end)
+	end
+end
+if Sea ~= 2 and Sea ~= 3 then Boss:Label(function() return "Special bosses are in Sea 2 / Sea 3" end) end
 Boss:Section("Darkbeard")
 Boss:Toggle("Auto Darkbeard (summon + fight)", "AutoDarkbeard", function(on)
 	if not on then stopTween() S.Status = "Idle" end
