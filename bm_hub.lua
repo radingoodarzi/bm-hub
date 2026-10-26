@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.36" }
+local Hub = { Connections = {}, Running = true, Version = "1.37" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1825,8 +1825,7 @@ do
 		end
 		local name = mobBaseName(best.Name)
 		local q = questForMob(name)
-		-- Bone و ماب‌های کیک بدون کوئست هم دراپ میدن؛ کوئست فقط XP میده که توی لول مکس (2800) بی‌فایده‌ست
-		if S.TakeQuest and q and (dataValue("Level") or 0) < 2800 and not inList and not questBlocked(q) and not hasQuest(name) then
+		if S.TakeQuest and q and not inList and not questBlocked(q) and not hasQuest(name) then
 			takeQuest(q, keep)
 			return
 		end
