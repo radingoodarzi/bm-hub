@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.51" }
+local Hub = { Connections = {}, Running = true, Version = "1.52" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -849,6 +849,7 @@ local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
+	if m ~= "Tool" and m ~= "Click" then m = "Auto" end
 	-- ضربه‌ی مستقیم با ریموت حذف شد: بازی به هر ضربه یه کد امنیتی (ضدتقلب) می‌چسبونه،
 	-- ضربه‌ی بدون اون کد دمیج نمیده و ممکنه فلگ بشه. فقط حمله‌ی عادی خود ابزار.
 	if tick() - cooldown.click < (S.FastAttack and 0.05 or 0.12) then return end
@@ -4017,484 +4018,479 @@ end)
 ---------------------------------------------------------------------
 -- Pages
 ---------------------------------------------------------------------
-do -- صفحه‌ها (متغیرهاشون فقط همین‌جا لازمن)
--- تلپورت دستی (دکمه‌ها): اگه Instant TP روشن باشه فوری میره
+do -- صفحه‌ها: هر تب توی do خودش (رجیسترهای Luau محدودن) و گزینه‌های هر دریا فقط توی همون دریا
 local function goTo(cf) return tweenTo(cf, nil, true) end
-local Home = createTab("Home", "⌂")
-Home:Profile()
-Home:Section("Stats")
-Home:Label(function() return "Level:  <font color=\"#00D2FF\">" .. formatNumber(dataValue("Level") or 0) .. "</font>" end)
-Home:Label(function() return "Beli:  <font color=\"#7CFF9B\">$" .. formatNumber(dataValue("Beli") or 0) .. "</font>" end)
-Home:Label(function() return "Fragments:  <font color=\"#7FC8FF\">" .. formatNumber(dataValue("Fragments") or 0) .. "</font>" end)
-Home:Label(function() return "Stat Points:  " .. formatNumber(dataValue("Points") or 0) end)
-Home:Label(function() return "Status:  <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
-Home:Section("Info")
-Home:Label(function() return "Quests loaded: " .. #QuestList .. "  •  Bosses: " .. #BossList end)
-Home:Label(function() return "Toggle UI:  RightControl  /  BM button" end)
-Home:Section("Debug")
-Home:Label(function()
-	local a = Hub.AttackInfo
-	return ("Attacks  remote:%d  click:%d  tool:%d"):format(a.remote, a.click, a.tool)
-end)
-Home:Button("Copy Debug Report", function()
-	local report = debugReport()
-	local copied = pcall(function() (setclipboard or toclipboard)(report) end)
-	-- کپی همیشه به Claude نمی‌رسه؛ توی فایل هم ذخیره می‌کنیم
-	pcall(function()
-		if makefolder and not (isfolder and isfolder("bmscan")) then makefolder("bmscan") end
-		writefile("bmscan/debug.txt", report)
-	end)
-	print(report)
-	notify("Debug Report", copied and "Copied ✔ — paste it to Claude" or "Printed to console (F9)", 5)
-end)
+local function stopOff(on) if not on then stopTween() S.Status = "Idle" end end
+local SEA_NAME = Sea > 0 and ("Sea " .. Sea) or "Sea ?"
 
-local Farm = createTab("Main Farm", "☰")
-Farm:Section("Auto Farm")
-Farm:Toggle("Auto Farm", "AutoFarm", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Farm:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
-Farm:Dropdown("Select Mob", mobOptions, "SelectedMob")
-Farm:Toggle("Take Quest", "TakeQuest")
-
-local Combat = createTab("Combat", "⚔")
-Combat:Section("Weapon & Attack")
-Combat:Dropdown("Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
-Combat:Dropdown("Attack Method", function() return { "Auto", "Remote", "Click", "Tool" } end, "AttackMethod")
-Combat:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
-Combat:Slider("Attack Range", 10, 150, "AttackRange")
-Combat:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
-Combat:Toggle("Bring Mobs", "BringMobs")
-Combat:Section("Haki & Race")
-Combat:Toggle("Auto Haki (Buso)", "AutoHaki")
-Combat:Toggle("Auto Observation (Ken)", "AutoKen")
-Combat:Toggle("Auto Race Skill (T)", "AutoRace")
-Combat:Slider("Farm Height", 0, 60, "FarmDistance")
-Combat:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
-
-local Progress = createTab("Progress", "⇪")
-Progress:Section("Team")
-Progress:Dropdown("Team", function() return { "Pirates", "Marines" } end, "TeamChoice")
-Progress:Toggle("Auto Pick Team", "AutoTeam")
-Progress:Section("Unlock Seas (turn off Auto Farm)")
-Progress:Toggle("Auto Unlock Sea 2 (Sea 1, Lv 700+)", "AutoSea2", function(on) if not on then stopTween() end end)
-Progress:Toggle("Auto Bartilo Quest (Sea 2, Lv 850+)", "AutoBartilo", function(on) if not on then stopTween() end end)
-Progress:Toggle("Auto Unlock Sea 3 (Sea 2, Lv 1500+)", "AutoSea3", function(on) if not on then stopTween() end end)
-Progress:Section("Quests")
-Progress:Toggle("Auto Saber (Sea 1, Lv 200+)", "AutoSaber", function(on) if not on then stopTween() end end)
-Progress:Toggle("Auto Race V2 (Sea 2, Alchemist)", "AutoRaceV2", function(on) if not on then stopTween() end end)
-Progress:Toggle("Auto Race V3 (Sea 2, Human/Rabbit/Fishman)", "AutoRaceV3", function(on) if not on then stopTween() end end)
-Progress:Section("Sea 3 Items")
-Progress:Toggle("Auto Tushita (Lv 2200+)", "AutoTushita", function(on) if not on then stopTween() end end)
-Progress:Toggle("Auto CDK (Yama + Tushita 350 mastery)", "AutoCDK", function(on) if not on then stopTween() end end)
-Progress:Toggle("Auto Soul Guitar (full moon, spends mats)", "AutoSoulGuitar", function(on) if not on then stopTween() end end)
-Progress:Section("Fighting Styles")
-Progress:Toggle("Auto Next Fighting Style (spends!)", "AutoStyles", function(on) if not on then stopTween() end end)
-Progress:Label(function() return "Status: <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
-
-Farm:Section("Mastery Farm")
-Farm:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
-Farm:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
-Farm:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
-Farm:Section("Skills")
-Farm:Toggle("Use Skills", "UseSkills")
-Farm:Toggle("Skill Z", "SkillZ")
-Farm:Toggle("Skill X", "SkillX")
-Farm:Toggle("Skill C", "SkillC")
-Farm:Toggle("Skill V", "SkillV")
-Farm:Label(function() return "Turn on Auto Farm too. Weak mobs get finished with your mastery weapon." end)
-
-local SeaEvents = createTab("Sea Events", "⚓")
-SeaEvents:Section("Sea Beasts & Sea Events")
-SeaEvents:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", function(on) if not on then stopTween() end end)
-SeaEvents:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")
-SeaEvents:Label(function()
-	local f = workspace:FindFirstChild("SeaBeasts")
-	return "Sea Beasts in server: " .. (f and #f:GetChildren() or 0)
-end)
-SeaEvents:Section("Pirate Raid (Sea 3, Castle on the Sea)")
-SeaEvents:Toggle("Auto Pirate Raid (kill raiders at Castle)", "AutoPirateRaid", function(on) if not on then stopTween() end end)
-SeaEvents:Section("World Events")
-SeaEvents:Toggle("Event Spawn Alert", "EventNotify")
-SeaEvents:Label(function()
-	local names = {}
-	for _, obj in pairs(Hub.Events) do table.insert(names, obj.Name) end
-	local full = false
-	pcall(function()
-		full = Lighting.Sky.MoonTextureId == "http://www.roblox.com/asset/?id=9709149431" and (Lighting.ClockTime > 16 or Lighting.ClockTime < 5)
-	end)
-	return "Events: " .. (#names > 0 and table.concat(names, ", ") or "none") .. "  •  Full moon night: " .. (full and "YES" or "no")
-end)
-for _, ev in ipairs({ { "Mirage Island", { "mirage", "mystic" } }, { "Kitsune Island", { "kitsune" } }, { "Prehistoric Island", { "prehistoric" } }, { "Frozen Dimension", { "frozen" } } }) do
-	SeaEvents:Button("Go to " .. ev[1], function()
-		local obj
-		for _, k in ipairs(ev[2]) do obj = obj or Hub.Events[k] end
-		if not obj then return notify(ev[1], "Not spawned in this server") end
-		local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
-		goTo(CFrame.new(pos + Vector3.new(0, 80, 0)))
+-- Home: اطلاعات و دیباگ
+do
+	local T = createTab("Home", "⌂")
+	T:Profile()
+	T:Section("Stats")
+	T:Label(function() return "Level:  <font color=\"#00D2FF\">" .. formatNumber(dataValue("Level") or 0) .. "</font>  •  " .. SEA_NAME end)
+	T:Label(function() return "Beli:  <font color=\"#7CFF9B\">$" .. formatNumber(dataValue("Beli") or 0) .. "</font>" end)
+	T:Label(function() return "Fragments:  <font color=\"#7FC8FF\">" .. formatNumber(dataValue("Fragments") or 0) .. "</font>" end)
+	T:Label(function() return "Stat Points:  " .. formatNumber(dataValue("Points") or 0) end)
+	T:Label(function() return "Status:  <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
+	T:Label(function() return "Quest:  " .. (questTitle() or "none") end)
+	T:Section("Info")
+	T:Label(function() return "Quests loaded: " .. #QuestList .. "  •  Bosses: " .. #BossList end)
+	T:Label(function() return "Toggle UI:  RightControl  /  BM button" end)
+	T:Section("Debug")
+	T:Button("Copy Debug Report", function()
+		local report = debugReport()
+		local copied = pcall(function() (setclipboard or toclipboard)(report) end)
+		-- کپی همیشه به Claude نمی‌رسه؛ توی فایل هم ذخیره می‌کنیم
+		pcall(function()
+			if makefolder and not (isfolder and isfolder("bmscan")) then makefolder("bmscan") end
+			writefile("bmscan/debug.txt", report)
+		end)
+		print(report)
+		notify("Debug Report", copied and "Copied ✔ — paste it to Claude" or "Printed to console (F9)", 5)
 	end)
 end
-Farm:Section("Sea 2 Farms")
-Farm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Farm:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Farm:Label(function()
-	return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  Sea " .. (Sea > 0 and Sea or "?")
-end)
-Farm:Section("Raid (level 1100+)")
-Farm:Dropdown("Raid Type", function()
-	return { "Flame", "Ice", "Quake", "Light", "Dark", "Spider", "Magma", "Buddha", "Sand", "Phoenix", "Dough" }
-end, "RaidType")
-Farm:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
-Farm:Toggle("Auto Raid (start + clear islands)", "AutoRaid", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Farm:Section("Sea 3 Farms")
-Farm:Toggle("Auto Elite Hunter", "AutoElite", function(on) if not on then stopTween() end end)
-Farm:Toggle("Auto Yama (after 30 elites)", "AutoYama", function(on) if not on then stopTween() end end)
-Farm:Label(function()
-	if Sea ~= 3 then return "Sea 3 farms work in Sea 3 only" end
-	return "Elite progress: " .. tostring(invokeCached("eliteProg", 20, "EliteHunter", "Progress") or "?") .. "/30"
-end)
-Farm:Toggle("Auto Bone (Haunted Castle)", "AutoBone", function(on) if not on then stopTween() end end)
-Farm:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
-Farm:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) .. "  (gamble trades with Auto Bone on)" end)
-Farm:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", function(on) if not on then stopTween() end end)
-Farm:Label(function()
-	if Sea ~= 3 then return "Cake Prince: Sea 3 only" end
-	return "Cake Prince: " .. tostring(invokeCached("cakeSpawner", 20, "CakePrinceSpawner") or "?")
-end)
-Farm:Section("Items: Rengoku")
-Farm:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Farm:Label(function()
-	local key = backpackTool("Hidden Key") and "✔ have key" or "no key yet"
-	return "Hidden Key: " .. key .. "  •  drops from Ice Admiral / Ice Castle mobs"
-end)
-Farm:Section("Dragon Trident")
-Farm:Toggle("Auto Dragon Trident (Tide Keeper)", "AutoTrident", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Farm:Section("Midnight Blade")
-Farm:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  needs 100" end)
-Farm:Button("Go to El Admin (buy Midnight Blade)", function()
-	goTo(CFrame.new(POS.ElAdmin + Vector3.new(0, 3, 4)))
-	notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
-end)
-Farm:Section("True Triple Katana")
-Farm:Label(function()
-	return "Sword Dealer: " .. (dealerPosition() and "<font color=\"#7CFF9B\">SPAWNED</font>" or "not spawned")
-end)
-Farm:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
-Farm:Toggle("Auto Buy Legendary Sword ($2M each)", "AutoLegendary")
-Farm:Label(function()
-	local have = {}
-	for _, sw in ipairs({ "Shisui", "Saddi", "Wando" }) do table.insert(have, sw .. (hasItem(sw) and " ✔" or " ✖")) end
-	return table.concat(have, "   ")
-end)
-Farm:Button("Go to Legendary Sword Dealer", function()
-	local cf = dealerPosition()
-	if not cf then return notify("Sword Dealer", "Not spawned right now") end
-	goTo(cf * CFrame.new(0, 0, 4))
-end)
-Farm:Button("Go to Mysterious Man (TTK)", function()
-	goTo(CFrame.new(POS.MysteriousMan + Vector3.new(0, 3, 4)))
-end)
-Farm:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
 
--- کلکسیون: کدوم آیتم‌های مهم رو داری و کدوم‌ها مونده (از اینونتوری خود بازی)
-local COLLECTION = {
-	{ "Sea 1", { "Saber", "Pole (1st Form)", "Gravity Cane", "Trident", "Warden's Sword", "Longsword", "Bisento", "Soul Cane", "Shark Saw", "Jitte" } },
-	{ "Sea 2", { "Rengoku", "Dragon Trident", "Midnight Blade", "True Triple Katana", "Koko", "Dual-Headed Blade", "Kabucha", "Bizarre Revolver", "Acidum Rifle" } },
-	{ "Sea 3", { "Yama", "Tushita", "Cursed Dual Katana", "Hallow Scythe", "Shark Anchor", "Canvander", "Buddy Sword", "Twin Hooks", "Spikey Trident", "Dark Dagger", "Skull Guitar", "Fox Lamp", "Venom Bow", "Dragonstorm" } },
-}
-Farm:Section("Collection")
-for _, group in ipairs(COLLECTION) do
-	local seaName, list = group[1], group[2]
-	local function missing()
-		local out = {}
-		for _, item in ipairs(list) do
-			if not hasItem(item) then table.insert(out, item) end
-		end
-		return out
+-- Farm: فارم لول/ماب، مستری، اسکیل‌ها (همه‌ی دریاها)
+do
+	local T = createTab("Farm", "☰")
+	T:Section("Auto Farm")
+	T:Toggle("Auto Farm", "AutoFarm", stopOff)
+	T:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
+	T:Dropdown("Select Mob", mobOptions, "SelectedMob")
+	T:Toggle("Take Quest", "TakeQuest")
+	T:Section("Mastery Farm")
+	T:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
+	T:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
+	T:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
+	T:Section("Skills")
+	T:Toggle("Use Skills", "UseSkills")
+	T:Toggle("Skill Z", "SkillZ")
+	T:Toggle("Skill X", "SkillX")
+	T:Toggle("Skill C", "SkillC")
+	T:Toggle("Skill V", "SkillV")
+end
+
+-- دریای فعلی: فقط فارم‌ها، آیتم‌ها و پیشرفت همین دریا
+do
+	local T = createTab(SEA_NAME, "≋")
+	if Sea == 1 then
+		T:Section("Progress")
+		T:Toggle("Auto Saber (Lv 200+)", "AutoSaber", stopOff)
+		T:Toggle("Auto Unlock Sea 2 (Lv 700+)", "AutoSea2", stopOff)
+		T:Label(function() return "Turn off Auto Farm while these run" end)
+	elseif Sea == 2 then
+		T:Section("Farms")
+		T:Toggle("Auto Factory (Core)", "AutoFactory", stopOff)
+		T:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", stopOff)
+		T:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) end)
+		T:Section("Raid (Lv 1100+)")
+		T:Dropdown("Raid Type", function()
+			return { "Flame", "Ice", "Quake", "Light", "Dark", "Spider", "Magma", "Buddha", "Sand", "Phoenix", "Dough" }
+		end, "RaidType")
+		T:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
+		T:Toggle("Auto Raid (start + clear islands)", "AutoRaid", stopOff)
+		T:Section("Progress")
+		T:Toggle("Auto Bartilo Quest (Lv 850+)", "AutoBartilo", stopOff)
+		T:Toggle("Auto Unlock Sea 3 (Lv 1500+)", "AutoSea3", stopOff)
+		T:Toggle("Auto Race V2 (Alchemist)", "AutoRaceV2", stopOff)
+		T:Toggle("Auto Race V3 (Human/Rabbit/Fishman)", "AutoRaceV3", stopOff)
+		T:Section("Swords")
+		T:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", stopOff)
+		T:Label(function()
+			return "Hidden Key: " .. (backpackTool("Hidden Key") and "✔ have key" or "no key yet") .. "  •  from Ice Castle mobs"
+		end)
+		T:Toggle("Auto Dragon Trident (Tide Keeper)", "AutoTrident", stopOff)
+		T:Button("Go to El Admin (Midnight Blade, 100 Ectoplasm)", function()
+			goTo(CFrame.new(POS.ElAdmin + Vector3.new(0, 3, 4)))
+			notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
+		end)
+		T:Section("True Triple Katana")
+		T:Label(function()
+			return "Sword Dealer: " .. (dealerPosition() and "<font color=\"#7CFF9B\">SPAWNED</font>" or "not spawned")
+		end)
+		T:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
+		T:Toggle("Auto Buy Legendary Sword ($2M each)", "AutoLegendary")
+		T:Label(function()
+			local have = {}
+			for _, sw in ipairs({ "Shisui", "Saddi", "Wando" }) do table.insert(have, sw .. (hasItem(sw) and " ✔" or " ✖")) end
+			return table.concat(have, "   ")
+		end)
+		T:Button("Go to Legendary Sword Dealer", function()
+			local cf = dealerPosition()
+			if not cf then return notify("Sword Dealer", "Not spawned right now") end
+			goTo(cf * CFrame.new(0, 0, 4))
+		end)
+		T:Button("Go to Mysterious Man (TTK)", function()
+			goTo(CFrame.new(POS.MysteriousMan + Vector3.new(0, 3, 4)))
+		end)
+		T:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
+	elseif Sea == 3 then
+		T:Section("Farms")
+		T:Toggle("Auto Elite Hunter", "AutoElite", stopOff)
+		T:Toggle("Auto Yama (after 30 elites)", "AutoYama", stopOff)
+		T:Label(function() return "Elite progress: " .. tostring(invokeCached("eliteProg", 20, "EliteHunter", "Progress") or "?") .. "/30" end)
+		T:Toggle("Auto Bone (Haunted Castle, mummy quest)", "AutoBone", stopOff)
+		T:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
+		T:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) .. "  (gamble trades while Auto Bone is on)" end)
+		T:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", stopOff)
+		T:Label(function() return "Cake Prince: " .. tostring(invokeCached("cakeSpawner", 20, "CakePrinceSpawner") or "?") end)
+		T:Section("Items & Progress")
+		T:Toggle("Auto Tushita (Lv 2200+)", "AutoTushita", stopOff)
+		T:Toggle("Auto CDK (Yama + Tushita 350 mastery)", "AutoCDK", stopOff)
+		T:Toggle("Auto Soul Guitar (full moon, spends mats)", "AutoSoulGuitar", stopOff)
+	else
+		T:Label(function() return "Sea not detected — rejoin or tell Claude the PlaceId" end)
 	end
-	Farm:Label(function()
-		local m = #missing()
-		local color = m == 0 and "#7CFF9B" or "#FFD166"
-		return ("%s:  <font color=\"%s\">%d/%d owned</font>"):format(seaName, color, #list - m, #list)
-	end)
-	Farm:Dropdown("Missing (" .. seaName .. ")", function()
-		local m = missing()
-		return #m > 0 and m or { "Nothing missing ✔" }
-	end, "ViewMissing" .. seaName:gsub(" ", ""))
 end
 
-local Shop = createTab("Shop", "$")
-Shop:Section("Codes")
-Shop:Button("Redeem All Codes", function()
-	notify("Codes", "Redeeming " .. #CODES .. " codes...", 3)
-	local n, err = redeemAllCodes()
-	notify("Codes", err or ("Sent " .. n .. " codes ✔ (expired ones are ignored)"), 5)
-end)
-Shop:Section("Fighting Styles")
-Shop:Dropdown("Style", styleNames, "SelectedStyle")
-Shop:Button("Buy Selected Style", function()
-	if not S.SelectedStyle then return notify("Shop", "Select a style first") end
-	local r = buyStyle(S.SelectedStyle)
-	notify(S.SelectedStyle, r ~= nil and tostring(r) or "Request sent (need beli/fragments + requirements)", 5)
-end)
-Shop:Section("Abilities")
-Shop:Toggle("Auto Buy Buso / Geppo / Soru (when affordable)", "AutoAbilities")
-Shop:Toggle("Auto Awaken Fruit (spends fragments!)", "AutoAwaken")
-Shop:Toggle("Auto Buy Haki Color (spends beli!)", "AutoHakiColor")
-Shop:Label(function() return "Haki color keeps at least " .. formatNumber(S.FruitMinBeli) .. " beli (Fruits tab slider)" end)
-local function shopButton(label, ...)
-	local args = { ... }
-	Shop:Button(label, function()
-		local r
-		for _, a in ipairs(args) do
-			r = invoke(table.unpack(a))
-			task.wait(0.2)
-		end
-		notify(label, r ~= nil and tostring(r) or "Request sent", 4)
+-- Sea Events: فقط دریای 2 و 3
+if Sea == 2 or Sea == 3 then
+	local T = createTab("Sea Events", "⚓")
+	T:Section("Sea Beasts")
+	T:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", stopOff)
+	T:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")
+	T:Label(function()
+		local f = workspace:FindFirstChild("SeaBeasts")
+		return "Sea Beasts in server: " .. (f and #f:GetChildren() or 0)
 	end)
-end
-shopButton("Buy Geppo (Sky Jump)", { "BuyHaki", "Geppo" })
-shopButton("Buy Buso Haki", { "BuyHaki", "Buso" })
-shopButton("Buy Soru (Flash Step)", { "BuyHaki", "Soru" })
-shopButton("Buy Observation (Ken)", { "KenTalk", "Start" }, { "KenTalk", "Buy" })
-shopButton("Buy Random Haki Color", { "ColorsDealer", "2" })
-
-local Boss = createTab("Bosses", "♛")
-Boss:Section("Auto Boss")
-Boss:Dropdown("Select Boss", bossOptions, "SelectedBoss")
-Boss:Toggle("Auto Farm Boss", "AutoBoss", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Boss:Toggle("Take Boss Quest", "BossQuest")
-Boss:Toggle("Auto All Bosses (nearest spawned first)", "AutoAllBosses", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Boss:Section("Special Bosses (each one separate)")
-for _, b in ipairs(Hub.Special or {}) do
-	if b.sea == Sea then
-		Boss:Toggle("Auto Kill " .. b.label, "Kill" .. b.id, function(on) if not on then stopTween() end end)
-		if b.summon then
-			Boss:Toggle("Auto Summon " .. b.label .. (b.cost and (" (uses " .. b.cost .. "!)") or " (farms cake mobs)"), "Summon" .. b.id, function(on)
-				if not on then stopTween() end
+	if Sea == 3 then
+		T:Section("Pirate Raid (Castle on the Sea)")
+		T:Toggle("Auto Pirate Raid (kill raiders at Castle)", "AutoPirateRaid", stopOff)
+		T:Section("World Events")
+		T:Toggle("Event Spawn Alert", "EventNotify")
+		T:Label(function()
+			local names = {}
+			for _, obj in pairs(Hub.Events) do table.insert(names, obj.Name) end
+			local full = false
+			pcall(function()
+				full = Lighting.Sky.MoonTextureId == "http://www.roblox.com/asset/?id=9709149431" and (Lighting.ClockTime > 16 or Lighting.ClockTime < 5)
+			end)
+			return "Events: " .. (#names > 0 and table.concat(names, ", ") or "none") .. "  •  Full moon night: " .. (full and "YES" or "no")
+		end)
+		for _, ev in ipairs({ { "Mirage Island", { "mirage", "mystic" } }, { "Kitsune Island", { "kitsune" } }, { "Prehistoric Island", { "prehistoric" } }, { "Frozen Dimension", { "frozen" } } }) do
+			T:Button("Go to " .. ev[1], function()
+				local obj
+				for _, k in ipairs(ev[2]) do obj = obj or Hub.Events[k] end
+				if not obj then return notify(ev[1], "Not spawned in this server") end
+				local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
+				goTo(CFrame.new(pos + Vector3.new(0, 80, 0)))
 			end)
 		end
-		Boss:Label(function()
-			local n = Hub.SpecialSpawned(b)
-			local need = ""
-			if b.cost then need = "  •  " .. b.cost .. ": " .. (b.ready() and "✔" or "✖") end
-			return b.label .. ": " .. (n and "SPAWNED ✔" or "not spawned") .. need
+	end
+end
+
+-- Bosses
+do
+	local T = createTab("Bosses", "♛")
+	T:Section("Auto Boss (" .. SEA_NAME .. ")")
+	T:Dropdown("Select Boss", bossOptions, "SelectedBoss")
+	T:Toggle("Auto Farm Boss", "AutoBoss", stopOff)
+	T:Toggle("Take Boss Quest", "BossQuest")
+	T:Toggle("Auto All Bosses (nearest spawned first)", "AutoAllBosses", stopOff)
+	T:Toggle("Boss Spawn Alert", "BossNotify")
+	local anySpecial = false
+	for _, b in ipairs(Hub.Special or {}) do
+		if b.sea == Sea then
+			if not anySpecial then T:Section("Special Bosses") anySpecial = true end
+			T:Toggle("Auto Kill " .. b.label, "Kill" .. b.id, stopOff)
+			if b.summon then
+				T:Toggle("Auto Summon " .. b.label .. (b.cost and (" (uses " .. b.cost .. "!)") or " (farms cake mobs)"), "Summon" .. b.id, stopOff)
+			end
+			T:Label(function()
+				local n = Hub.SpecialSpawned(b)
+				local need = b.cost and ("  •  " .. b.cost .. ": " .. (b.ready() and "✔" or "✖")) or ""
+				return b.label .. ": " .. (n and "SPAWNED ✔" or "not spawned") .. need
+			end)
+		end
+	end
+	if Sea == 2 then
+		T:Section("Darkbeard")
+		T:Toggle("Auto Darkbeard (summon + fight)", "AutoDarkbeard", stopOff)
+		T:Label(function()
+			return "Fist of Darkness: " .. (backpackTool("Fist of Darkness") and "✔ have it" or "✖ (get from chests)")
+		end)
+	end
+	T:Section("Spawned & Locations")
+	T:Button("List Spawned Bosses", function()
+		local alive_ = {}
+		for _, n in ipairs(bossNames()) do
+			if findMobAnywhere(n) then table.insert(alive_, n) end
+		end
+		notify("Spawned Bosses (" .. #alive_ .. ")", #alive_ > 0 and table.concat(alive_, ", ") or "None right now", 7)
+	end)
+	T:Dropdown("Boss Spawn", function()
+		local out = {}
+		for _, b in ipairs(bossSpawns()) do table.insert(out, b.name) end
+		return out
+	end, "SelectedBossSpawn")
+	T:Button("Teleport to Boss Spawn", function()
+		for _, b in ipairs(bossSpawns()) do
+			if b.name == S.SelectedBossSpawn then return goTo(b.cf * CFrame.new(0, 40, 0)) end
+		end
+		notify("Boss", "Select a boss spawn first")
+	end)
+end
+
+-- Items: میوه، صندوق، بری، کلکسیون همین دریا
+do
+	local T = createTab("Items", "◆")
+	T:Section("Devil Fruits")
+	T:Toggle("Auto Collect Fruits", "AutoFruit", function(on) if not on then stopTween() end end)
+	T:Toggle("Auto Store Fruits", "AutoStore")
+	T:Toggle("Fruit Spawn Alert", "FruitNotify")
+	T:Toggle("Auto Random Fruit (spends beli!)", "AutoRandomFruit", function(on)
+		if on then Hub.FruitBuys = 0 end
+	end)
+	T:Slider("Keep At Least Beli (x1000)", 0, 5000, "FruitMinBeliK", function(v) S.FruitMinBeli = v * 1000 end)
+	T:Slider("Max Fruits Per Run", 1, 20, "FruitMaxBuys")
+	T:Button("Buy Random Fruit", function()
+		local _, info = buyRandomFruit()
+		notify("Random Fruit", info, 6)
+	end)
+	T:Button("Find Fruits In Server", function()
+		local list = getWorldFruits()
+		if #list == 0 then return notify("Fruits", "No fruits spawned") end
+		local names = {}
+		for _, f in ipairs(list) do table.insert(names, f.obj.Name) end
+		notify("Fruits (" .. #list .. ")", table.concat(names, ", "), 6)
+	end)
+	T:Section("Chests & Berries")
+	T:Toggle("Auto Chest", "AutoChest", function(on) if not on then stopTween() end end)
+	T:Toggle("Auto Collect Berries", "AutoBerries", function(on) if not on then stopTween() end end)
+	T:Label(function() return "Berry bushes loaded: " .. #CollectionService:GetTagged("BerryBush") end)
+	-- کلکسیون: آیتم‌های مهم همین دریا که داری / نداری
+	local COLLECTION = {
+		[1] = { "Saber", "Pole (1st Form)", "Gravity Cane", "Trident", "Warden's Sword", "Longsword", "Bisento", "Soul Cane", "Shark Saw", "Jitte" },
+		[2] = { "Rengoku", "Dragon Trident", "Midnight Blade", "True Triple Katana", "Koko", "Dual-Headed Blade", "Kabucha", "Bizarre Revolver", "Acidum Rifle" },
+		[3] = { "Yama", "Tushita", "Cursed Dual Katana", "Hallow Scythe", "Shark Anchor", "Canvander", "Buddy Sword", "Twin Hooks", "Spikey Trident", "Dark Dagger", "Skull Guitar", "Fox Lamp", "Venom Bow", "Dragonstorm" },
+	}
+	local list = COLLECTION[Sea]
+	if list then
+		T:Section("Collection (" .. SEA_NAME .. ")")
+		local function missing()
+			local out = {}
+			for _, item in ipairs(list) do
+				if not hasItem(item) then table.insert(out, item) end
+			end
+			return out
+		end
+		T:Label(function()
+			local m = #missing()
+			return ("<font color=\"%s\">%d/%d owned</font>"):format(m == 0 and "#7CFF9B" or "#FFD166", #list - m, #list)
+		end)
+		T:Dropdown("Missing", function()
+			local m = missing()
+			return #m > 0 and m or { "Nothing missing ✔" }
+		end, "ViewMissingSea" .. Sea)
+	end
+end
+
+-- Combat: تنظیمات حمله، هاکی، پرواز
+do
+	local T = createTab("Combat", "⚔")
+	T:Section("Weapon & Attack")
+	T:Dropdown("Farm Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
+	T:Dropdown("Attack Method", function() return { "Auto", "Tool", "Click" } end, "AttackMethod")
+	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
+	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
+	T:Slider("Attack Range", 10, 150, "AttackRange")
+	T:Toggle("Bring Mobs", "BringMobs")
+	T:Section("Haki & Race")
+	T:Toggle("Auto Haki (Buso)", "AutoHaki")
+	T:Toggle("Auto Observation (Ken)", "AutoKen")
+	T:Toggle("Auto Race Skill (T)", "AutoRace")
+	T:Section("Movement")
+	T:Slider("Farm Height", 0, 60, "FarmDistance")
+	T:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
+end
+
+-- Shop
+do
+	local T = createTab("Shop", "$")
+	T:Section("Codes")
+	T:Button("Redeem All Codes", function()
+		notify("Codes", "Redeeming " .. #CODES .. " codes...", 3)
+		local n, err = redeemAllCodes()
+		notify("Codes", err or ("Sent " .. n .. " codes ✔ (expired ones are ignored)"), 5)
+	end)
+	T:Section("Fighting Styles")
+	T:Dropdown("Style", styleNames, "SelectedStyle")
+	T:Button("Buy Selected Style", function()
+		if not S.SelectedStyle then return notify("Shop", "Select a style first") end
+		local r = buyStyle(S.SelectedStyle)
+		notify(S.SelectedStyle, r ~= nil and tostring(r) or "Request sent (need beli/fragments + requirements)", 5)
+	end)
+	T:Toggle("Auto Next Fighting Style (spends!)", "AutoStyles", stopOff)
+	T:Section("Abilities & Haki")
+	T:Toggle("Auto Buy Buso / Geppo / Soru (when affordable)", "AutoAbilities")
+	T:Toggle("Auto Buy Haki Color (spends beli!)", "AutoHakiColor")
+	T:Label(function() return "Haki color keeps at least " .. formatNumber(S.FruitMinBeli) .. " beli (Items tab slider)" end)
+	T:Toggle("Auto Awaken Fruit (spends fragments!)", "AutoAwaken")
+	for _, b in ipairs({
+		{ "Buy Geppo (Sky Jump)", { { "BuyHaki", "Geppo" } } },
+		{ "Buy Buso Haki", { { "BuyHaki", "Buso" } } },
+		{ "Buy Soru (Flash Step)", { { "BuyHaki", "Soru" } } },
+		{ "Buy Observation (Ken)", { { "KenTalk", "Start" }, { "KenTalk", "Buy" } } },
+		{ "Buy Random Haki Color", { { "ColorsDealer", "2" } } },
+	}) do
+		T:Button(b[1], function()
+			local r
+			for _, a in ipairs(b[2]) do
+				r = invoke(table.unpack(a))
+				task.wait(0.2)
+			end
+			notify(b[1], r ~= nil and tostring(r) or "Request sent", 4)
 		end)
 	end
 end
-if Sea ~= 2 and Sea ~= 3 then Boss:Label(function() return "Special bosses are in Sea 2 / Sea 3" end) end
-Boss:Section("Darkbeard")
-Boss:Toggle("Auto Darkbeard (summon + fight)", "AutoDarkbeard", function(on)
-	if not on then stopTween() S.Status = "Idle" end
-end)
-Boss:Label(function()
-	return "Fist of Darkness: " .. (backpackTool("Fist of Darkness") and "✔ have it" or "✖ (get from chests)")
-end)
-Boss:Button("Check Boss Spawned", function()
-	if not S.SelectedBoss then return notify("Boss", "Select a boss first") end
-	local b = findMobAnywhere(S.SelectedBoss)
-	notify("Boss", S.SelectedBoss .. (b and " is spawned ✔" or " is not spawned ✖"))
-end)
-Boss:Button("List Spawned Bosses", function()
-	local alive_ = {}
-	for _, n in ipairs(bossNames()) do
-		if findMobAnywhere(n) then table.insert(alive_, n) end
+
+-- Teleport
+do
+	local T = createTab("Teleport", "➤")
+	-- مکان‌های مهم هر Sea (مختصات از اسکن خود بازی)
+	local QUICK_PLACES = {
+		[2] = {
+			{ "Cafe", Vector3.new(-380.4, 72.8, 303.2) },
+			{ "Kingdom of Rose", Vector3.new(-195.1, 155.3, 279.9) },
+			{ "Mansion", Vector3.new(-393.3, 367.3, 687.5) },
+			{ "Dark Arena (Darkbeard)", Vector3.new(3807.1, 11.8, -3452.2) },
+			{ "Factory", Vector3.new(431.0, 238.4, -433.2) },
+			{ "Colosseum", Vector3.new(-1836.4, 72.8, 1360.2) },
+			{ "Green Zone", Vector3.new(-2340.8, 155.3, -3396.3) },
+			{ "Graveyard Island", Vector3.new(-5577.9, 87.6, -782.2) },
+			{ "Snow Mountain", Vector3.new(856.2, 50.3, -5278.3) },
+			{ "Hot and Cold", Vector3.new(-5734.3, 49.4, -5146.4) },
+			{ "Ice Castle", Vector3.new(6062.3, 155.3, -6880.9) },
+			{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
+		},
+		[3] = {
+			{ "Castle on the Sea", Vector3.new(-5027.0, 316.5, -3206.7) },
+			{ "Mansion", Vector3.new(-12463.6, 378.3, -7566.1) },
+			{ "Hydra Island", Vector3.new(5650.9, 1017.3, -350.4) },
+			{ "Port Town", Vector3.new(-290.1, 42.9, 5581.6) },
+			{ "Great Tree", Vector3.new(2180.5, 27.8, -6741.6) },
+			{ "Floating Turtle", Vector3.new(-13234.0, 331.5, -7625.4) },
+			{ "Haunted Castle", Vector3.new(-9515.0, 164.0, 5786.0) },
+			{ "Sea of Treats (Cake)", Vector3.new(-2021.3, 37.8, -12028.7) },
+			{ "Peanut / Ice Cream Island", Vector3.new(-820.7, 65.8, -10965.8) },
+			{ "Chocolate Island", Vector3.new(233.2, 29.9, -12201.2) },
+			{ "Tiki Outpost", Vector3.new(-16547.8, 61.1, -173.4) },
+		},
+	}
+	if QUICK_PLACES[Sea] then
+		T:Section("Quick Places (" .. SEA_NAME .. ")")
+		for _, place in ipairs(QUICK_PLACES[Sea]) do
+			T:Button(place[1], function()
+				goTo(CFrame.new(place[2] + Vector3.new(0, 40, 0)))
+			end)
+		end
 	end
-	notify("Spawned Bosses (" .. #alive_ .. ")", #alive_ > 0 and table.concat(alive_, ", ") or "None right now", 7)
-end)
-Boss:Section("Boss Locations")
-Boss:Dropdown("Boss Spawn", function()
-	local out = {}
-	for _, b in ipairs(bossSpawns()) do table.insert(out, b.name) end
-	return out
-end, "SelectedBossSpawn")
-Boss:Button("Teleport to Boss Spawn", function()
-	for _, b in ipairs(bossSpawns()) do
-		if b.name == S.SelectedBossSpawn then return goTo(b.cf * CFrame.new(0, 40, 0)) end
-	end
-	notify("Boss", "Select a boss spawn first")
-end)
-Boss:Section("Alerts")
-Boss:Toggle("Boss Spawn Alert", "BossNotify")
-
-local Fruit = createTab("Fruits", "◆")
-Fruit:Section("Devil Fruits")
-Fruit:Toggle("Auto Collect Fruits", "AutoFruit", function(on)
-	if not on then stopTween() end
-end)
-Fruit:Toggle("Auto Store Fruits", "AutoStore")
-Fruit:Toggle("Auto Random Fruit (spends beli!)", "AutoRandomFruit", function(on)
-	if on then Hub.FruitBuys = 0 end
-end)
-Fruit:Slider("Keep At Least Beli (x1000)", 0, 5000, "FruitMinBeliK", function(v) S.FruitMinBeli = v * 1000 end)
-Fruit:Slider("Max Fruits Per Run", 1, 20, "FruitMaxBuys")
-Fruit:Toggle("Fruit Spawn Alert", "FruitNotify")
-Fruit:Button("Buy Random Fruit", function()
-	local _, info = buyRandomFruit()
-	notify("Random Fruit", info, 6)
-end)
-Fruit:Button("Find Fruits In Server", function()
-	local list = getWorldFruits()
-	if #list == 0 then return notify("Fruits", "No fruits spawned") end
-	local names = {}
-	for _, f in ipairs(list) do table.insert(names, f.obj.Name) end
-	notify("Fruits (" .. #list .. ")", table.concat(names, ", "), 6)
-end)
-
-local Collect = createTab("Collect", "✚")
-Collect:Section("Chests")
-Collect:Toggle("Auto Chest", "AutoChest", function(on)
-	if not on then stopTween() end
-end)
-Collect:Section("Berries")
-Collect:Toggle("Auto Collect Berries", "AutoBerries", function(on)
-	if not on then stopTween() end
-end)
-Collect:Label(function() return "Berry bushes loaded: " .. #CollectionService:GetTagged("BerryBush") end)
-
-local Tp = createTab("Teleport", "➤")
--- مکان‌های مهم هر Sea (مختصات از اسکن خود بازی)
-local QUICK_PLACES = {
-	[2] = {
-		{ "Cafe", Vector3.new(-380.4, 72.8, 303.2) },
-		{ "Kingdom of Rose", Vector3.new(-195.1, 155.3, 279.9) },
-		{ "Mansion", Vector3.new(-393.3, 367.3, 687.5) },
-		{ "Dark Arena (Darkbeard)", Vector3.new(3807.1, 11.8, -3452.2) },
-		{ "Factory", Vector3.new(431.0, 238.4, -433.2) },
-		{ "Colosseum", Vector3.new(-1836.4, 72.8, 1360.2) },
-		{ "Green Zone", Vector3.new(-2340.8, 155.3, -3396.3) },
-		{ "Graveyard Island", Vector3.new(-5577.9, 87.6, -782.2) },
-		{ "Snow Mountain", Vector3.new(856.2, 50.3, -5278.3) },
-		{ "Hot and Cold", Vector3.new(-5734.3, 49.4, -5146.4) },
-		{ "Ice Castle", Vector3.new(6062.3, 155.3, -6880.9) },
-		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
-	},
-	[3] = {
-		{ "Castle on the Sea", Vector3.new(-5027.0, 316.5, -3206.7) },
-		{ "Mansion", Vector3.new(-12463.6, 378.3, -7566.1) },
-		{ "Hydra Island", Vector3.new(5650.9, 1017.3, -350.4) },
-		{ "Port Town", Vector3.new(-290.1, 42.9, 5581.6) },
-		{ "Great Tree", Vector3.new(2180.5, 27.8, -6741.6) },
-		{ "Floating Turtle", Vector3.new(-13234.0, 331.5, -7625.4) },
-		{ "Haunted Castle", Vector3.new(-9515.0, 164.0, 5786.0) },
-		{ "Sea of Treats (Cake)", Vector3.new(-2021.3, 37.8, -12028.7) },
-		{ "Peanut / Ice Cream Island", Vector3.new(-820.7, 65.8, -10965.8) },
-		{ "Chocolate Island", Vector3.new(233.2, 29.9, -12201.2) },
-		{ "Tiki Outpost", Vector3.new(-16547.8, 61.1, -173.4) },
-	},
-}
-Tp:Section("Quick Places (Sea " .. (Sea > 0 and Sea or "?") .. ")")
-for _, place in ipairs(QUICK_PLACES[Sea] or {}) do
-	Tp:Button(place[1], function()
-		goTo(CFrame.new(place[2] + Vector3.new(0, 40, 0)))
+	T:Section("Islands")
+	T:Dropdown("Island", islandList, "SelectedIsland")
+	T:Button("Teleport to Island", function()
+		if not S.SelectedIsland then return notify("Teleport", "Select an island first") end
+		goTo(islandCFrame(S.SelectedIsland))
 	end)
+	T:Section("NPCs & Players")
+	T:Dropdown("NPC", npcList, "SelectedNPC")
+	T:Button("Teleport to NPC", function()
+		local cf = S.SelectedNPC and findNPC(S.SelectedNPC)
+		if not cf then return notify("Teleport", "NPC not found") end
+		goTo(cf * CFrame.new(0, 0, 4))
+	end)
+	T:Dropdown("Player", playerList, "SelectedPlayer")
+	T:Button("Teleport to Player", function()
+		local p = S.SelectedPlayer and Players:FindFirstChild(S.SelectedPlayer)
+		local r = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+		if not r then return notify("Teleport", "Player not found") end
+		goTo(r.CFrame * CFrame.new(0, 5, 0))
+	end)
+	T:Button("Stop Teleport", function() stopTween() end)
+	T:Section("Travel Between Seas")
+	for i, cmd in ipairs({ "TravelMain", "TravelDressrosa", "TravelZou" }) do
+		if i ~= Sea then T:Button("Travel to Sea " .. i, function() invoke(cmd) end) end
+	end
 end
-Tp:Section("Seas")
-Tp:Button("Travel to Sea 1", function() invoke("TravelMain") end)
-Tp:Button("Travel to Sea 2", function() invoke("TravelDressrosa") end)
-Tp:Button("Travel to Sea 3", function() invoke("TravelZou") end)
-Tp:Section("Islands")
-Tp:Dropdown("Island", islandList, "SelectedIsland")
-Tp:Button("Teleport to Island", function()
-	if not S.SelectedIsland then return notify("Teleport", "Select an island first") end
-	goTo(islandCFrame(S.SelectedIsland))
-end)
-Tp:Section("NPCs & Players")
-Tp:Dropdown("NPC", npcList, "SelectedNPC")
-Tp:Button("Teleport to NPC", function()
-	local cf = S.SelectedNPC and findNPC(S.SelectedNPC)
-	if not cf then return notify("Teleport", "NPC not found") end
-	goTo(cf * CFrame.new(0, 0, 4))
-end)
-Tp:Dropdown("Player", playerList, "SelectedPlayer")
-Tp:Button("Teleport to Player", function()
-	local p = S.SelectedPlayer and Players:FindFirstChild(S.SelectedPlayer)
-	local r = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-	if not r then return notify("Teleport", "Player not found") end
-	goTo(r.CFrame * CFrame.new(0, 5, 0))
-end)
-Tp:Button("Stop Teleport", function() stopTween() end)
 
-local Stats = createTab("Stats", "▲")
-Stats:Section("Auto Stats")
-Stats:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
-Stats:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
-Stats:Slider("Points Per Tick", 1, 100, "StatAmount")
-Stats:Toggle("Auto Stats", "AutoStats")
+-- Stats
+do
+	local T = createTab("Stats", "▲")
+	T:Section("Auto Stats")
+	T:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
+	T:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
+	T:Slider("Points Per Tick", 1, 100, "StatAmount")
+	T:Toggle("Auto Stats", "AutoStats")
+end
 
-local Visual = createTab("ESP", "◉")
-Visual:Section("ESP")
-Visual:Toggle("Player ESP", "PlayerESP")
-Visual:Toggle("Fruit ESP", "FruitESP")
-Visual:Toggle("Chest ESP", "ChestESP")
-Visual:Toggle("Boss ESP", "BossESP")
+-- ESP
+do
+	local T = createTab("ESP", "◉")
+	T:Section("ESP")
+	T:Toggle("Player ESP", "PlayerESP")
+	T:Toggle("Fruit ESP", "FruitESP")
+	T:Toggle("Chest ESP", "ChestESP")
+	T:Toggle("Boss ESP", "BossESP")
+end
 
-local Misc = createTab("Misc", "✦")
-Misc:Section("Player")
-Misc:Toggle("WalkSpeed", "SpeedOn", function(on)
-	if not on then local h = getHum() if h then h.WalkSpeed = 16 end end
-end)
-Misc:Slider("Speed", 16, 300, "WalkSpeed")
-Misc:Toggle("JumpPower", "JumpOn", function(on)
-	if not on then local h = getHum() if h then h.JumpPower = 50 end end
-end)
-Misc:Slider("Jump", 50, 300, "JumpPower")
-Misc:Toggle("Infinite Jump", "InfJump")
-Misc:Toggle("Noclip", "Noclip")
-Misc:Toggle("Walk on Water", "WalkOnWater")
-Misc:Section("Visual")
-Misc:Toggle("Fullbright (always bright)", "Fullbright")
-Misc:Toggle("No Fog", "NoFog")
-Misc:Section("Server")
-Misc:Toggle("Anti AFK", "AntiAFK")
-Misc:Button("Server Hop", function()
-	if not serverHop() then notify("Server Hop", "No server found") end
-end)
-Misc:Button("Hop to Low Player Server", function()
-	if not serverHop(true) then notify("Server Hop", "No server found") end
-end)
-Misc:Toggle("Auto Hop When Player Near", "AutoHopNear")
-Misc:Slider("Hop Distance", 50, 1000, "HopDistance")
-Misc:Button("Rejoin", function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
-Misc:Section("Performance & AFK")
-Misc:Button("FPS Boost", function()
-	fpsBoost()
-	notify("FPS Boost", "Done ✔")
-end)
-Misc:Toggle("CPU Saver (no 3D render)", "CPUSaver", function(on)
-	pcall(function() RunService:Set3dRenderingEnabled(not on) end)
-end)
-Misc:Toggle("FPS Cap", "FPSCapOn", function(on)
-	if not setfpscap then return notify("FPS Cap", "Executor has no setfpscap") end
-	setfpscap(on and S.FPSCap or 0)
-end)
-Misc:Slider("Max FPS", 10, 120, "FPSCap", function(v)
-	if S.FPSCapOn and setfpscap then pcall(setfpscap, v) end
-end)
-Misc:Toggle("Auto Rejoin On Kick", "AutoRejoin")
-Misc:Section("Settings")
-Misc:Toggle("Auto Save Settings", "AutoSave")
-Misc:Button("Save Settings", function()
-	notify("Settings", saveSettings() and "Saved ✔" or "Save failed (executor has no writefile)", 3)
-end)
-Misc:Button("Load Settings", function()
-	notify("Settings", loadSettings() and "Loaded ✔  re-run the hub to refresh the UI" or "No saved settings", 4)
-end)
-Misc:Button("Destroy Hub", function() Hub.Destroy() end)
+-- Misc
+do
+	local T = createTab("Misc", "✦")
+	T:Section("Team")
+	T:Dropdown("Team", function() return { "Pirates", "Marines" } end, "TeamChoice")
+	T:Toggle("Auto Pick Team", "AutoTeam")
+	T:Section("Player")
+	T:Toggle("WalkSpeed", "SpeedOn", function(on)
+		if not on then local h = getHum() if h then h.WalkSpeed = 16 end end
+	end)
+	T:Slider("Speed", 16, 300, "WalkSpeed")
+	T:Toggle("JumpPower", "JumpOn", function(on)
+		if not on then local h = getHum() if h then h.JumpPower = 50 end end
+	end)
+	T:Slider("Jump", 50, 300, "JumpPower")
+	T:Toggle("Infinite Jump", "InfJump")
+	T:Toggle("Noclip", "Noclip")
+	T:Toggle("Walk on Water", "WalkOnWater")
+	T:Section("Visual")
+	T:Toggle("Fullbright (always bright)", "Fullbright")
+	T:Toggle("No Fog", "NoFog")
+	T:Section("Server")
+	T:Toggle("Anti AFK", "AntiAFK")
+	T:Button("Server Hop", function()
+		if not serverHop() then notify("Server Hop", "No server found") end
+	end)
+	T:Button("Hop to Low Player Server", function()
+		if not serverHop(true) then notify("Server Hop", "No server found") end
+	end)
+	T:Toggle("Auto Hop When Player Near", "AutoHopNear")
+	T:Slider("Hop Distance", 50, 1000, "HopDistance")
+	T:Button("Rejoin", function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
+	T:Toggle("Auto Rejoin On Kick", "AutoRejoin")
+	T:Section("Performance")
+	T:Button("FPS Boost", function()
+		fpsBoost()
+		notify("FPS Boost", "Done ✔")
+	end)
+	T:Toggle("CPU Saver (no 3D render)", "CPUSaver", function(on)
+		pcall(function() RunService:Set3dRenderingEnabled(not on) end)
+	end)
+	T:Toggle("FPS Cap", "FPSCapOn", function(on)
+		if not setfpscap then return notify("FPS Cap", "Executor has no setfpscap") end
+		setfpscap(on and S.FPSCap or 0)
+	end)
+	T:Slider("Max FPS", 10, 120, "FPSCap", function(v)
+		if S.FPSCapOn and setfpscap then pcall(setfpscap, v) end
+	end)
+	T:Section("Settings")
+	T:Toggle("Auto Save Settings", "AutoSave")
+	T:Button("Save Settings", function()
+		notify("Settings", saveSettings() and "Saved ✔" or "Save failed (executor has no writefile)", 3)
+	end)
+	T:Button("Load Settings", function()
+		notify("Settings", loadSettings() and "Loaded ✔  re-run the hub to refresh the UI" or "No saved settings", 4)
+	end)
+	T:Button("Destroy Hub", function() Hub.Destroy() end)
+end
 end -- صفحه‌ها
 
 ---------------------------------------------------------------------
