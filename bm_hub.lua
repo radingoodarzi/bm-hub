@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.60" }
+local Hub = { Connections = {}, Running = true, Version = "1.35" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -113,7 +113,6 @@ local function logError(where, err)
 	table.insert(Hub.Errors, msg)
 	if #Hub.Errors > 8 then table.remove(Hub.Errors, 1) end
 	warn("[BM Hub] " .. msg)
-	if Hub.LiveLog then Hub.LiveLog("ERROR " .. msg) end
 end
 
 local function safeRequire(m)
@@ -128,7 +127,7 @@ end
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
-	FarmDistance = 3, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
+	FarmDistance = 20, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
@@ -136,7 +135,7 @@ local S = {
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
 	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
-	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false, AutoMaterial = false, Material = nil,
+	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false,
 	AutoTushita = false, AutoCDK = false, AutoRaceV2 = false, AutoRaceV3 = false, AutoSoulGuitar = false, AutoStyles = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
@@ -179,18 +178,16 @@ end
 local function mainFarmBusy()
 	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
-		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid or S.AutoMaterial
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
-		or (Hub.SpecialAny ~= nil and Hub.SpecialAny())
 end
 
 local function anyFarm()
 	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
-		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid or S.AutoMaterial
+		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
-		or (Hub.SpecialAny ~= nil and Hub.SpecialAny())
 end
 
 ---------------------------------------------------------------------
@@ -638,68 +635,18 @@ end
 
 -- کوئست با پیشرفت کامل مثل (8/8) تموم‌شده حساب میشه
 local function questDone(txt)
-	local cur, total = txt:match("(%d+)%s*/%s*(%d+)")
+	local cur, total = txt:match("%((%d+)%s*/%s*(%d+)%)")
 	return cur ~= nil and tonumber(cur) >= tonumber(total)
 end
 
--- متن کوئست فعال (یا nil). بازی جای کادر کوئست رو عوض کرده، پس اگه کادر قدیمی نبود
--- توی کل PlayerGui دنبال متن «Defeat ... (x/y)» که روی صفحه‌ست می‌گردیم
-local questLabel
-local function shownOnScreen(o)
-	while o and o:IsA("GuiObject") do
-		if not o.Visible then return false end
-		o = o.Parent
-	end
-	return not (o and o:IsA("ScreenGui")) or o.Enabled
-end
-local function labelQuestText(d)
-	local t = d.Text
-	if t:find("%d+%s*/%s*%d+") then return t end
-	-- پیشرفت (x/y) گاهی یه لیبل جداست
-	for _, o in ipairs(d.Parent and d.Parent:GetDescendants() or {}) do
-		if o ~= d and o:IsA("TextLabel") and o.Text:find("^%s*%(?%d+%s*/%s*%d+%)?%s*$") then return t .. " (" .. o.Text:gsub("[%(%)%s]", "") .. ")" end
-	end
-	return t
-end
-local function questTitle()
-	local g = questGui()
-	local t
-	pcall(function() if g and g.Visible then t = g.Container.QuestTitle.Title.Text end end)
-	if t and t ~= "" then return t end
-	if questLabel and questLabel.Parent and shownOnScreen(questLabel) and questLabel.Text:lower():find("^%s*defeat") then
-		return labelQuestText(questLabel)
-	end
-	if tick() - (Hub.QuestScanAt or 0) < 2 then return nil end
-	Hub.QuestScanAt = tick()
-	questLabel = nil
-	local pg = player:FindFirstChild("PlayerGui")
-	for _, d in ipairs(pg and pg:GetDescendants() or {}) do
-		if d:IsA("TextLabel") and d.Text:lower():find("^%s*defeat") and d.Parent and d.Parent.Name ~= "BMHub" and shownOnScreen(d) then
-			questLabel = d
-			Hub.QuestLabelPath = d:GetFullName()
-			return labelQuestText(d)
-		end
-	end
-end
-
--- اسم ماب توی متن کوئست: کامل، یا (برای غلط املایی مثل Posessed/Possessed و جمع مثل Mummies)
--- 3 حرف اول کلمه‌ی اول + 4 حرف اول کلمه‌ی آخر
-local function titleHasMob(txt, mob)
-	local l, m = txt:lower(), mob:lower()
-	if l:find(m, 1, true) then return true end
-	local first, last = m:match("^(%a+)"), m:match("(%a+)$")
-	return first ~= nil and l:find(first:sub(1, 3), 1, true) ~= nil and l:find(last:sub(1, 4), 1, true) ~= nil
-end
-
 local function hasQuest(mob)
-	local txt = questTitle()
-	-- کادر کوئست پیدا نشد ولی سرور گفت قبول شد (0) → تا 60 ثانیه فعال حسابش می‌کنیم
-	if not txt then
-		return Hub.QuestTakenMob ~= nil and (mob == nil or Hub.QuestTakenMob == mob) and tick() - (Hub.QuestTakenAt or 0) < 60
-	end
+	local q = questGui()
+	if not q or not q.Visible then return false end
+	local ok, txt = pcall(function() return q.Container.QuestTitle.Title.Text end)
+	if not ok then return mob == nil end
 	if questDone(txt) then return false end
 	if not mob then return true end
-	return titleHasMob(txt, mob)
+	return txt:lower():find(mob:lower(), 1, true) ~= nil
 end
 
 -- اگه کوئستی چند بار گرفته نشد، یه مدت بدون کوئست فارم می‌کنیم
@@ -710,9 +657,13 @@ end
 
 local function takeQuest(q, keepGoing)
 	local started = tick()
+	local g = questGui()
 	-- فقط کوئست یه ماب دیگه رو ول می‌کنیم؛ کوئست تموم‌شده (8/8) خودش تحویل میشه
-	local cur = questTitle()
-	if cur and not questDone(cur) and not titleHasMob(cur, q.mob) then invoke("AbandonQuest") end
+	if g and g.Visible and not hasQuest(q.mob) then
+		local title = ""
+		pcall(function() title = g.Container.QuestTitle.Title.Text end)
+		if not questDone(title) then invoke("AbandonQuest") end
+	end
 	local key = q.quest .. q.index
 	-- لول کافی نیست → سرور قبول نمی‌کنه؛ اصلاً نمیریم پیش NPC
 	if q.level and q.level > (dataValue("Level") or 0) then
@@ -721,43 +672,29 @@ local function takeQuest(q, keepGoing)
 	end
 	S.Status = "Taking quest: " .. q.mob
 	if not tweenTo(q.npc, keepGoing) then return end
-	-- جای ذخیره‌شده ممکنه چند قدم با NPC واقعی فرق کنه؛ الان که لود شده، خود NPC رو پیدا می‌کنیم
-	local npcCF, npcName = q.npc, "saved position"
-	pcall(function()
-		local bestD
-		for _, folder in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
-			for _, npc in ipairs(folder and folder:GetChildren() or {}) do
-				local d = (npc:GetPivot().Position - q.npc.Position).Magnitude
-				if npc.Name:find("Quest") and d < 80 and (not bestD or d < bestD) then
-					npcCF, npcName, bestD = npc:GetPivot(), npc.Name, d
-				end
-			end
-		end
-	end)
-	if npcCF ~= q.npc then tweenTo(npcCF, keepGoing) end
 	-- سرور موقعیت جدید رو با کمی تاخیر می‌بینه
 	setFloat(true)
-	task.wait(0.5)
+	task.wait(0.2)
 	-- متن کوئست همیشه دقیقاً اسم ماب نیست؛ هر کوئست فعال و تموم‌نشده یعنی گرفته شد
 	local function taken()
 		if hasQuest(q.mob) then return true end
-		local title = questTitle()
-		return title ~= nil and not questDone(title)
+		local g2 = questGui()
+		local title = ""
+		pcall(function() title = g2.Container.QuestTitle.Title.Text end)
+		return g2 ~= nil and g2.Visible and title ~= "" and not questDone(title)
 	end
 	local res
 	for attempt = 1, 2 do
 		if (keepGoing and not keepGoing()) or not alive() then return end
 		S.Status = ("Taking quest: %s (try %d/2)"):format(q.mob, attempt)
 		local root = getRoot()
-		if root then root.CFrame = npcCF end
+		if root then root.CFrame = q.npc end
 		res = invoke("StartQuest", q.quest, q.index)
-		-- از کد خود بازی: 0 = قبول شد، 1 = خطا، 2 = قبلاً تموم کردی، بقیه = لول کم
 		local waited = 0
-		while res ~= 0 and waited < 1.2 and not taken() do
+		while waited < 1.2 and not taken() do
 			waited += task.wait(0.1)
 		end
-		if res == 0 or taken() then
-			Hub.QuestTakenAt, Hub.QuestTakenMob = tick(), q.mob
+		if taken() then
 			questFailures[key] = 0
 			Hub.LastQuestTime = tick() - started
 			S.Status = ("Quest taken in %.1fs: %s"):format(Hub.LastQuestTime, q.mob)
@@ -765,11 +702,10 @@ local function takeQuest(q, keepGoing)
 		end
 	end
 	questFailures[key] = (questFailures[key] or 0) + 1
-	local r = getRoot()
-	logError("StartQuest " .. key, ("not accepted (%s) npc=%s dist=%.0f"):format(tostring(res), npcName, r and (r.Position - npcCF.Position).Magnitude or -1))
-	if questFailures[key] >= 3 then
+	logError("StartQuest " .. key, "not accepted (" .. tostring(res) .. ")")
+	if questFailures[key] >= 2 then
 		-- مدت کوتاه بدون کوئست، بعد دوباره تلاش
-		questBlockedUntil[key] = tick() + 15
+		questBlockedUntil[key] = tick() + 30
 		questFailures[key] = 0
 	end
 end
@@ -823,54 +759,67 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 
 Hub.AttackInfo = { remote = 0, click = 0, tool = 0, lastError = "none" }
 
--- حمله‌ی M1 درست مثل کلیک خود بازیکن: موس رو روی خود ماب می‌زنیم.
--- از کد بازی: موقع حمله کاراکتر به سمت نقطه‌ی موس می‌چرخه؛ کلیک وسط صفحه = ضربه به هوا.
-local cooldown = { click = 0, skill = 0 }
-local function clickAt(x, y)
-	if VIM and pcall(function()
-		VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
-		VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-	end) then
-		return true
-	end
-	return (pcall(function()
+local function clickScreen()
+	local vs = camera.ViewportSize
+	local pos = Vector2.new(vs.X * 0.85, vs.Y * 0.45)
+	local ok, err = pcall(function()
 		Svc.VirtualUser:CaptureController()
-		Svc.VirtualUser:Button1Down(Vector2.new(x, y), camera.CFrame)
-		Svc.VirtualUser:Button1Up(Vector2.new(x, y), camera.CFrame)
-	end))
-end
-
--- جای ماب روی صفحه (یه نقطه که منو روش نباشه، چون کلیک روی منو حمله حساب نمیشه)
-local function mobScreenPoint(part)
-	local v, onScreen = camera:WorldToViewportPoint(part.Position)
-	if not onScreen then return nil end
-	local pg = player:FindFirstChild("PlayerGui")
-	local inset = 0
-	pcall(function() inset = game:GetService("GuiService"):GetGuiInset().Y end)
-	for _, off in ipairs({ { 0, 0 }, { 0, -30 }, { 30, 0 }, { -30, 0 }, { 0, 30 } }) do
-		local x, y = v.X + off[1], v.Y + off[2]
-		local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(x, y - inset) end)
-		if ok and #objs == 0 then return x, y end
+		Svc.VirtualUser:Button1Down(pos, camera.CFrame)
+		Svc.VirtualUser:Button1Up(pos, camera.CFrame)
+	end)
+	if not ok and VIM then
+		ok, err = pcall(function()
+			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+		end)
 	end
-	return v.X, v.Y
+	if ok then
+		Hub.AttackInfo.click += 1
+	else
+		Hub.AttackInfo.lastError = "click: " .. tostring(err)
+	end
 end
 
--- target: ماب (Model) یا یه Part؛ با سلاحی که دستته می‌زنه
-local function attack(target)
-	local char = getChar()
-	local tool = char and char:FindFirstChildOfClass("Tool")
-	if not tool then return end
-	if tick() - cooldown.click < (S.FastAttack and 0.1 or 0.2) then return end
+local cooldown = { remote = 0, click = 0, skill = 0 }
+local function remoteAttack(root)
+	if not (RegisterAttack and RegisterHit) then return end
+	if tick() - cooldown.remote < 0.1 then return end
+	cooldown.remote = tick()
+	local hits = {}
+	local enemies = workspace:FindFirstChild("Enemies")
+	if enemies then
+		for _, m in ipairs(enemies:GetChildren()) do
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
+				table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
+			end
+		end
+	end
+	if #hits == 0 then return end
+	local ok, err = pcall(function()
+		RegisterAttack:FireServer(0)
+		RegisterHit:FireServer(hits[1][2], hits)
+	end)
+	if ok then
+		Hub.AttackInfo.remote += 1
+	else
+		Hub.AttackInfo.lastError = "remote: " .. tostring(err)
+	end
+end
+
+local function attack()
+	local root = getRoot()
+	if not root then return end
+	local m = S.AttackMethod
+	if S.FastAttack and (m == "Auto" or m == "Remote") then remoteAttack(root) end
+	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
-	local part = target and (target:IsA("Model") and target:FindFirstChild("HumanoidRootPart") or target)
-	local x, y
-	if part then x, y = mobScreenPoint(part) end
-	if not x then
-		local vs = camera.ViewportSize
-		x, y = vs.X / 2, vs.Y / 2
+	if m == "Auto" or m == "Tool" then
+		local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
+		if tool and pcall(function() tool:Activate() end) then
+			Hub.AttackInfo.tool += 1
+		end
 	end
-	if S.AttackMethod ~= "Tool" and clickAt(x, y) then Hub.AttackInfo.click += 1 end
-	if S.AttackMethod ~= "Click" and pcall(function() tool:Activate() end) then Hub.AttackInfo.tool += 1 end
+	if m == "Auto" or m == "Click" then clickScreen() end
 end
 
 -- استفاده از اسکیل‌ها (Z X C V) با شبیه‌سازی کیبورد
@@ -889,30 +838,26 @@ local function useSkills()
 	end
 end
 
--- کلیک خودکار: با سلاحی که دستته (عوضش نمی‌کنه) به نزدیک‌ترین ماب داخل برد می‌زنه
+local function enemyInRange()
+	local root = getRoot()
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not root or not enemies then return false end
+	for _, m in ipairs(enemies:GetChildren()) do
+		if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
+			return true
+		end
+	end
+	return false
+end
+
+-- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
 task.spawn(function()
 	while Hub.Running do
-		task.wait(0.05)
-		if S.AutoClick and alive() then
+		task.wait(0.1)
+		if S.AutoClick and alive() and enemyInRange() then
 			pcall(function()
-				local char, root = getChar(), getRoot()
-				local held = char:FindFirstChildOfClass("Tool")
-				if not held then return end
-				-- ملی و شمشیر فقط حدود 10 استاد جلو رو می‌زنن
-				local reach = (held.ToolTip == "Melee" or held.ToolTip == "Sword") and math.min(S.AttackRange, 14) or S.AttackRange
-				local best, bestD
-				for _, m in ipairs(workspace.Enemies:GetChildren()) do
-					if isAliveMob(m) then
-						local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-						if d <= reach and (not bestD or d < bestD) then best, bestD = m, d end
-					end
-				end
-				if not best then return end
-				if not mainFarmBusy() then
-					local p = best.HumanoidRootPart.Position
-					root.CFrame = CFrame.lookAt(root.Position, Vector3.new(p.X, root.Position.Y, p.Z))
-				end
-				attack(best)
+				equipWeapon()
+				attack()
 			end)
 		end
 	end
@@ -956,13 +901,7 @@ local function killMob(mob, keepGoing)
 			S.Status = "Skipping stuck " .. name
 			break
 		end
-		-- از کد بازی: هیت‌باکس M1 حدود 10 استاد جلوی کاراکتره و فقط ماب‌های «جلو»ی تو رو می‌زنه.
-		-- پس 4 استاد کنار ماب (سمتی که خودمون هستیم)، کمی بالاتر، رو به ماب (ارتفاع زیاد = هیچ ضربه‌ای ثبت نمیشه)
-		local h = math.clamp(S.FarmDistance, 0, 6)
-		local away = Vector3.new(root.Position.X - hrp.Position.X, 0, root.Position.Z - hrp.Position.Z)
-		away = away.Magnitude > 0.1 and away.Unit or Vector3.new(0, 0, 1)
-		local standAt = hrp.Position + away * 4 + Vector3.new(0, h, 0)
-		local target = CFrame.lookAt(standAt, Vector3.new(hrp.Position.X, standAt.Y, hrp.Position.Z))
+		local target = CFrame.new(hrp.Position + Vector3.new(0, S.FarmDistance, 0))
 		-- Mastery: وقتی جون ماب کم شد، با سلاح مستری تمومش می‌کنیم
 		local masteryPhase = S.MasteryFarm and hum.MaxHealth > 0 and (hum.Health / hum.MaxHealth) * 100 <= S.MasteryHealth
 		if (root.Position - target.Position).Magnitude > 80 then
@@ -978,7 +917,7 @@ local function killMob(mob, keepGoing)
 			equipWeapon()
 		end
 		if S.BringMobs then bringMobs(name, hrp.CFrame) end
-		attack(mob)
+		attack()
 		task.wait(0.08)
 	end
 end
@@ -1023,7 +962,20 @@ end
 local candidateCache = { t = 0, set = {} }
 local questMobCache = { t = 0 }
 local function activeQuestMob()
-	local title = questTitle()
+	local g = questGui()
+	if not g or not g.Visible then return nil end
+	local title
+	pcall(function() title = g.Container.QuestTitle.Title.Text end)
+	if not title then
+		pcall(function()
+			for _, d in ipairs(g:GetDescendants()) do
+				if d:IsA("TextLabel") and d.Text:lower():find("defeat") then
+					title = d.Text
+					break
+				end
+			end
+		end)
+	end
 	if not title or title == "" or questDone(title) then return nil end
 	-- متن کوئست با پیشرفت عوض میشه، پس بدون (x/y) کش می‌کنیم
 	local base = title:gsub("%(.-%)", "")
@@ -1812,17 +1764,7 @@ end
 ---------------------------------------------------------------------
 local function materialCount(name)
 	local v = inventoryNames()[name]
-	if type(v) == "number" and v > 0 then return v end
-	-- Bone توی لیست inventory نمیاد؛ خود Death King تعدادش رو میگه (کش 3 ثانیه)
-	if name == "Bones" then
-		local c = Hub.BoneCache
-		if not c or tick() - c.t > 3 then
-			c = { t = tick(), v = tonumber(invoke("Bones", "Check")) or 0 }
-			Hub.BoneCache = c
-		end
-		return c.v
-	end
-	return 0
+	return type(v) == "number" and v or 0
 end
 
 do
@@ -1884,8 +1826,10 @@ do
 			return
 		end
 		-- متن کوئست Elite ممکنه اسم باس رو نداشته باشه؛ پس هر کوئست فعالِ تموم‌نشده رو کوئست Elite حساب می‌کنیم
-		local title = questTitle() or ""
-		local active = title ~= "" and not questDone(title)
+		local g = questGui()
+		local title = ""
+		pcall(function() title = g.Container.QuestTitle.Title.Text end)
+		local active = g and g.Visible and not questDone(title)
 		if not active then
 			S.Status = "Elite Hunter: taking quest"
 			invoke("EliteHunter")
@@ -1924,104 +1868,6 @@ do
 		local cd = hit:FindFirstChildOfClass("ClickDetector")
 		if cd and fireclickdetector then pcall(fireclickdetector, cd) end
 		task.wait(0.5)
-	end
-
-	-- Auto Bone: فقط کوئست مومیایی (Posessed Mummy). متن کوئست رو با «mumm» چک می‌کنیم
-	-- چون اسم ماب Posessed ولی ممکنه توی متن Possessed/Mummies باشه
-	local function mummyQuestActive()
-		local title = questTitle()
-		if not title then return hasQuest("Posessed Mummy") end
-		return not questDone(title) and title:lower():find("mumm", 1, true) ~= nil
-	end
-
-	local function stepBone(keep)
-		-- Soul Reaper اسپاون شد → اول اون
-		if findMobAnywhere("Soul Reaper") then
-			S.Status = "Bone: fighting Soul Reaper"
-			fightBoss("Soul Reaper", keep)
-			return
-		end
-		-- قمار Bone دقیقاً مثل دیالوگ Death King (از کد خود بازی):
-		-- Check → (تعداد Bone، لیست آیتم‌ها، تعداد ترید باقی‌مونده، دقیقه تا ریست، سقف)
-		-- Buy, 1, شماره‌ی آیتم → 1 = انجام شد، 2 = Bone کافی نیست، 3 = این آیتم رو داری
-		if S.AutoBoneGamble and tick() > (Hub.BoneGambleWait or 0) then
-			local ok, bones, shop, left, minutes = pcall(CommF.InvokeServer, CommF, "Bones", "Check")
-			bones, left = tonumber(bones) or 0, tonumber(left) or 0
-			if Hub.LiveLog then Hub.LiveLog(("Bone gamble check: ok=%s bones=%s tradesLeft=%s resetMin=%s"):format(tostring(ok), tostring(bones), tostring(left), tostring(minutes))) end
-			local idx, cost = 1, 50
-			pcall(function()
-				for k, item in pairs(shop[1]) do
-					if tonumber(item[2]) == 50 then idx, cost = k, 50 end
-				end
-			end)
-			if not ok then
-				Hub.BoneGambleWait = tick() + 60
-			elseif left <= 0 then
-				Hub.BoneGambleWait = tick() + math.max(1, tonumber(minutes) or 5) * 60
-				S.Status = ("Bone gamble: 0 trades left, reset in %s min"):format(tostring(minutes))
-			elseif bones >= cost then
-				local dk
-				for _, f in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
-					for _, n in ipairs(f and f:GetChildren() or {}) do
-						if not dk and (n.Name:find("Death King") or n.Name:find("Halloween")) then pcall(function() dk = n:GetPivot() end) end
-					end
-				end
-				S.Status = ("Bone gamble: trading (%d bones, %d trades left)"):format(bones, left)
-				if dk then
-					tweenTo(dk * CFrame.new(0, 0, -4), keep)
-					task.wait(0.4)
-				end
-				local r = invoke("Bones", "Buy", 1, idx)
-				Hub.BoneCache = nil
-				if r == 1 then
-					if notifyHook then notifyHook("Bone Gamble", "Trade completed ✔ (" .. (left - 1) .. " left)", 4) end
-				else
-					Hub.BoneGambleWait = tick() + 120
-					logError("BoneGamble", ("result %s (1=ok 2=no bones 3=have item) item #%d dk=%s"):format(tostring(r), idx, tostring(dk ~= nil)))
-				end
-				task.wait(0.5)
-				return
-			end
-			if ok and left > 0 and bones < cost then Hub.BoneGambleWait = tick() + 30 end
-		end
-		-- اگه موقع اجرای اسکریپت دور بودیم، این کوئست توی لیست نیست؛ خودمون می‌سازیمش
-		local q = questForMob("Posessed Mummy")
-			or { quest = "HauntedQuest2", index = 2, level = 2050, mob = "Posessed Mummy", npc = CFrame.new(-9516.99, 172.02, 6078.47) }
-		if mummyQuestActive() then
-			Hub.MummyGoneAt = nil
-		elseif S.TakeQuest and q and not questBlocked(q) then
-			-- کوئست تازه تموم شده؛ سرور یه لحظه طول می‌کشه تا کوئست بعدی رو قبول کنه
-			Hub.MummyGoneAt = Hub.MummyGoneAt or tick()
-			if tick() - Hub.MummyGoneAt >= 1.5 then
-				takeQuest(q, keep)
-				if mummyQuestActive() then Hub.MummyGoneAt = nil end
-				return
-			end
-		end
-		local target = findMob("Posessed Mummy")
-		-- وقتی مومیایی نیست، بقیه‌ی ماب‌های Bone رو می‌زنیم (بدون کوئست، فقط برای Bone)
-		if not target then
-			local root = getRoot()
-			local bestDist
-			for _, n in ipairs(BONE_MOBS) do
-				local m = findMob(n)
-				if m then
-					local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-					if not bestDist or d < bestDist then target, bestDist = m, d end
-				end
-			end
-		end
-		if not target then
-			S.Status = "Bone: waiting for mobs"
-			if (getRoot().Position - HAUNTED).Magnitude > 300 then
-				tweenTo(CFrame.new(HAUNTED + Vector3.new(0, 40, 0)), keep)
-			else
-				task.wait(1)
-			end
-			return
-		end
-		S.Status = "Bone: " .. mobBaseName(target.Name) .. (mummyQuestActive() and " (mummy quest)" or "")
-		killMob(target, keep)
 	end
 
 	local function stepCake(keep)
@@ -2070,129 +1916,6 @@ do
 		task.wait(0.2)
 	end
 
-	-- باس‌های خاص: برای هر کدوم یه تیک «بکش» و (اگه احضار داره) یه تیک «احضار» جدا
-	local function equipItem(name)
-		local t = backpackTool(name)
-		local h = getHum()
-		if t and h and t.Parent ~= getChar() then pcall(function() h:EquipTool(t) end) end
-		return t
-	end
-	local SPECIAL = {
-		{ id = "SoulReaper", label = "Soul Reaper", names = { "Soul Reaper" }, sea = 3, cost = "Hallow Essence",
-			ready = function() return backpackTool("Hallow Essence") ~= nil end,
-			summon = function(keep)
-				equipItem("Hallow Essence")
-				local det
-				pcall(function() det = workspace.Map["Haunted Castle"].Summoner.Detection end)
-				if not det then
-					tweenTo(CFrame.new(HAUNTED + Vector3.new(0, 40, 0)), keep)
-					return
-				end
-				tweenTo(CFrame.new(det.Position + Vector3.new(0, 3, 0)), keep)
-				touchPart(det)
-				task.wait(3)
-			end },
-		{ id = "CakePrince", label = "Cake Prince", names = { "Cake Prince" }, sea = 3,
-			ready = function() return true end,
-			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND) end },
-		{ id = "DoughKing", label = "Dough King", names = { "Dough King" }, sea = 3, cost = "Sweet Chalice",
-			ready = function() return backpackTool("Sweet Chalice") ~= nil or hasItem("Sweet Chalice") end,
-			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND) end },
-		{ id = "Indra", label = "rip_indra", names = { "rip_indra True Form", "rip_indra" }, sea = 3 },
-		{ id = "CursedCaptain", label = "Cursed Captain", names = { "Cursed Captain" }, sea = 2 },
-		{ id = "Order", label = "Order", names = { "Order" }, sea = 2 },
-	}
-	Hub.Special = SPECIAL
-	Hub.SpecialAny = function()
-		for _, b in ipairs(SPECIAL) do
-			if S["Kill" .. b.id] or S["Summon" .. b.id] then return true end
-		end
-		return false
-	end
-	local function spawnedName(b)
-		for _, n in ipairs(b.names) do
-			if findMobAnywhere(n) then return n end
-		end
-	end
-	Hub.SpecialSpawned = spawnedName
-	-- کاری که الان باید بکنیم (اگه هست): اول کشتن باس اسپاون‌شده، بعد احضار
-	local function specialAction()
-		for _, b in ipairs(SPECIAL) do
-			if b.sea == Sea and (S["Kill" .. b.id] or S["Summon" .. b.id]) then
-				local n = spawnedName(b)
-				if n then
-					return function(keep)
-						S.Status = "Special boss: fighting " .. n
-						fightBoss(n, keep)
-					end, S["Kill" .. b.id] and "Kill" .. b.id or "Summon" .. b.id
-				end
-			end
-		end
-		for _, b in ipairs(SPECIAL) do
-			if b.sea == Sea and S["Summon" .. b.id] and b.summon and b.ready() then
-				return function(keep)
-					S.Status = "Special boss: summoning " .. b.label
-					b.summon(keep)
-				end, "Summon" .. b.id
-			end
-		end
-	end
-
-	-- فارم متریال: ماب‌هایی که هر متریال رو دراپ می‌کنن (دراپ‌ها سمت سرورن، لیست از اطلاعات Blox Fruits)
-	local MATERIALS = {
-		[1] = {
-			{ "Leather", { "Brute", "Pirate" } },
-			{ "Scrap Metal", { "Brute" } },
-			{ "Angel Wings", { "Royal Soldier", "Royal Squad" } },
-			{ "Magma Ore", { "Military Soldier", "Military Spy" } },
-			{ "Fish Tail", { "Fishman Warrior", "Fishman Commando" } },
-		},
-		[2] = {
-			{ "Leather", { "Marine Captain" } },
-			{ "Scrap Metal", { "Swan Pirate", "Factory Staff" } },
-			{ "Radioactive Material", { "Factory Staff" } },
-			{ "Magma Ore", { "Lava Pirate", "Magma Ninja" } },
-			{ "Mystic Droplet", { "Water Fighter", "Sea Soldier" } },
-			{ "Vampire Fang", { "Vampire" } },
-			{ "Ectoplasm", { "Ship Deckhand", "Ship Engineer", "Ship Steward", "Ship Officer" } },
-		},
-		[3] = {
-			{ "Leather", { "Jungle Pirate" } },
-			{ "Scrap Metal", { "Jungle Pirate" } },
-			{ "Fish Tail", { "Fishman Raider", "Fishman Captain" } },
-			{ "Dragon Scale", { "Dragon Crew Warrior", "Dragon Crew Archer" } },
-			{ "Conjured Cocoa", { "Chocolate Bar Battler", "Cocoa Warrior" } },
-			{ "Gunpowder", { "Pistol Billionaire" } },
-			{ "Mini Tusk", { "Mythological Pirate" } },
-			{ "Demonic Wisp", { "Demonic Soul" } },
-			{ "Bones", { "Reborn Skeleton", "Living Zombie", "Demonic Soul", "Posessed Mummy" } },
-		},
-	}
-	Hub.Materials = MATERIALS[Sea] or {}
-	local function stepMaterial(keep)
-		local entry
-		for _, m in ipairs(Hub.Materials) do
-			if S.Material and S.Material:sub(1, #m[1] + 1) == m[1] .. " " then entry = m end
-		end
-		if not entry then
-			S.Status = "Material: pick one in the Farm tab"
-			task.wait(2)
-			return
-		end
-		-- اگه ماب لود نیست، میریم محل اسپاون یا NPC کوئستش
-		local spot
-		for _, n in ipairs(entry[2]) do
-			local q = questForMob(n)
-			spot = spot or spawnCentroid(n) or (q and q.npc and q.npc.Position)
-		end
-		if not spot then
-			S.Status = "Material: can't find " .. table.concat(entry[2], " / ") .. " in this sea"
-			task.wait(3)
-			return
-		end
-		farmList(entry[2], keep, spot)
-	end
-
 	-- Pirate Raid: دزدهای دریایی که به Castle on the Sea حمله می‌کنن
 	local CASTLE = Vector3.new(-5100, 315, -3000)
 	local function stepPirateRaid(keep)
@@ -2220,14 +1943,11 @@ do
 			task.wait(0.3)
 			if alive() then
 				local step, flag
-				local sStep, sFlag = specialAction()
-				if sStep then step, flag = sStep, sFlag
-				elseif S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
-				elseif S.AutoMaterial then step, flag = stepMaterial, "AutoMaterial"
+				if S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
 				elseif S.AutoPirateRaid and Sea == 3 then step, flag = stepPirateRaid, "AutoPirateRaid"
 				elseif S.AutoElite and Sea == 3 then step, flag = stepElite, "AutoElite"
 				elseif S.AutoYama and Sea == 3 then step, flag = stepYama, "AutoYama"
-				elseif S.AutoBone and Sea == 3 then step, flag = stepBone, "AutoBone"
+				elseif S.AutoBone and Sea == 3 then step, flag = function(k) farmList(BONE_MOBS, k, HAUNTED) end, "AutoBone"
 				elseif S.AutoCake and Sea == 3 then step, flag = stepCake, "AutoCake"
 				end
 				if step then
@@ -2245,16 +1965,9 @@ do
 	task.spawn(function()
 		while Hub.Running do
 			task.wait(5)
-			-- وقتی Auto Bone روشنه خودش میره پیش Death King؛ اینجا فقط وقتی خاموشه (بدون حرکت)
-			if S.AutoBoneGamble and Sea == 3 and not S.AutoBone and tick() > (Hub.BoneGambleWait or 0) then
+			if S.AutoBoneGamble and Sea == 3 then
 				inventoryTime = 0
-				local before = materialCount("Bones")
-				if before >= 50 then
-					local r = invoke("Bones", "Buy", 1, 1)
-					Hub.BoneCache = nil
-					-- 1 یعنی ترید انجام شد
-					if r ~= 1 then Hub.BoneGambleWait = tick() + 300 end
-				end
+				if materialCount("Bones") >= 50 then invoke("Bones", "Buy", 1, 1) end
 			end
 			if S.AutoAbilities and alive() then
 				local char = getChar()
@@ -3383,71 +3096,6 @@ local function mobOptions()
 end
 
 -- گزارش برای پیدا کردن مشکل‌ها (کپی میشه تا برای Claude بفرستی)
--- لاگ زنده: چند دقیقه‌ی آخر کارهای اسکریپت توی bmscan/live.txt، که Claude بدون دکمه زدن ببینه چی شده
-do
-	local lines, dirty = {}, false
-	local function push(text)
-		table.insert(lines, os.date("%H:%M:%S") .. "  " .. text)
-		if #lines > 200 then table.remove(lines, 1) end
-		dirty = true
-	end
-	Hub.LiveLog = push
-	pcall(function()
-		if makefolder and not (isfolder and isfolder("bmscan")) then makefolder("bmscan") end
-	end)
-	push(("BM Hub %s started | sea %s | place %s | level %s"):format(Hub.Version, tostring(Sea), tostring(game.PlaceId), tostring(dataValue("Level"))))
-	task.spawn(function()
-		local last, lastBeat = "", 0
-		while Hub.Running do
-			pcall(function()
-				local on = {}
-				for k, v in pairs(S) do
-					if v == true and (k:find("^Auto") or k:find("^Kill") or k:find("^Summon")) and k ~= "AutoSave" and k ~= "AutoRejoin" and k ~= "AutoHaki" then
-						table.insert(on, k)
-					end
-				end
-				table.sort(on)
-				local root, hum = getRoot(), getHum()
-				local state = ("%s | quest: %s | on: %s"):format(S.Status, questTitle() or "none", table.concat(on, ","))
-				-- فقط وقتی چیزی عوض شد، یا هر 15 ثانیه یه خط
-				if state ~= last or tick() - lastBeat > 15 then
-					local pos = root and ("(%d, %d, %d)"):format(math.floor(root.Position.X), math.floor(root.Position.Y), math.floor(root.Position.Z)) or "dead"
-					push(("%s | pos %s | hp %d | moving %s"):format(state, pos, hum and math.floor(hum.Health) or 0, tostring(activeTween ~= nil)))
-					last, lastBeat = state, tick()
-				end
-				-- حمله: هر 3 ثانیه وقتی ماب نزدیکه (برای فهمیدن این‌که دمیج می‌خوره یا نه)
-				local char = getChar()
-				local enemies = workspace:FindFirstChild("Enemies")
-				if root and char and enemies and tick() - (Hub.AtkLogAt or 0) > 3 then
-					local near, best, bestD = 0, nil, nil
-					for _, m in ipairs(enemies:GetChildren()) do
-						if isAliveMob(m) then
-							local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-							if d <= S.AttackRange then near += 1 end
-							if not bestD or d < bestD then best, bestD = m, d end
-						end
-					end
-					if near > 0 then
-						Hub.AtkLogAt = tick()
-						local held = char:FindFirstChildOfClass("Tool")
-						local a = Hub.AttackInfo
-						local function flag(n) local v = char:FindFirstChild(n) return v and tostring(v.Value) or "-" end
-						push(("ATTACK held=%s near=%d target=%s hp=%d dist=%d | clicks=%d activates=%d err=%s | Stun=%s Busy=%s Sit=%s"):format(
-							held and (held.Name .. "[" .. tostring(held.ToolTip) .. "]") or "none", near, mobBaseName(best.Name),
-							math.floor(best.Humanoid.Health), math.floor(bestD), a.click, a.tool, tostring(a.lastError),
-							flag("Stun"), flag("Busy"), tostring(hum and hum.Sit)))
-					end
-				end
-				if dirty then
-					dirty = false
-					writefile("bmscan/live.txt", table.concat(lines, "\n"))
-				end
-			end)
-			task.wait(1)
-		end
-	end)
-end
-
 local function debugReport()
 	local lines = {}
 	local function add(...)
@@ -3484,7 +3132,10 @@ local function debugReport()
 	local q = questForLevel(dataValue("Level") or 1)
 	add("quest for level:", q and (q.quest .. " #" .. tostring(q.index) .. " " .. q.mob .. " @ " .. tostring(q.npc and q.npc.Position)) or "none",
 		"| blocked:", q and questBlocked(q))
-	add("quest title:", questTitle() or "none", "| label:", Hub.QuestLabelPath or "old Main.Quest box")
+	local g = questGui()
+	local title = "?"
+	pcall(function() title = g.Container.QuestTitle.Title.Text end)
+	add("quest gui:", g and g:GetFullName() or "nil", "| visible:", g and g.Visible, "| title:", title)
 	add("last quest take time:", Hub.LastQuestTime and ("%.1fs"):format(Hub.LastQuestTime) or "n/a")
 	local enemies = workspace:FindFirstChild("Enemies")
 	add("Enemies folder:", enemies ~= nil, "| count:", enemies and #enemies:GetChildren() or 0)
@@ -3522,7 +3173,6 @@ local function debugReport()
 	for n in pairs(inventoryNames()) do table.insert(invNames, n) end
 	add("inventory (" .. #invNames .. "):", table.concat(invNames, ", "))
 	add("dealer spawned:", dealerPosition() ~= nil, "| hidden key:", backpackTool("Hidden Key") ~= nil)
-	pcall(function() add("bones:", materialCount("Bones"), "| gamble wait:", math.max(0, math.floor((Hub.BoneGambleWait or 0) - tick())), "s | Death King (bones, trades left, minutes, max):", select(2, pcall(function() local b, _, l, m, x = CommF:InvokeServer("Bones", "Check") return table.concat({ tostring(b), tostring(l), tostring(m), tostring(x) }, ", ") end)), "| AutoBone:", S.AutoBone, "AutoBoneGamble:", S.AutoBoneGamble) end)
 	add("errors:", #Hub.Errors > 0 and table.concat(Hub.Errors, " || ") or "none")
 	return table.concat(lines, "\n")
 end
@@ -4076,7 +3726,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true }
 
 local function saveSettings()
 	local data = {}
@@ -4115,554 +3765,461 @@ end)
 ---------------------------------------------------------------------
 -- Pages
 ---------------------------------------------------------------------
-do -- صفحه‌ها: هر تب توی do خودش (رجیسترهای Luau محدودن) و گزینه‌های هر دریا فقط توی همون دریا
+do -- صفحه‌ها (متغیرهاشون فقط همین‌جا لازمن)
+-- تلپورت دستی (دکمه‌ها): اگه Instant TP روشن باشه فوری میره
 local function goTo(cf) return tweenTo(cf, nil, true) end
-local function stopOff(on) if not on then stopTween() S.Status = "Idle" end end
-local SEA_NAME = Sea > 0 and ("Sea " .. Sea) or "Sea ?"
+local Home = createTab("Home", "⌂")
+Home:Profile()
+Home:Section("Stats")
+Home:Label(function() return "Level:  <font color=\"#00D2FF\">" .. formatNumber(dataValue("Level") or 0) .. "</font>" end)
+Home:Label(function() return "Beli:  <font color=\"#7CFF9B\">$" .. formatNumber(dataValue("Beli") or 0) .. "</font>" end)
+Home:Label(function() return "Fragments:  <font color=\"#7FC8FF\">" .. formatNumber(dataValue("Fragments") or 0) .. "</font>" end)
+Home:Label(function() return "Stat Points:  " .. formatNumber(dataValue("Points") or 0) end)
+Home:Label(function() return "Status:  <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
+Home:Section("Info")
+Home:Label(function() return "Quests loaded: " .. #QuestList .. "  •  Bosses: " .. #BossList end)
+Home:Label(function() return "Toggle UI:  RightControl  /  BM button" end)
+Home:Section("Debug")
+Home:Label(function()
+	local a = Hub.AttackInfo
+	return ("Attacks  remote:%d  click:%d  tool:%d"):format(a.remote, a.click, a.tool)
+end)
+Home:Button("Copy Debug Report", function()
+	local report = debugReport()
+	local copied = pcall(function() (setclipboard or toclipboard)(report) end)
+	print(report)
+	notify("Debug Report", copied and "Copied ✔ — paste it to Claude" or "Printed to console (F9)", 5)
+end)
 
--- Home: اطلاعات و دیباگ
-do
-	local T = createTab("Home", "⌂")
-	T:Profile()
-	T:Section("Stats")
-	T:Label(function() return "Level:  <font color=\"#00D2FF\">" .. formatNumber(dataValue("Level") or 0) .. "</font>  •  " .. SEA_NAME end)
-	T:Label(function() return "Beli:  <font color=\"#7CFF9B\">$" .. formatNumber(dataValue("Beli") or 0) .. "</font>" end)
-	T:Label(function() return "Fragments:  <font color=\"#7FC8FF\">" .. formatNumber(dataValue("Fragments") or 0) .. "</font>" end)
-	T:Label(function() return "Stat Points:  " .. formatNumber(dataValue("Points") or 0) end)
-	T:Label(function() return "Status:  <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
-	T:Label(function() return "Quest:  " .. (questTitle() or "none") end)
-	T:Section("Info")
-	T:Label(function() return "Quests loaded: " .. #QuestList .. "  •  Bosses: " .. #BossList end)
-	T:Label(function() return "Toggle UI:  RightControl  /  BM button" end)
-	T:Section("Debug")
-	T:Button("Copy Debug Report", function()
-		local report = debugReport()
-		local copied = pcall(function() (setclipboard or toclipboard)(report) end)
-		-- کپی همیشه به Claude نمی‌رسه؛ توی فایل هم ذخیره می‌کنیم
-		pcall(function()
-			if makefolder and not (isfolder and isfolder("bmscan")) then makefolder("bmscan") end
-			writefile("bmscan/debug.txt", report)
-		end)
-		print(report)
-		notify("Debug Report", copied and "Copied ✔ — paste it to Claude" or "Printed to console (F9)", 5)
+local Farm = createTab("Main Farm", "☰")
+Farm:Section("Auto Farm")
+Farm:Toggle("Auto Farm", "AutoFarm", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Farm:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
+Farm:Dropdown("Select Mob", mobOptions, "SelectedMob")
+Farm:Toggle("Take Quest", "TakeQuest")
+
+local Combat = createTab("Combat", "⚔")
+Combat:Section("Weapon & Attack")
+Combat:Dropdown("Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
+Combat:Dropdown("Attack Method", function() return { "Auto", "Remote", "Click", "Tool" } end, "AttackMethod")
+Combat:Toggle("Auto Click (always attack nearby)", "AutoClick")
+Combat:Slider("Attack Range", 10, 150, "AttackRange")
+Combat:Toggle("Fast Attack", "FastAttack")
+Combat:Toggle("Bring Mobs", "BringMobs")
+Combat:Section("Haki & Race")
+Combat:Toggle("Auto Haki (Buso)", "AutoHaki")
+Combat:Toggle("Auto Observation (Ken)", "AutoKen")
+Combat:Toggle("Auto Race Skill (T)", "AutoRace")
+Combat:Slider("Farm Height", 0, 60, "FarmDistance")
+Combat:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
+
+local Progress = createTab("Progress", "⇪")
+Progress:Section("Team")
+Progress:Dropdown("Team", function() return { "Pirates", "Marines" } end, "TeamChoice")
+Progress:Toggle("Auto Pick Team", "AutoTeam")
+Progress:Section("Unlock Seas (turn off Auto Farm)")
+Progress:Toggle("Auto Unlock Sea 2 (Sea 1, Lv 700+)", "AutoSea2", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Bartilo Quest (Sea 2, Lv 850+)", "AutoBartilo", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Unlock Sea 3 (Sea 2, Lv 1500+)", "AutoSea3", function(on) if not on then stopTween() end end)
+Progress:Section("Quests")
+Progress:Toggle("Auto Saber (Sea 1, Lv 200+)", "AutoSaber", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Race V2 (Sea 2, Alchemist)", "AutoRaceV2", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Race V3 (Sea 2, Human/Rabbit/Fishman)", "AutoRaceV3", function(on) if not on then stopTween() end end)
+Progress:Section("Sea 3 Items")
+Progress:Toggle("Auto Tushita (Lv 2200+)", "AutoTushita", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto CDK (Yama + Tushita 350 mastery)", "AutoCDK", function(on) if not on then stopTween() end end)
+Progress:Toggle("Auto Soul Guitar (full moon, spends mats)", "AutoSoulGuitar", function(on) if not on then stopTween() end end)
+Progress:Section("Fighting Styles")
+Progress:Toggle("Auto Next Fighting Style (spends!)", "AutoStyles", function(on) if not on then stopTween() end end)
+Progress:Label(function() return "Status: <font color=\"#FFD166\">" .. S.Status .. "</font>" end)
+
+Farm:Section("Mastery Farm")
+Farm:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
+Farm:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
+Farm:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
+Farm:Section("Skills")
+Farm:Toggle("Use Skills", "UseSkills")
+Farm:Toggle("Skill Z", "SkillZ")
+Farm:Toggle("Skill X", "SkillX")
+Farm:Toggle("Skill C", "SkillC")
+Farm:Toggle("Skill V", "SkillV")
+Farm:Label(function() return "Turn on Auto Farm too. Weak mobs get finished with your mastery weapon." end)
+
+local SeaEvents = createTab("Sea Events", "⚓")
+SeaEvents:Section("Sea Beasts & Sea Events")
+SeaEvents:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", function(on) if not on then stopTween() end end)
+SeaEvents:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")
+SeaEvents:Label(function()
+	local f = workspace:FindFirstChild("SeaBeasts")
+	return "Sea Beasts in server: " .. (f and #f:GetChildren() or 0)
+end)
+SeaEvents:Section("Pirate Raid (Sea 3, Castle on the Sea)")
+SeaEvents:Toggle("Auto Pirate Raid (kill raiders at Castle)", "AutoPirateRaid", function(on) if not on then stopTween() end end)
+SeaEvents:Section("World Events")
+SeaEvents:Toggle("Event Spawn Alert", "EventNotify")
+SeaEvents:Label(function()
+	local names = {}
+	for _, obj in pairs(Hub.Events) do table.insert(names, obj.Name) end
+	local full = false
+	pcall(function()
+		full = Lighting.Sky.MoonTextureId == "http://www.roblox.com/asset/?id=9709149431" and (Lighting.ClockTime > 16 or Lighting.ClockTime < 5)
+	end)
+	return "Events: " .. (#names > 0 and table.concat(names, ", ") or "none") .. "  •  Full moon night: " .. (full and "YES" or "no")
+end)
+for _, ev in ipairs({ { "Mirage Island", { "mirage", "mystic" } }, { "Kitsune Island", { "kitsune" } }, { "Prehistoric Island", { "prehistoric" } }, { "Frozen Dimension", { "frozen" } } }) do
+	SeaEvents:Button("Go to " .. ev[1], function()
+		local obj
+		for _, k in ipairs(ev[2]) do obj = obj or Hub.Events[k] end
+		if not obj then return notify(ev[1], "Not spawned in this server") end
+		local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
+		goTo(CFrame.new(pos + Vector3.new(0, 80, 0)))
 	end)
 end
+Farm:Section("Sea 2 Farms")
+Farm:Toggle("Auto Factory (Core)", "AutoFactory", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Farm:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Farm:Label(function()
+	return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  Sea " .. (Sea > 0 and Sea or "?")
+end)
+Farm:Section("Raid (level 1100+)")
+Farm:Dropdown("Raid Type", function()
+	return { "Flame", "Ice", "Quake", "Light", "Dark", "Spider", "Magma", "Buddha", "Sand", "Phoenix", "Dough" }
+end, "RaidType")
+Farm:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
+Farm:Toggle("Auto Raid (start + clear islands)", "AutoRaid", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Farm:Section("Sea 3 Farms")
+Farm:Toggle("Auto Elite Hunter", "AutoElite", function(on) if not on then stopTween() end end)
+Farm:Toggle("Auto Yama (after 30 elites)", "AutoYama", function(on) if not on then stopTween() end end)
+Farm:Label(function()
+	if Sea ~= 3 then return "Sea 3 farms work in Sea 3 only" end
+	return "Elite progress: " .. tostring(invokeCached("eliteProg", 20, "EliteHunter", "Progress") or "?") .. "/30"
+end)
+Farm:Toggle("Auto Bone (Haunted Castle)", "AutoBone", function(on) if not on then stopTween() end end)
+Farm:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
+Farm:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) end)
+Farm:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", function(on) if not on then stopTween() end end)
+Farm:Label(function()
+	if Sea ~= 3 then return "Cake Prince: Sea 3 only" end
+	return "Cake Prince: " .. tostring(invokeCached("cakeSpawner", 20, "CakePrinceSpawner") or "?")
+end)
+Farm:Section("Items: Rengoku")
+Farm:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Farm:Label(function()
+	local key = backpackTool("Hidden Key") and "✔ have key" or "no key yet"
+	return "Hidden Key: " .. key .. "  •  drops from Ice Admiral / Ice Castle mobs"
+end)
+Farm:Section("Dragon Trident")
+Farm:Toggle("Auto Dragon Trident (Tide Keeper)", "AutoTrident", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Farm:Section("Midnight Blade")
+Farm:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) .. "  •  needs 100" end)
+Farm:Button("Go to El Admin (buy Midnight Blade)", function()
+	goTo(CFrame.new(POS.ElAdmin + Vector3.new(0, 3, 4)))
+	notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
+end)
+Farm:Section("True Triple Katana")
+Farm:Label(function()
+	return "Sword Dealer: " .. (dealerPosition() and "<font color=\"#7CFF9B\">SPAWNED</font>" or "not spawned")
+end)
+Farm:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
+Farm:Toggle("Auto Buy Legendary Sword ($2M each)", "AutoLegendary")
+Farm:Label(function()
+	local have = {}
+	for _, sw in ipairs({ "Shisui", "Saddi", "Wando" }) do table.insert(have, sw .. (hasItem(sw) and " ✔" or " ✖")) end
+	return table.concat(have, "   ")
+end)
+Farm:Button("Go to Legendary Sword Dealer", function()
+	local cf = dealerPosition()
+	if not cf then return notify("Sword Dealer", "Not spawned right now") end
+	goTo(cf * CFrame.new(0, 0, 4))
+end)
+Farm:Button("Go to Mysterious Man (TTK)", function()
+	goTo(CFrame.new(POS.MysteriousMan + Vector3.new(0, 3, 4)))
+end)
+Farm:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
 
--- Farm: فارم لول/ماب، مستری، اسکیل‌ها (همه‌ی دریاها)
-do
-	local T = createTab("Farm", "☰")
-	T:Section("Auto Farm")
-	T:Toggle("Auto Farm", "AutoFarm", stopOff)
-	T:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
-	T:Dropdown("Select Mob", mobOptions, "SelectedMob")
-	T:Toggle("Take Quest", "TakeQuest")
-	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
-	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
-	T:Toggle("Bring Mobs", "BringMobs")
-	if #(Hub.Materials or {}) > 0 then
-		T:Section("Materials (" .. SEA_NAME .. ")")
-		T:Dropdown("Material", function()
-			local out = {}
-			for _, m in ipairs(Hub.Materials) do table.insert(out, m[1] .. " (" .. table.concat(m[2], ", ") .. ")") end
-			return out
-		end, "Material")
-		T:Toggle("Auto Farm Material", "AutoMaterial", stopOff)
-		T:Label(function() return "Farms the mobs that drop it (turn off Auto Farm)" end)
-	end
-	T:Section("Mastery Farm")
-	T:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
-	T:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
-	T:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
-	T:Section("Skills")
-	T:Toggle("Use Skills", "UseSkills")
-	T:Toggle("Skill Z", "SkillZ")
-	T:Toggle("Skill X", "SkillX")
-	T:Toggle("Skill C", "SkillC")
-	T:Toggle("Skill V", "SkillV")
-end
-
--- دریای فعلی: فقط فارم‌ها، آیتم‌ها و پیشرفت همین دریا
-do
-	local T = createTab(SEA_NAME, "≋")
-	if Sea == 1 then
-		T:Section("Progress")
-		T:Toggle("Auto Saber (Lv 200+)", "AutoSaber", stopOff)
-		T:Toggle("Auto Unlock Sea 2 (Lv 700+)", "AutoSea2", stopOff)
-		T:Label(function() return "Turn off Auto Farm while these run" end)
-	elseif Sea == 2 then
-		T:Section("Farms")
-		T:Toggle("Auto Factory (Core)", "AutoFactory", stopOff)
-		T:Toggle("Auto Ectoplasm (Cursed Ship)", "AutoEcto", stopOff)
-		T:Label(function() return "Ectoplasm: " .. formatNumber(invokeCached("ectoCount", 15, "Ectoplasm", "Check") or 0) end)
-		T:Section("Raid (Lv 1100+)")
-		T:Dropdown("Raid Type", function()
-			return { "Flame", "Ice", "Quake", "Light", "Dark", "Spider", "Magma", "Buddha", "Sand", "Phoenix", "Dough" }
-		end, "RaidType")
-		T:Toggle("Auto Buy Chip (spends!)", "AutoBuyChip")
-		T:Toggle("Auto Raid (start + clear islands)", "AutoRaid", stopOff)
-		T:Section("Progress")
-		T:Toggle("Auto Bartilo Quest (Lv 850+)", "AutoBartilo", stopOff)
-		T:Toggle("Auto Unlock Sea 3 (Lv 1500+)", "AutoSea3", stopOff)
-		T:Toggle("Auto Race V2 (Alchemist)", "AutoRaceV2", stopOff)
-		T:Toggle("Auto Race V3 (Human/Rabbit/Fishman)", "AutoRaceV3", stopOff)
-		T:Section("Swords")
-		T:Toggle("Auto Rengoku (key + chest)", "AutoRengoku", stopOff)
-		T:Label(function()
-			return "Hidden Key: " .. (backpackTool("Hidden Key") and "✔ have key" or "no key yet") .. "  •  from Ice Castle mobs"
-		end)
-		T:Toggle("Auto Dragon Trident (Tide Keeper)", "AutoTrident", stopOff)
-		T:Button("Go to El Admin (Midnight Blade, 100 Ectoplasm)", function()
-			goTo(CFrame.new(POS.ElAdmin + Vector3.new(0, 3, 4)))
-			notify("Midnight Blade", "Click El Admin and buy it (100 Ectoplasm)", 6)
-		end)
-		T:Section("True Triple Katana")
-		T:Label(function()
-			return "Sword Dealer: " .. (dealerPosition() and "<font color=\"#7CFF9B\">SPAWNED</font>" or "not spawned")
-		end)
-		T:Toggle("Sword Dealer Spawn Alert", "DealerNotify")
-		T:Toggle("Auto Buy Legendary Sword ($2M each)", "AutoLegendary")
-		T:Label(function()
-			local have = {}
-			for _, sw in ipairs({ "Shisui", "Saddi", "Wando" }) do table.insert(have, sw .. (hasItem(sw) and " ✔" or " ✖")) end
-			return table.concat(have, "   ")
-		end)
-		T:Button("Go to Legendary Sword Dealer", function()
-			local cf = dealerPosition()
-			if not cf then return notify("Sword Dealer", "Not spawned right now") end
-			goTo(cf * CFrame.new(0, 0, 4))
-		end)
-		T:Button("Go to Mysterious Man (TTK)", function()
-			goTo(CFrame.new(POS.MysteriousMan + Vector3.new(0, 3, 4)))
-		end)
-		T:Label(function() return "TTK: Saddi + Shisui + Wando (300 mastery each) + $2M" end)
-	elseif Sea == 3 then
-		T:Section("Farms")
-		T:Toggle("Auto Elite Hunter", "AutoElite", stopOff)
-		T:Toggle("Auto Yama (after 30 elites)", "AutoYama", stopOff)
-		T:Label(function() return "Elite progress: " .. tostring(invokeCached("eliteProg", 20, "EliteHunter", "Progress") or "?") .. "/30" end)
-		T:Toggle("Auto Bone (Haunted Castle, mummy quest)", "AutoBone", stopOff)
-		T:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
-		T:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) .. "  (gamble trades while Auto Bone is on)" end)
-		T:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", stopOff)
-		T:Label(function() return "Cake Prince: " .. tostring(invokeCached("cakeSpawner", 20, "CakePrinceSpawner") or "?") end)
-		T:Section("Items & Progress")
-		T:Toggle("Auto Tushita (Lv 2200+)", "AutoTushita", stopOff)
-		T:Toggle("Auto CDK (Yama + Tushita 350 mastery)", "AutoCDK", stopOff)
-		T:Toggle("Auto Soul Guitar (full moon, spends mats)", "AutoSoulGuitar", stopOff)
-	else
-		T:Label(function() return "Sea not detected — rejoin or tell Claude the PlaceId" end)
-	end
-end
-
--- Sea Events: فقط دریای 2 و 3
-if Sea == 2 or Sea == 3 then
-	local T = createTab("Sea Events", "⚓")
-	T:Section("Sea Beasts")
-	T:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", stopOff)
-	T:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")
-	T:Label(function()
-		local f = workspace:FindFirstChild("SeaBeasts")
-		return "Sea Beasts in server: " .. (f and #f:GetChildren() or 0)
-	end)
-	if Sea == 3 then
-		T:Section("Pirate Raid (Castle on the Sea)")
-		T:Toggle("Auto Pirate Raid (kill raiders at Castle)", "AutoPirateRaid", stopOff)
-		T:Section("World Events")
-		T:Toggle("Event Spawn Alert", "EventNotify")
-		T:Label(function()
-			local names = {}
-			for _, obj in pairs(Hub.Events) do table.insert(names, obj.Name) end
-			local full = false
-			pcall(function()
-				full = Lighting.Sky.MoonTextureId == "http://www.roblox.com/asset/?id=9709149431" and (Lighting.ClockTime > 16 or Lighting.ClockTime < 5)
-			end)
-			return "Events: " .. (#names > 0 and table.concat(names, ", ") or "none") .. "  •  Full moon night: " .. (full and "YES" or "no")
-		end)
-		for _, ev in ipairs({ { "Mirage Island", { "mirage", "mystic" } }, { "Kitsune Island", { "kitsune" } }, { "Prehistoric Island", { "prehistoric" } }, { "Frozen Dimension", { "frozen" } } }) do
-			T:Button("Go to " .. ev[1], function()
-				local obj
-				for _, k in ipairs(ev[2]) do obj = obj or Hub.Events[k] end
-				if not obj then return notify(ev[1], "Not spawned in this server") end
-				local pos = obj:IsA("Model") and obj:GetPivot().Position or obj.Position
-				goTo(CFrame.new(pos + Vector3.new(0, 80, 0)))
-			end)
-		end
-	end
-end
-
--- Bosses
-do
-	local T = createTab("Bosses", "♛")
-	T:Section("Auto Boss (" .. SEA_NAME .. ")")
-	T:Dropdown("Select Boss", bossOptions, "SelectedBoss")
-	T:Toggle("Auto Farm Boss", "AutoBoss", stopOff)
-	T:Toggle("Take Boss Quest", "BossQuest")
-	T:Toggle("Auto All Bosses (nearest spawned first)", "AutoAllBosses", stopOff)
-	T:Toggle("Boss Spawn Alert", "BossNotify")
-	local anySpecial = false
-	for _, b in ipairs(Hub.Special or {}) do
-		if b.sea == Sea then
-			if not anySpecial then T:Section("Special Bosses") anySpecial = true end
-			T:Toggle("Auto Kill " .. b.label, "Kill" .. b.id, stopOff)
-			if b.summon then
-				T:Toggle("Auto Summon " .. b.label .. (b.cost and (" (uses " .. b.cost .. "!)") or " (farms cake mobs)"), "Summon" .. b.id, stopOff)
-			end
-			T:Label(function()
-				local n = Hub.SpecialSpawned(b)
-				local need = b.cost and ("  •  " .. b.cost .. ": " .. (b.ready() and "✔" or "✖")) or ""
-				return b.label .. ": " .. (n and "SPAWNED ✔" or "not spawned") .. need
-			end)
-		end
-	end
-	if Sea == 2 then
-		T:Section("Darkbeard")
-		T:Toggle("Auto Darkbeard (summon + fight)", "AutoDarkbeard", stopOff)
-		T:Label(function()
-			return "Fist of Darkness: " .. (backpackTool("Fist of Darkness") and "✔ have it" or "✖ (get from chests)")
-		end)
-	end
-	T:Section("Spawned & Locations")
-	T:Button("List Spawned Bosses", function()
-		local alive_ = {}
-		for _, n in ipairs(bossNames()) do
-			if findMobAnywhere(n) then table.insert(alive_, n) end
-		end
-		notify("Spawned Bosses (" .. #alive_ .. ")", #alive_ > 0 and table.concat(alive_, ", ") or "None right now", 7)
-	end)
-	T:Dropdown("Boss Spawn", function()
+-- کلکسیون: کدوم آیتم‌های مهم رو داری و کدوم‌ها مونده (از اینونتوری خود بازی)
+local COLLECTION = {
+	{ "Sea 1", { "Saber", "Pole (1st Form)", "Gravity Cane", "Trident", "Warden's Sword", "Longsword", "Bisento", "Soul Cane", "Shark Saw", "Jitte" } },
+	{ "Sea 2", { "Rengoku", "Dragon Trident", "Midnight Blade", "True Triple Katana", "Koko", "Dual-Headed Blade", "Kabucha", "Bizarre Revolver", "Acidum Rifle" } },
+	{ "Sea 3", { "Yama", "Tushita", "Cursed Dual Katana", "Hallow Scythe", "Shark Anchor", "Canvander", "Buddy Sword", "Twin Hooks", "Spikey Trident", "Dark Dagger", "Skull Guitar", "Fox Lamp", "Venom Bow", "Dragonstorm" } },
+}
+Farm:Section("Collection")
+for _, group in ipairs(COLLECTION) do
+	local seaName, list = group[1], group[2]
+	local function missing()
 		local out = {}
-		for _, b in ipairs(bossSpawns()) do table.insert(out, b.name) end
+		for _, item in ipairs(list) do
+			if not hasItem(item) then table.insert(out, item) end
+		end
 		return out
-	end, "SelectedBossSpawn")
-	T:Button("Teleport to Boss Spawn", function()
-		for _, b in ipairs(bossSpawns()) do
-			if b.name == S.SelectedBossSpawn then return goTo(b.cf * CFrame.new(0, 40, 0)) end
+	end
+	Farm:Label(function()
+		local m = #missing()
+		local color = m == 0 and "#7CFF9B" or "#FFD166"
+		return ("%s:  <font color=\"%s\">%d/%d owned</font>"):format(seaName, color, #list - m, #list)
+	end)
+	Farm:Dropdown("Missing (" .. seaName .. ")", function()
+		local m = missing()
+		return #m > 0 and m or { "Nothing missing ✔" }
+	end, "ViewMissing" .. seaName:gsub(" ", ""))
+end
+
+local Shop = createTab("Shop", "$")
+Shop:Section("Codes")
+Shop:Button("Redeem All Codes", function()
+	notify("Codes", "Redeeming " .. #CODES .. " codes...", 3)
+	local n, err = redeemAllCodes()
+	notify("Codes", err or ("Sent " .. n .. " codes ✔ (expired ones are ignored)"), 5)
+end)
+Shop:Section("Fighting Styles")
+Shop:Dropdown("Style", styleNames, "SelectedStyle")
+Shop:Button("Buy Selected Style", function()
+	if not S.SelectedStyle then return notify("Shop", "Select a style first") end
+	local r = buyStyle(S.SelectedStyle)
+	notify(S.SelectedStyle, r ~= nil and tostring(r) or "Request sent (need beli/fragments + requirements)", 5)
+end)
+Shop:Section("Abilities")
+Shop:Toggle("Auto Buy Buso / Geppo / Soru (when affordable)", "AutoAbilities")
+Shop:Toggle("Auto Awaken Fruit (spends fragments!)", "AutoAwaken")
+Shop:Toggle("Auto Buy Haki Color (spends beli!)", "AutoHakiColor")
+Shop:Label(function() return "Haki color keeps at least " .. formatNumber(S.FruitMinBeli) .. " beli (Fruits tab slider)" end)
+local function shopButton(label, ...)
+	local args = { ... }
+	Shop:Button(label, function()
+		local r
+		for _, a in ipairs(args) do
+			r = invoke(table.unpack(a))
+			task.wait(0.2)
 		end
-		notify("Boss", "Select a boss spawn first")
+		notify(label, r ~= nil and tostring(r) or "Request sent", 4)
 	end)
 end
+shopButton("Buy Geppo (Sky Jump)", { "BuyHaki", "Geppo" })
+shopButton("Buy Buso Haki", { "BuyHaki", "Buso" })
+shopButton("Buy Soru (Flash Step)", { "BuyHaki", "Soru" })
+shopButton("Buy Observation (Ken)", { "KenTalk", "Start" }, { "KenTalk", "Buy" })
+shopButton("Buy Random Haki Color", { "ColorsDealer", "2" })
 
--- Items: میوه، صندوق، بری، کلکسیون همین دریا
-do
-	local T = createTab("Items", "◆")
-	T:Section("Devil Fruits")
-	T:Toggle("Auto Collect Fruits", "AutoFruit", function(on) if not on then stopTween() end end)
-	T:Toggle("Auto Store Fruits", "AutoStore")
-	T:Toggle("Fruit Spawn Alert", "FruitNotify")
-	T:Toggle("Auto Random Fruit (spends beli!)", "AutoRandomFruit", function(on)
-		if on then Hub.FruitBuys = 0 end
-	end)
-	T:Slider("Keep At Least Beli (x1000)", 0, 5000, "FruitMinBeliK", function(v) S.FruitMinBeli = v * 1000 end)
-	T:Slider("Max Fruits Per Run", 1, 20, "FruitMaxBuys")
-	T:Button("Buy Random Fruit", function()
-		local _, info = buyRandomFruit()
-		notify("Random Fruit", info, 6)
-	end)
-	T:Button("Find Fruits In Server", function()
-		local list = getWorldFruits()
-		if #list == 0 then return notify("Fruits", "No fruits spawned") end
-		local names = {}
-		for _, f in ipairs(list) do table.insert(names, f.obj.Name) end
-		notify("Fruits (" .. #list .. ")", table.concat(names, ", "), 6)
-	end)
-	T:Section("Chests & Berries")
-	T:Toggle("Auto Chest", "AutoChest", function(on) if not on then stopTween() end end)
-	T:Toggle("Auto Collect Berries", "AutoBerries", function(on) if not on then stopTween() end end)
-	T:Label(function() return "Berry bushes loaded: " .. #CollectionService:GetTagged("BerryBush") end)
-	-- کلکسیون: آیتم‌های مهم همین دریا که داری / نداری
-	local COLLECTION = {
-		[1] = { "Saber", "Pole (1st Form)", "Gravity Cane", "Trident", "Warden's Sword", "Longsword", "Bisento", "Soul Cane", "Shark Saw", "Jitte" },
-		[2] = { "Rengoku", "Dragon Trident", "Midnight Blade", "True Triple Katana", "Koko", "Dual-Headed Blade", "Kabucha", "Bizarre Revolver", "Acidum Rifle" },
-		[3] = { "Yama", "Tushita", "Cursed Dual Katana", "Hallow Scythe", "Shark Anchor", "Canvander", "Buddy Sword", "Twin Hooks", "Spikey Trident", "Dark Dagger", "Skull Guitar", "Fox Lamp", "Venom Bow", "Dragonstorm" },
-	}
-	local list = COLLECTION[Sea]
-	if list then
-		T:Section("Collection (" .. SEA_NAME .. ")")
-		local function missing()
-			local out = {}
-			for _, item in ipairs(list) do
-				if not hasItem(item) then table.insert(out, item) end
-			end
-			return out
-		end
-		T:Label(function()
-			local m = #missing()
-			return ("<font color=\"%s\">%d/%d owned</font>"):format(m == 0 and "#7CFF9B" or "#FFD166", #list - m, #list)
-		end)
-		T:Dropdown("Missing", function()
-			local m = missing()
-			return #m > 0 and m or { "Nothing missing ✔" }
-		end, "ViewMissingSea" .. Sea)
+local Boss = createTab("Bosses", "♛")
+Boss:Section("Auto Boss")
+Boss:Dropdown("Select Boss", bossOptions, "SelectedBoss")
+Boss:Toggle("Auto Farm Boss", "AutoBoss", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Boss:Toggle("Take Boss Quest", "BossQuest")
+Boss:Toggle("Auto All Bosses (nearest spawned first)", "AutoAllBosses", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Boss:Section("Darkbeard")
+Boss:Toggle("Auto Darkbeard (summon + fight)", "AutoDarkbeard", function(on)
+	if not on then stopTween() S.Status = "Idle" end
+end)
+Boss:Label(function()
+	return "Fist of Darkness: " .. (backpackTool("Fist of Darkness") and "✔ have it" or "✖ (get from chests)")
+end)
+Boss:Button("Check Boss Spawned", function()
+	if not S.SelectedBoss then return notify("Boss", "Select a boss first") end
+	local b = findMobAnywhere(S.SelectedBoss)
+	notify("Boss", S.SelectedBoss .. (b and " is spawned ✔" or " is not spawned ✖"))
+end)
+Boss:Button("List Spawned Bosses", function()
+	local alive_ = {}
+	for _, n in ipairs(bossNames()) do
+		if findMobAnywhere(n) then table.insert(alive_, n) end
 	end
-end
-
--- Combat: تنظیمات حمله، هاکی، پرواز
-do
-	local T = createTab("Combat", "⚔")
-	T:Section("Weapon & Attack")
-	T:Dropdown("Farm Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
-	T:Dropdown("Attack Method", function() return { "Auto", "Tool", "Click" } end, "AttackMethod")
-	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
-	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
-	T:Slider("Attack Range", 10, 150, "AttackRange")
-	T:Toggle("Bring Mobs", "BringMobs")
-	T:Button("Attack Test (stand next to a mob, hold your weapon)", function()
-		-- هر روش کلیک رو 4 ثانیه امتحان می‌کنه و کم شدن جون ماب رو توی لاگ می‌نویسه
-		task.spawn(function()
-			local log = Hub.LiveLog or print
-			local root, char = getRoot(), getChar()
-			local tool = char and char:FindFirstChildOfClass("Tool")
-			local best, bestD
-			for _, m in ipairs(workspace.Enemies:GetChildren()) do
-				if isAliveMob(m) then
-					local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-					if not bestD or d < bestD then best, bestD = m, d end
-				end
-			end
-			if not tool or not best or bestD > 12 then
-				return notify("Attack Test", "Hold a weapon and stand within 10 studs of a mob", 5)
-			end
-			local savedClick = S.AutoClick
-			S.AutoClick = false
-			local vs = camera.ViewportSize
-			-- یه نقطه از صفحه که هیچ UI روش نیست
-			local free = Vector2.new(vs.X * 0.5, vs.Y * 0.5)
-			local pg = player:FindFirstChild("PlayerGui")
-			for _, pt in ipairs({ { 0.5, 0.5 }, { 0.5, 0.35 }, { 0.3, 0.5 }, { 0.7, 0.6 }, { 0.5, 0.75 } }) do
-				local v = Vector2.new(vs.X * pt[1], vs.Y * pt[2])
-				local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(v.X, v.Y) end)
-				if ok and #objs == 0 then free = v break end
-			end
-			local methods = {
-				{ "tool:Activate()", function() tool:Activate() end },
-				{ "VirtualUser click", function()
-					Svc.VirtualUser:CaptureController()
-					Svc.VirtualUser:Button1Down(free, camera.CFrame)
-					task.wait(0.03)
-					Svc.VirtualUser:Button1Up(free, camera.CFrame)
-				end },
-				{ "VirtualInputManager click", function()
-					VIM:SendMouseButtonEvent(free.X, free.Y, 0, true, game, 0)
-					task.wait(0.03)
-					VIM:SendMouseButtonEvent(free.X, free.Y, 0, false, game, 0)
-				end },
-			}
-			log(("ATTACK TEST start: tool=%s[%s] mob=%s dist=%d freeClick=(%d,%d)"):format(tool.Name, tostring(tool.ToolTip), mobBaseName(best.Name), math.floor(bestD), free.X, free.Y))
-			notify("Attack Test", "Testing 3 methods (12 s)... don't touch the mouse", 5)
-			for _, m in ipairs(methods) do
-				local h = best:FindFirstChildOfClass("Humanoid")
-				if not h or h.Health <= 0 then break end
-				local before, err = h.Health, "ok"
-				local t0 = tick()
-				while tick() - t0 < 4 do
-					local r = getRoot()
-					local p = best.HumanoidRootPart.Position
-					if r then r.CFrame = CFrame.lookAt(r.Position, Vector3.new(p.X, r.Position.Y, p.Z)) end
-					local ok, e = pcall(m[2])
-					if not ok then err = tostring(e) end
-					task.wait(0.25)
-				end
-				log(("ATTACK TEST %s: hp %d -> %d (%s) err=%s"):format(m[1], math.floor(before), math.floor(h.Health), h.Health < before and "DAMAGE ✔" or "no damage", err))
-			end
-			S.AutoClick = savedClick
-			notify("Attack Test", "Done ✔ - tell Claude", 6)
-		end)
-	end)
-	T:Section("Haki & Race")
-	T:Toggle("Auto Haki (Buso)", "AutoHaki")
-	T:Toggle("Auto Observation (Ken)", "AutoKen")
-	T:Toggle("Auto Race Skill (T)", "AutoRace")
-	T:Section("Movement")
-	T:Slider("Farm Height (0-6, higher = no hits)", 0, 6, "FarmDistance")
-	T:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
-end
-
--- Shop
-do
-	local T = createTab("Shop", "$")
-	T:Section("Codes")
-	T:Button("Redeem All Codes", function()
-		notify("Codes", "Redeeming " .. #CODES .. " codes...", 3)
-		local n, err = redeemAllCodes()
-		notify("Codes", err or ("Sent " .. n .. " codes ✔ (expired ones are ignored)"), 5)
-	end)
-	T:Section("Fighting Styles")
-	T:Dropdown("Style", styleNames, "SelectedStyle")
-	T:Button("Buy Selected Style", function()
-		if not S.SelectedStyle then return notify("Shop", "Select a style first") end
-		local r = buyStyle(S.SelectedStyle)
-		notify(S.SelectedStyle, r ~= nil and tostring(r) or "Request sent (need beli/fragments + requirements)", 5)
-	end)
-	T:Toggle("Auto Next Fighting Style (spends!)", "AutoStyles", stopOff)
-	T:Section("Abilities & Haki")
-	T:Toggle("Auto Buy Buso / Geppo / Soru (when affordable)", "AutoAbilities")
-	T:Toggle("Auto Buy Haki Color (spends beli!)", "AutoHakiColor")
-	T:Label(function() return "Haki color keeps at least " .. formatNumber(S.FruitMinBeli) .. " beli (Items tab slider)" end)
-	T:Toggle("Auto Awaken Fruit (spends fragments!)", "AutoAwaken")
-	for _, b in ipairs({
-		{ "Buy Geppo (Sky Jump)", { { "BuyHaki", "Geppo" } } },
-		{ "Buy Buso Haki", { { "BuyHaki", "Buso" } } },
-		{ "Buy Soru (Flash Step)", { { "BuyHaki", "Soru" } } },
-		{ "Buy Observation (Ken)", { { "KenTalk", "Start" }, { "KenTalk", "Buy" } } },
-		{ "Buy Random Haki Color", { { "ColorsDealer", "2" } } },
-	}) do
-		T:Button(b[1], function()
-			local r
-			for _, a in ipairs(b[2]) do
-				r = invoke(table.unpack(a))
-				task.wait(0.2)
-			end
-			notify(b[1], r ~= nil and tostring(r) or "Request sent", 4)
-		end)
+	notify("Spawned Bosses (" .. #alive_ .. ")", #alive_ > 0 and table.concat(alive_, ", ") or "None right now", 7)
+end)
+Boss:Section("Boss Locations")
+Boss:Dropdown("Boss Spawn", function()
+	local out = {}
+	for _, b in ipairs(bossSpawns()) do table.insert(out, b.name) end
+	return out
+end, "SelectedBossSpawn")
+Boss:Button("Teleport to Boss Spawn", function()
+	for _, b in ipairs(bossSpawns()) do
+		if b.name == S.SelectedBossSpawn then return goTo(b.cf * CFrame.new(0, 40, 0)) end
 	end
-end
+	notify("Boss", "Select a boss spawn first")
+end)
+Boss:Section("Alerts")
+Boss:Toggle("Boss Spawn Alert", "BossNotify")
 
--- Teleport
-do
-	local T = createTab("Teleport", "➤")
-	-- مکان‌های مهم هر Sea (مختصات از اسکن خود بازی)
-	local QUICK_PLACES = {
-		[2] = {
-			{ "Cafe", Vector3.new(-380.4, 72.8, 303.2) },
-			{ "Kingdom of Rose", Vector3.new(-195.1, 155.3, 279.9) },
-			{ "Mansion", Vector3.new(-393.3, 367.3, 687.5) },
-			{ "Dark Arena (Darkbeard)", Vector3.new(3807.1, 11.8, -3452.2) },
-			{ "Factory", Vector3.new(431.0, 238.4, -433.2) },
-			{ "Colosseum", Vector3.new(-1836.4, 72.8, 1360.2) },
-			{ "Green Zone", Vector3.new(-2340.8, 155.3, -3396.3) },
-			{ "Graveyard Island", Vector3.new(-5577.9, 87.6, -782.2) },
-			{ "Snow Mountain", Vector3.new(856.2, 50.3, -5278.3) },
-			{ "Hot and Cold", Vector3.new(-5734.3, 49.4, -5146.4) },
-			{ "Ice Castle", Vector3.new(6062.3, 155.3, -6880.9) },
-			{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
-		},
-		[3] = {
-			{ "Castle on the Sea", Vector3.new(-5027.0, 316.5, -3206.7) },
-			{ "Mansion", Vector3.new(-12463.6, 378.3, -7566.1) },
-			{ "Hydra Island", Vector3.new(5650.9, 1017.3, -350.4) },
-			{ "Port Town", Vector3.new(-290.1, 42.9, 5581.6) },
-			{ "Great Tree", Vector3.new(2180.5, 27.8, -6741.6) },
-			{ "Floating Turtle", Vector3.new(-13234.0, 331.5, -7625.4) },
-			{ "Haunted Castle", Vector3.new(-9515.0, 164.0, 5786.0) },
-			{ "Sea of Treats (Cake)", Vector3.new(-2021.3, 37.8, -12028.7) },
-			{ "Peanut / Ice Cream Island", Vector3.new(-820.7, 65.8, -10965.8) },
-			{ "Chocolate Island", Vector3.new(233.2, 29.9, -12201.2) },
-			{ "Tiki Outpost", Vector3.new(-16547.8, 61.1, -173.4) },
-		},
-	}
-	if QUICK_PLACES[Sea] then
-		T:Section("Quick Places (" .. SEA_NAME .. ")")
-		for _, place in ipairs(QUICK_PLACES[Sea]) do
-			T:Button(place[1], function()
-				goTo(CFrame.new(place[2] + Vector3.new(0, 40, 0)))
-			end)
-		end
-	end
-	T:Section("Islands")
-	T:Dropdown("Island", islandList, "SelectedIsland")
-	T:Button("Teleport to Island", function()
-		if not S.SelectedIsland then return notify("Teleport", "Select an island first") end
-		goTo(islandCFrame(S.SelectedIsland))
-	end)
-	T:Section("NPCs & Players")
-	T:Dropdown("NPC", npcList, "SelectedNPC")
-	T:Button("Teleport to NPC", function()
-		local cf = S.SelectedNPC and findNPC(S.SelectedNPC)
-		if not cf then return notify("Teleport", "NPC not found") end
-		goTo(cf * CFrame.new(0, 0, 4))
-	end)
-	T:Dropdown("Player", playerList, "SelectedPlayer")
-	T:Button("Teleport to Player", function()
-		local p = S.SelectedPlayer and Players:FindFirstChild(S.SelectedPlayer)
-		local r = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-		if not r then return notify("Teleport", "Player not found") end
-		goTo(r.CFrame * CFrame.new(0, 5, 0))
-	end)
-	T:Button("Stop Teleport", function() stopTween() end)
-	T:Section("Travel Between Seas")
-	for i, cmd in ipairs({ "TravelMain", "TravelDressrosa", "TravelZou" }) do
-		if i ~= Sea then T:Button("Travel to Sea " .. i, function() invoke(cmd) end) end
-	end
-end
+local Fruit = createTab("Fruits", "◆")
+Fruit:Section("Devil Fruits")
+Fruit:Toggle("Auto Collect Fruits", "AutoFruit", function(on)
+	if not on then stopTween() end
+end)
+Fruit:Toggle("Auto Store Fruits", "AutoStore")
+Fruit:Toggle("Auto Random Fruit (spends beli!)", "AutoRandomFruit", function(on)
+	if on then Hub.FruitBuys = 0 end
+end)
+Fruit:Slider("Keep At Least Beli (x1000)", 0, 5000, "FruitMinBeliK", function(v) S.FruitMinBeli = v * 1000 end)
+Fruit:Slider("Max Fruits Per Run", 1, 20, "FruitMaxBuys")
+Fruit:Toggle("Fruit Spawn Alert", "FruitNotify")
+Fruit:Button("Buy Random Fruit", function()
+	local _, info = buyRandomFruit()
+	notify("Random Fruit", info, 6)
+end)
+Fruit:Button("Find Fruits In Server", function()
+	local list = getWorldFruits()
+	if #list == 0 then return notify("Fruits", "No fruits spawned") end
+	local names = {}
+	for _, f in ipairs(list) do table.insert(names, f.obj.Name) end
+	notify("Fruits (" .. #list .. ")", table.concat(names, ", "), 6)
+end)
 
--- Stats
-do
-	local T = createTab("Stats", "▲")
-	T:Section("Auto Stats")
-	T:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
-	T:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
-	T:Slider("Points Per Tick", 1, 100, "StatAmount")
-	T:Toggle("Auto Stats", "AutoStats")
-end
+local Collect = createTab("Collect", "✚")
+Collect:Section("Chests")
+Collect:Toggle("Auto Chest", "AutoChest", function(on)
+	if not on then stopTween() end
+end)
+Collect:Section("Berries")
+Collect:Toggle("Auto Collect Berries", "AutoBerries", function(on)
+	if not on then stopTween() end
+end)
+Collect:Label(function() return "Berry bushes loaded: " .. #CollectionService:GetTagged("BerryBush") end)
 
--- ESP
-do
-	local T = createTab("ESP", "◉")
-	T:Section("ESP")
-	T:Toggle("Player ESP", "PlayerESP")
-	T:Toggle("Fruit ESP", "FruitESP")
-	T:Toggle("Chest ESP", "ChestESP")
-	T:Toggle("Boss ESP", "BossESP")
+local Tp = createTab("Teleport", "➤")
+-- مکان‌های مهم هر Sea (مختصات از اسکن خود بازی)
+local QUICK_PLACES = {
+	[2] = {
+		{ "Cafe", Vector3.new(-380.4, 72.8, 303.2) },
+		{ "Kingdom of Rose", Vector3.new(-195.1, 155.3, 279.9) },
+		{ "Mansion", Vector3.new(-393.3, 367.3, 687.5) },
+		{ "Dark Arena (Darkbeard)", Vector3.new(3807.1, 11.8, -3452.2) },
+		{ "Factory", Vector3.new(431.0, 238.4, -433.2) },
+		{ "Colosseum", Vector3.new(-1836.4, 72.8, 1360.2) },
+		{ "Green Zone", Vector3.new(-2340.8, 155.3, -3396.3) },
+		{ "Graveyard Island", Vector3.new(-5577.9, 87.6, -782.2) },
+		{ "Snow Mountain", Vector3.new(856.2, 50.3, -5278.3) },
+		{ "Hot and Cold", Vector3.new(-5734.3, 49.4, -5146.4) },
+		{ "Ice Castle", Vector3.new(6062.3, 155.3, -6880.9) },
+		{ "Forgotten Island", Vector3.new(-3194.2, 155.3, -10795.3) },
+	},
+	[3] = {
+		{ "Castle on the Sea", Vector3.new(-5027.0, 316.5, -3206.7) },
+		{ "Mansion", Vector3.new(-12463.6, 378.3, -7566.1) },
+		{ "Hydra Island", Vector3.new(5650.9, 1017.3, -350.4) },
+		{ "Port Town", Vector3.new(-290.1, 42.9, 5581.6) },
+		{ "Great Tree", Vector3.new(2180.5, 27.8, -6741.6) },
+		{ "Floating Turtle", Vector3.new(-13234.0, 331.5, -7625.4) },
+		{ "Haunted Castle", Vector3.new(-9515.0, 164.0, 5786.0) },
+		{ "Sea of Treats (Cake)", Vector3.new(-2021.3, 37.8, -12028.7) },
+		{ "Peanut / Ice Cream Island", Vector3.new(-820.7, 65.8, -10965.8) },
+		{ "Chocolate Island", Vector3.new(233.2, 29.9, -12201.2) },
+		{ "Tiki Outpost", Vector3.new(-16547.8, 61.1, -173.4) },
+	},
+}
+Tp:Section("Quick Places (Sea " .. (Sea > 0 and Sea or "?") .. ")")
+for _, place in ipairs(QUICK_PLACES[Sea] or {}) do
+	Tp:Button(place[1], function()
+		goTo(CFrame.new(place[2] + Vector3.new(0, 40, 0)))
+	end)
 end
+Tp:Section("Seas")
+Tp:Button("Travel to Sea 1", function() invoke("TravelMain") end)
+Tp:Button("Travel to Sea 2", function() invoke("TravelDressrosa") end)
+Tp:Button("Travel to Sea 3", function() invoke("TravelZou") end)
+Tp:Section("Islands")
+Tp:Dropdown("Island", islandList, "SelectedIsland")
+Tp:Button("Teleport to Island", function()
+	if not S.SelectedIsland then return notify("Teleport", "Select an island first") end
+	goTo(islandCFrame(S.SelectedIsland))
+end)
+Tp:Section("NPCs & Players")
+Tp:Dropdown("NPC", npcList, "SelectedNPC")
+Tp:Button("Teleport to NPC", function()
+	local cf = S.SelectedNPC and findNPC(S.SelectedNPC)
+	if not cf then return notify("Teleport", "NPC not found") end
+	goTo(cf * CFrame.new(0, 0, 4))
+end)
+Tp:Dropdown("Player", playerList, "SelectedPlayer")
+Tp:Button("Teleport to Player", function()
+	local p = S.SelectedPlayer and Players:FindFirstChild(S.SelectedPlayer)
+	local r = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+	if not r then return notify("Teleport", "Player not found") end
+	goTo(r.CFrame * CFrame.new(0, 5, 0))
+end)
+Tp:Button("Stop Teleport", function() stopTween() end)
 
--- Misc
-do
-	local T = createTab("Misc", "✦")
-	T:Section("Team")
-	T:Dropdown("Team", function() return { "Pirates", "Marines" } end, "TeamChoice")
-	T:Toggle("Auto Pick Team", "AutoTeam")
-	T:Section("Player")
-	T:Toggle("WalkSpeed", "SpeedOn", function(on)
-		if not on then local h = getHum() if h then h.WalkSpeed = 16 end end
-	end)
-	T:Slider("Speed", 16, 300, "WalkSpeed")
-	T:Toggle("JumpPower", "JumpOn", function(on)
-		if not on then local h = getHum() if h then h.JumpPower = 50 end end
-	end)
-	T:Slider("Jump", 50, 300, "JumpPower")
-	T:Toggle("Infinite Jump", "InfJump")
-	T:Toggle("Noclip", "Noclip")
-	T:Toggle("Walk on Water", "WalkOnWater")
-	T:Section("Visual")
-	T:Toggle("Fullbright (always bright)", "Fullbright")
-	T:Toggle("No Fog", "NoFog")
-	T:Section("Server")
-	T:Toggle("Anti AFK", "AntiAFK")
-	T:Button("Server Hop", function()
-		if not serverHop() then notify("Server Hop", "No server found") end
-	end)
-	T:Button("Hop to Low Player Server", function()
-		if not serverHop(true) then notify("Server Hop", "No server found") end
-	end)
-	T:Toggle("Auto Hop When Player Near", "AutoHopNear")
-	T:Slider("Hop Distance", 50, 1000, "HopDistance")
-	T:Button("Rejoin", function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
-	T:Toggle("Auto Rejoin On Kick", "AutoRejoin")
-	T:Section("Performance")
-	T:Button("FPS Boost", function()
-		fpsBoost()
-		notify("FPS Boost", "Done ✔")
-	end)
-	T:Toggle("CPU Saver (no 3D render)", "CPUSaver", function(on)
-		pcall(function() RunService:Set3dRenderingEnabled(not on) end)
-	end)
-	T:Toggle("FPS Cap", "FPSCapOn", function(on)
-		if not setfpscap then return notify("FPS Cap", "Executor has no setfpscap") end
-		setfpscap(on and S.FPSCap or 0)
-	end)
-	T:Slider("Max FPS", 10, 120, "FPSCap", function(v)
-		if S.FPSCapOn and setfpscap then pcall(setfpscap, v) end
-	end)
-	T:Section("Settings")
-	T:Toggle("Auto Save Settings", "AutoSave")
-	T:Button("Save Settings", function()
-		notify("Settings", saveSettings() and "Saved ✔" or "Save failed (executor has no writefile)", 3)
-	end)
-	T:Button("Load Settings", function()
-		notify("Settings", loadSettings() and "Loaded ✔  re-run the hub to refresh the UI" or "No saved settings", 4)
-	end)
-	T:Button("Destroy Hub", function() Hub.Destroy() end)
-end
+local Stats = createTab("Stats", "▲")
+Stats:Section("Auto Stats")
+Stats:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
+Stats:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
+Stats:Slider("Points Per Tick", 1, 100, "StatAmount")
+Stats:Toggle("Auto Stats", "AutoStats")
+
+local Visual = createTab("ESP", "◉")
+Visual:Section("ESP")
+Visual:Toggle("Player ESP", "PlayerESP")
+Visual:Toggle("Fruit ESP", "FruitESP")
+Visual:Toggle("Chest ESP", "ChestESP")
+Visual:Toggle("Boss ESP", "BossESP")
+
+local Misc = createTab("Misc", "✦")
+Misc:Section("Player")
+Misc:Toggle("WalkSpeed", "SpeedOn", function(on)
+	if not on then local h = getHum() if h then h.WalkSpeed = 16 end end
+end)
+Misc:Slider("Speed", 16, 300, "WalkSpeed")
+Misc:Toggle("JumpPower", "JumpOn", function(on)
+	if not on then local h = getHum() if h then h.JumpPower = 50 end end
+end)
+Misc:Slider("Jump", 50, 300, "JumpPower")
+Misc:Toggle("Infinite Jump", "InfJump")
+Misc:Toggle("Noclip", "Noclip")
+Misc:Toggle("Walk on Water", "WalkOnWater")
+Misc:Section("Visual")
+Misc:Toggle("Fullbright (always bright)", "Fullbright")
+Misc:Toggle("No Fog", "NoFog")
+Misc:Section("Server")
+Misc:Toggle("Anti AFK", "AntiAFK")
+Misc:Button("Server Hop", function()
+	if not serverHop() then notify("Server Hop", "No server found") end
+end)
+Misc:Button("Hop to Low Player Server", function()
+	if not serverHop(true) then notify("Server Hop", "No server found") end
+end)
+Misc:Toggle("Auto Hop When Player Near", "AutoHopNear")
+Misc:Slider("Hop Distance", 50, 1000, "HopDistance")
+Misc:Button("Rejoin", function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, game.JobId, player) end)
+Misc:Section("Performance & AFK")
+Misc:Button("FPS Boost", function()
+	fpsBoost()
+	notify("FPS Boost", "Done ✔")
+end)
+Misc:Toggle("CPU Saver (no 3D render)", "CPUSaver", function(on)
+	pcall(function() RunService:Set3dRenderingEnabled(not on) end)
+end)
+Misc:Toggle("FPS Cap", "FPSCapOn", function(on)
+	if not setfpscap then return notify("FPS Cap", "Executor has no setfpscap") end
+	setfpscap(on and S.FPSCap or 0)
+end)
+Misc:Slider("Max FPS", 10, 120, "FPSCap", function(v)
+	if S.FPSCapOn and setfpscap then pcall(setfpscap, v) end
+end)
+Misc:Toggle("Auto Rejoin On Kick", "AutoRejoin")
+Misc:Section("Settings")
+Misc:Toggle("Auto Save Settings", "AutoSave")
+Misc:Button("Save Settings", function()
+	notify("Settings", saveSettings() and "Saved ✔" or "Save failed (executor has no writefile)", 3)
+end)
+Misc:Button("Load Settings", function()
+	notify("Settings", loadSettings() and "Loaded ✔  re-run the hub to refresh the UI" or "No saved settings", 4)
+end)
+Misc:Button("Destroy Hub", function() Hub.Destroy() end)
 end -- صفحه‌ها
 
 ---------------------------------------------------------------------
