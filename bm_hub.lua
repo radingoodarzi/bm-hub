@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.34" }
+local Hub = { Connections = {}, Running = true, Version = "1.35" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -664,24 +664,37 @@ local function takeQuest(q, keepGoing)
 		pcall(function() title = g.Container.QuestTitle.Title.Text end)
 		if not questDone(title) then invoke("AbandonQuest") end
 	end
+	local key = q.quest .. q.index
+	-- لول کافی نیست → سرور قبول نمی‌کنه؛ اصلاً نمیریم پیش NPC
+	if q.level and q.level > (dataValue("Level") or 0) then
+		questBlockedUntil[key] = tick() + 60
+		return
+	end
 	S.Status = "Taking quest: " .. q.mob
 	if not tweenTo(q.npc, keepGoing) then return end
 	-- سرور موقعیت جدید رو با کمی تاخیر می‌بینه
 	setFloat(true)
-	task.wait(0.3)
-	local key = q.quest .. q.index
+	task.wait(0.2)
+	-- متن کوئست همیشه دقیقاً اسم ماب نیست؛ هر کوئست فعال و تموم‌نشده یعنی گرفته شد
+	local function taken()
+		if hasQuest(q.mob) then return true end
+		local g2 = questGui()
+		local title = ""
+		pcall(function() title = g2.Container.QuestTitle.Title.Text end)
+		return g2 ~= nil and g2.Visible and title ~= "" and not questDone(title)
+	end
 	local res
-	for attempt = 1, 4 do
+	for attempt = 1, 2 do
 		if (keepGoing and not keepGoing()) or not alive() then return end
-		S.Status = ("Taking quest: %s (try %d/4)"):format(q.mob, attempt)
+		S.Status = ("Taking quest: %s (try %d/2)"):format(q.mob, attempt)
 		local root = getRoot()
 		if root then root.CFrame = q.npc end
 		res = invoke("StartQuest", q.quest, q.index)
 		local waited = 0
-		while waited < 0.9 and not hasQuest(q.mob) do
+		while waited < 1.2 and not taken() do
 			waited += task.wait(0.1)
 		end
-		if hasQuest(q.mob) then
+		if taken() then
 			questFailures[key] = 0
 			Hub.LastQuestTime = tick() - started
 			S.Status = ("Quest taken in %.1fs: %s"):format(Hub.LastQuestTime, q.mob)
@@ -1771,8 +1784,14 @@ do
 	-- نزدیک‌ترین ماب از لیست، با کوئست خودش (اگه Take Quest روشنه)
 	local function farmList(list, keep, waitPos)
 		local root = getRoot()
-		local best, bestDist
+		-- اگه کوئست یکی از همین ماب‌ها رو داریم، فقط همون رو می‌زنیم که کوئست پیش بره
+		local questMob = activeQuestMob()
+		local inList = false
 		for _, n in ipairs(list) do
+			if n == questMob then inList = true end
+		end
+		local best, bestDist
+		for _, n in ipairs(inList and { questMob } or list) do
 			local m = findMob(n)
 			if m then
 				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
@@ -1780,16 +1799,22 @@ do
 			end
 		end
 		if not best then
-			S.Status = "Waiting for mobs to spawn"
-			tweenTo(CFrame.new(waitPos + Vector3.new(0, 40, 0)), keep)
+			S.Status = "Waiting for " .. (inList and questMob or "mobs") .. " to spawn"
+			-- فقط وقتی دوریم پرواز می‌کنیم؛ کنار جزیره همون‌جا صبر می‌کنیم
+			if (root.Position - waitPos).Magnitude > 300 then
+				tweenTo(CFrame.new(waitPos + Vector3.new(0, 40, 0)), keep)
+			else
+				task.wait(1)
+			end
 			return
 		end
 		local name = mobBaseName(best.Name)
 		local q = questForMob(name)
-		if S.TakeQuest and q and not questBlocked(q) and not hasQuest(name) and not activeQuestMob() then
+		if S.TakeQuest and q and not inList and not questBlocked(q) and not hasQuest(name) then
 			takeQuest(q, keep)
 			return
 		end
+		S.Status = "Farming " .. name .. (inList and " (quest)" or "")
 		killMob(best, keep)
 	end
 
