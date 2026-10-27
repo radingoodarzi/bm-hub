@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.61" }
+local Hub = { Connections = {}, Running = true, Version = "1.62" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -147,7 +147,8 @@ local S = {
 	AutoStats = false, StatType = "Melee", StatAmount = 3,
 	AutoChest = false, AutoFruit = false, AutoStore = false, AutoRandomFruit = false,
 	FruitMinBeli = 500000, FruitMinBeliK = 500, FruitMaxBuys = 3,
-	FruitESP = false, ChestESP = false, PlayerESP = false,
+	FruitESP = false, ChestESP = false, PlayerESP = false, MobESP = false, NPCESP = false, IslandESP = false, EventESP = false,
+	HuntHop = false, HuntTarget = nil, HuntWait = 12, HuntMaxHops = 40, HuntGoTo = true, MoonNotify = true,
 	SpeedOn = false, WalkSpeed = 60, JumpOn = false, JumpPower = 80,
 	Noclip = false, InfJump = false, AntiAFK = true, WalkOnWater = false, AutoBerries = false, Fullbright = false, NoFog = false,
 	SelectedIsland = nil, SelectedNPC = nil, SelectedPlayer = nil,
@@ -3263,6 +3264,219 @@ task.spawn(function()
 	end
 end)
 
+-- Server Finder: بدون رفتن به یه سرور نمیشه دید چی توشه؛ پس میره، چند ثانیه نگاه می‌کنه، نبود میره بعدی
+-- وضعیت (سرورهای دیده‌شده، تعداد هاپ) توی فایل می‌مونه چون بعد از تلپورت هاب از اول اجرا میشه
+do
+	local HUNT_FILE = "BMHub_hunt.json"
+	local LOADER = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v2.lua"))()'
+	local queueTp = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+	Hub.CanQueue = queueTp ~= nil
+
+	local function readHunt()
+		local ok, d = pcall(function() return Svc.Http:JSONDecode(readfile(HUNT_FILE)) end)
+		d = (ok and type(d) == "table") and d or {}
+		d.visited = type(d.visited) == "table" and d.visited or {}
+		d.hops = tonumber(d.hops) or 0
+		d.last = tonumber(d.last) or 0
+		return d
+	end
+	local function writeHunt(d) pcall(function() writefile(HUNT_FILE, Svc.Http:JSONEncode(d)) end) end
+	function Hub.HuntReset() writeHunt({ visited = {}, hops = 0, last = os.time() }) end
+	function Hub.HuntHops() return readHunt().hops end
+
+	local function fullMoonNight()
+		local full = false
+		pcall(function()
+			full = Lighting.Sky.MoonTextureId == "http://www.roblox.com/asset/?id=9709149431" and (Lighting.ClockTime > 16 or Lighting.ClockTime < 5)
+		end)
+		return full
+	end
+	Hub.FullMoonNight = fullMoonNight
+
+	local EVENT_KEYS = { ["Mirage Island"] = { "mirage", "mystic" }, ["Kitsune Island"] = { "kitsune" }, ["Prehistoric Island"] = { "prehistoric" } }
+
+	function Hub.HuntTargets()
+		local out = { "Any Fruit", "Full Moon" }
+		if Sea == 2 then table.insert(out, "Legendary Sword Dealer") end
+		if Sea == 3 then
+			for _, n in ipairs({ "Mirage Island", "Kitsune Island", "Prehistoric Island" }) do table.insert(out, n) end
+		end
+		for _, n in ipairs(bossNames()) do table.insert(out, "Boss: " .. n) end
+		return out
+	end
+
+	-- اگه هدف توی همین سرور باشه، جاش و اسمش رو برمی‌گردونه
+	function Hub.HuntFind(t)
+		if not t then return nil end
+		if t == "Any Fruit" then
+			local f = getWorldFruits()[1]
+			if f then return f.part.Position, f.obj.Name end
+		elseif t == "Full Moon" then
+			local r = fullMoonNight() and getRoot()
+			if r then return r.Position, "Full moon night" end
+		elseif t == "Legendary Sword Dealer" then
+			local cf = dealerPosition()
+			if cf then return cf.Position, t end
+		elseif EVENT_KEYS[t] then
+			for _, k in ipairs(EVENT_KEYS[t]) do
+				local obj = Hub.Events[k]
+				if obj then return (obj:IsA("Model") and obj:GetPivot().Position or obj.Position), t end
+			end
+		else
+			local name = t:match("^Boss: (.+)$")
+			local m = name and findMobAnywhere(name)
+			if m then return m:GetPivot().Position, name end
+		end
+	end
+
+	-- یه سرور تصادفی که قبلاً نرفتیم و جا داره
+	local function pickServer(seen)
+		local cursor, pool = nil, {}
+		for _ = 1, 3 do
+			local ok, body = pcall(function()
+				return game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Desc&limit=100" .. (cursor and ("&cursor=" .. cursor) or ""))
+			end)
+			if not ok then break end
+			local okD, data = pcall(function() return Svc.Http:JSONDecode(body) end)
+			if not okD or type(data) ~= "table" then break end
+			for _, s in ipairs(data.data or {}) do
+				if s.id and not seen[s.id] and (s.playing or 0) < (s.maxPlayers or 0) - 1 then table.insert(pool, s.id) end
+			end
+			cursor = data.nextPageCursor
+			if #pool >= 20 or not cursor then break end
+			task.wait(1)
+		end
+		return #pool > 0 and pool[math.random(#pool)] or nil
+	end
+
+	local tpFailed = false
+	pcall(function()
+		connect(Svc.Teleport.TeleportInitFailed, function(p) if p == player then tpFailed = true end end)
+	end)
+
+	Hub.HuntStatus = "Off"
+	task.spawn(function()
+		task.wait(3)
+		-- شکاری که بیشتر از ۲۰ دقیقه پیش ول شده ادامه پیدا نمی‌کنه
+		if S.HuntHop and os.time() - readHunt().last > 1200 then S.HuntHop = false end
+		local arrived = tick()
+		while Hub.Running do
+			task.wait(1)
+			if not S.HuntHop then
+				Hub.HuntStatus = "Off"
+				arrived = tick()
+			else
+				local d = readHunt()
+				local pos, what = Hub.HuntFind(S.HuntTarget)
+				local waited = tick() - arrived
+				if pos then
+					S.HuntHop = false
+					Hub.HuntReset()
+					if Hub.SaveSettings then Hub.SaveSettings() end
+					Hub.HuntStatus = "Found " .. tostring(what) .. " ✔ (after " .. d.hops .. " hops)"
+					if notifyHook then notifyHook("Server Finder", "Found " .. tostring(what) .. "!", 15) end
+					if S.HuntGoTo and Hub.GoTo and S.HuntTarget ~= "Full Moon" then
+						Hub.GoTo(CFrame.new(pos + Vector3.new(0, 40, 0)))
+					end
+				elseif waited < S.HuntWait then
+					Hub.HuntStatus = ("Checking this server... %ds  (hop %d/%d)"):format(math.ceil(S.HuntWait - waited), d.hops, S.HuntMaxHops)
+				elseif d.hops >= S.HuntMaxHops then
+					S.HuntHop = false
+					Hub.HuntReset()
+					if Hub.SaveSettings then Hub.SaveSettings() end
+					Hub.HuntStatus = "Stopped: not found in " .. S.HuntMaxHops .. " servers"
+					if notifyHook then notifyHook("Server Finder", Hub.HuntStatus, 10) end
+				else
+					local seen = { [game.JobId] = true }
+					for _, id in ipairs(d.visited) do seen[id] = true end
+					local id = pickServer(seen)
+					if not id then
+						Hub.HuntStatus = "No new server found, retrying in 10s..."
+						arrived = tick() - S.HuntWait + 10
+					else
+						table.insert(d.visited, game.JobId)
+						while #d.visited > 200 do table.remove(d.visited, 1) end
+						d.hops += 1
+						d.last = os.time()
+						writeHunt(d)
+						if Hub.SaveSettings then Hub.SaveSettings() end
+						if queueTp then pcall(queueTp, LOADER) end
+						Hub.HuntStatus = "Hopping (" .. d.hops .. "/" .. S.HuntMaxHops .. ")..."
+						tpFailed = false
+						pcall(function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, id, player) end)
+						-- اگه تلپورت نشد (سرور پر شد و ...) چند ثانیه بعد یکی دیگه
+						local t0 = tick()
+						repeat task.wait(1) until tpFailed or tick() - t0 > 20 or not Hub.Running
+						arrived = tick() - S.HuntWait + 5
+					end
+				end
+			end
+		end
+	end)
+
+	-- اعلان شروع شب ماه کامل
+	task.spawn(function()
+		local was = fullMoonNight()
+		while Hub.Running do
+			task.wait(10)
+			local now = fullMoonNight()
+			if now and not was and S.MoonNotify and notifyHook then notifyHook("Full Moon", "Full moon night started!", 12) end
+			was = now
+		end
+	end)
+
+	-- Mirage: مدل جزیره، بلندترین نقطه (برای نگاه به ماه) و Blue Gear
+	function Hub.MirageModel()
+		local map = workspace:FindFirstChild("Map")
+		for _, c in ipairs(map and map:GetChildren() or {}) do
+			local l = c.Name:lower()
+			if l:find("mirage", 1, true) or l:find("mystic", 1, true) then return c end
+		end
+		return Hub.Events.mirage or Hub.Events.mystic
+	end
+	function Hub.MirageTop()
+		local m = Hub.MirageModel()
+		if not m then return nil end
+		local best
+		for _, p in ipairs(m:GetDescendants()) do
+			if p:IsA("BasePart") and p.CanCollide and p.Transparency < 1 and p.Size.Magnitude > 4 then
+				local top = p.Position.Y + p.Size.Y / 2
+				if not best or top > best.Y then best = Vector3.new(p.Position.X, top, p.Position.Z) end
+			end
+		end
+		return best
+	end
+	-- اسم دقیق Blue Gear هنوز از دامپ تأیید نشده؛ هر پارت قابل‌دیدنی که اسمش gear داره
+	function Hub.FindGear()
+		local m = Hub.MirageModel()
+		if not m then return nil end
+		for _, p in ipairs(m:GetDescendants()) do
+			if p:IsA("BasePart") and p.Transparency < 1 and p.Name:lower():find("gear", 1, true) then return p end
+		end
+	end
+	-- برای لیبل و ESP که هر ۰.۳ ثانیه صدا زده میشن؛ گشتن کل جزیره هر ۵ ثانیه یه بار
+	local gearAt, gearPart = 0, nil
+	function Hub.GearCached()
+		if tick() - gearAt > 5 then
+			gearAt = tick()
+			gearPart = Hub.FindGear()
+		end
+		return gearPart and gearPart.Parent and gearPart or nil
+	end
+	function Hub.DumpMirage()
+		local m = Hub.MirageModel()
+		if not m then return nil end
+		local lines = {}
+		for i, v in ipairs(m:GetDescendants()) do
+			if i > 4000 then break end
+			local extra = v:IsA("BasePart") and (" pos=%.0f,%.0f,%.0f T=%.2f"):format(v.Position.X, v.Position.Y, v.Position.Z, v.Transparency) or ""
+			table.insert(lines, v:GetFullName() .. " [" .. v.ClassName .. "]" .. extra)
+		end
+		pcall(function() writefile("bmscan/mirage.txt", table.concat(lines, "\n")) end)
+		return #lines
+	end
+end
+
 -- کدها (کدهای ریست استت عمداً حذف شدن)
 local CODES = {
 	"EASTEREXP", "LIGHTNINGABUSE", "1LOSTADMIN", "CHANDLER", "Sub2CaptainMaui", "BIGNEWS", "kittgaming",
@@ -4118,6 +4332,7 @@ local function loadSettings()
 	return true
 end
 
+Hub.SaveSettings = saveSettings
 local settingsLoaded = loadSettings()
 -- تنظیمات ذخیره‌شده‌ای که باید همون اول اعمال بشن
 if S.CPUSaver then pcall(function() RunService:Set3dRenderingEnabled(false) end) end
@@ -4136,6 +4351,7 @@ end)
 ---------------------------------------------------------------------
 do -- صفحه‌ها: هر تب توی do خودش (رجیسترهای Luau محدودن) و گزینه‌های هر دریا فقط توی همون دریا
 local function goTo(cf) return tweenTo(cf, nil, true) end
+Hub.GoTo = goTo
 local function stopOff(on) if not on then stopTween() S.Status = "Idle" end end
 local SEA_NAME = Sea > 0 and ("Sea " .. Sea) or "Sea ?"
 
@@ -4309,6 +4525,27 @@ if Sea == 2 or Sea == 3 then
 				goTo(CFrame.new(pos + Vector3.new(0, 80, 0)))
 			end)
 		end
+		T:Section("Mirage & Full Moon")
+		T:Toggle("Full Moon Alert", "MoonNotify")
+		T:Label(function()
+			local t = Lighting.ClockTime
+			return ("Game time %02d:%02d  •  Full moon night: %s  •  Blue Gear: %s"):format(math.floor(t), math.floor(t % 1 * 60),
+				Hub.FullMoonNight() and "YES" or "no", Hub.GearCached() and "FOUND ✔" or "not seen")
+		end)
+		T:Button("Go to Mirage Highest Point", function()
+			local top = Hub.MirageTop()
+			if not top then return notify("Mirage", "Mirage Island is not in this server") end
+			goTo(CFrame.new(top + Vector3.new(0, 4, 0)))
+		end)
+		T:Button("Go to Blue Gear", function()
+			local g = Hub.FindGear()
+			if not g then return notify("Mirage", Hub.MirageModel() and "Gear not found (press Scan Mirage and tell me)" or "Mirage Island is not in this server", 6) end
+			goTo(g.CFrame * CFrame.new(0, 4, 0))
+		end)
+		T:Button("Scan Mirage (writes bmscan/mirage.txt)", function()
+			local n = Hub.DumpMirage()
+			notify("Mirage", n and ("Saved " .. n .. " objects") or "Mirage Island is not in this server", 5)
+		end)
 	end
 end
 
@@ -4601,6 +4838,24 @@ do
 		goTo(r.CFrame * CFrame.new(0, 5, 0))
 	end)
 	T:Button("Stop Teleport", function() stopTween() end)
+	T:Section("Server Finder (hops servers until found)")
+	T:Dropdown("Find", Hub.HuntTargets, "HuntTarget")
+	T:Toggle("Server Hop Until Found", "HuntHop", function(on)
+		if not on then return end
+		if not S.HuntTarget then
+			S.HuntHop = false
+			return notify("Server Finder", "Pick what to find first")
+		end
+		Hub.HuntReset()
+		if not Hub.CanQueue then
+			notify("Server Finder", "Your executor can't auto re-run after hop: put the loader in its autoexec folder", 10)
+		end
+	end)
+	T:Toggle("Fly To It When Found", "HuntGoTo")
+	T:Slider("Seconds To Check Each Server", 5, 60, "HuntWait")
+	T:Slider("Max Hops", 5, 200, "HuntMaxHops")
+	T:Label(function() return "Finder: " .. tostring(Hub.HuntStatus) end)
+	T:Label(function() return "Auto re-run after hop: " .. (Hub.CanQueue and "YES" or "NO (use autoexec)") end)
 	T:Section("Travel Between Seas")
 	for i, cmd in ipairs({ "TravelMain", "TravelDressrosa", "TravelZou" }) do
 		if i ~= Sea then T:Button("Travel to Sea " .. i, function() invoke(cmd) end) end
@@ -4625,6 +4880,10 @@ do
 	T:Toggle("Fruit ESP", "FruitESP")
 	T:Toggle("Chest ESP", "ChestESP")
 	T:Toggle("Boss ESP", "BossESP")
+	T:Toggle("Mob ESP (nearest 40)", "MobESP")
+	T:Toggle("NPC ESP", "NPCESP")
+	T:Toggle("Island ESP", "IslandESP")
+	T:Toggle("World Event + Blue Gear ESP", "EventESP")
 end
 
 -- Misc
@@ -4754,6 +5013,45 @@ task.spawn(function()
 					if i > 40 then break end
 					espSet(c, c, ("%s  %dm"):format(c.Name, dist(c)), Color3.fromRGB(255, 210, 90))
 				end
+			end
+			if S.MobESP then
+				local enemies = workspace:FindFirstChild("Enemies")
+				local bosses, mobs = {}, {}
+				for _, n in ipairs(bossNames()) do bosses[n] = true end
+				for _, m in ipairs(enemies and enemies:GetChildren() or {}) do
+					if isAliveMob(m) and not bosses[mobBaseName(m.Name)] then table.insert(mobs, { m = m, d = dist(m.HumanoidRootPart) }) end
+				end
+				table.sort(mobs, function(a, b) return a.d < b.d end)
+				for i, e in ipairs(mobs) do
+					if i > 40 then break end
+					local h = e.m:FindFirstChildOfClass("Humanoid")
+					local pct = math.floor(h.Health / math.max(h.MaxHealth, 1) * 100)
+					espSet(e.m, e.m.HumanoidRootPart, ("%s  %d%%  %dm"):format(mobBaseName(e.m.Name), pct, e.d), Color3.fromRGB(230, 230, 240))
+				end
+			end
+			if S.NPCESP then
+				local npcs = workspace:FindFirstChild("NPCs")
+				for _, n in ipairs(npcs and npcs:GetChildren() or {}) do
+					local part = n:IsA("Model") and (n:FindFirstChild("HumanoidRootPart") or n.PrimaryPart)
+					if part and dist(part) <= 3000 then
+						espSet(n, part, ("💬 %s  %dm"):format(n.Name, dist(part)), Color3.fromRGB(130, 200, 255))
+					end
+				end
+			end
+			if S.IslandESP then
+				local wo = workspace:FindFirstChild("_WorldOrigin")
+				local loc = wo and wo:FindFirstChild("Locations")
+				for _, p in ipairs(loc and loc:GetChildren() or {}) do
+					if p:IsA("BasePart") then espSet(p, p, ("🏝 %s  %dm"):format(p.Name, dist(p)), Color3.fromRGB(110, 230, 230)) end
+				end
+			end
+			if S.EventESP then
+				for _, obj in pairs(Hub.Events) do
+					local part = obj:IsA("BasePart") and obj or obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
+					if part then espSet(obj, part, ("🌟 %s  %dm"):format(obj.Name, dist(part)), Color3.fromRGB(255, 120, 230)) end
+				end
+				local g = Hub.GearCached()
+				if g then espSet(g, g, ("⚙ Blue Gear  %dm"):format(dist(g)), Color3.fromRGB(80, 160, 255)) end
 			end
 			for k, e in pairs(ESP) do
 				if not e.seen then
