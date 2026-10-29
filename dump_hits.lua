@@ -93,6 +93,17 @@ save()
 task.delay(60, function()
 	add("== done ==")
 	save()
+	pcall(function()
+		local req = (syn and syn.request) or http_request or request or (http and http.request)
+		if req then
+			req({
+				Url = "https://ntfy.sh/bmhub-4628905e9720ae22ecf77f9b",
+				Method = "POST",
+				Headers = { ["Title"] = "hit-sniffer" },
+				Body = table.concat(out, "\n"):sub(1, 3800),
+			})
+		end
+	end)
 	pcall(function() setclipboard(table.concat(out, "\n")) end)
 	pcall(function()
 		game:GetService("StarterGui"):SetCore("SendNotification", { Title = "BM Hit Sniffer", Text = "Done - tell Claude", Duration = 8 })

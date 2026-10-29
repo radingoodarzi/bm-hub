@@ -23,8 +23,23 @@ local function add(...)
 	table.insert(out, table.concat(parts, " "))
 end
 
+-- ارسال خودکار گزارش (فقط متن تست) به کانال ntfy تا Claude مستقیم بخونه
+local function upload(title, text)
+	local req = (syn and syn.request) or http_request or request or (http and http.request)
+	if not req then return add("upload: no http function in this executor") end
+	local ok2, res = pcall(req, {
+		Url = "https://ntfy.sh/bmhub-4628905e9720ae22ecf77f9b",
+		Method = "POST",
+		Headers = { ["Title"] = title },
+		Body = text:sub(1, 3800),
+	})
+	add("upload:", ok2 and (res and res.StatusCode or "?") or tostring(res))
+end
+
 local function finish()
 	local text = table.concat(out, "\n")
+	pcall(upload, "remote-test", text)
+	text = table.concat(out, "\n")
 	pcall(function() writefile("bmscan/remote.txt", text) end)
 	pcall(function() setclipboard(text) end)
 	pcall(function()
