@@ -89,7 +89,14 @@ local ok, err = pcall(function()
 
 	local CU = require(ReplicatedStorage.Modules.CombatUtil)
 	add("require CombatUtil ->", typeof(CU), " SendHitsToServer ->", typeof(CU and CU.SendHitsToServer))
-	if type(CU) ~= "table" or type(CU.SendHitsToServer) ~= "function" then return end
+	if type(CU) ~= "table" then return end
+	if type(CU.SendHitsToServer) ~= "function" then
+		local names = {}
+		for k, v in pairs(CU) do names[#names + 1] = tostring(k) .. ":" .. typeof(v) end
+		table.sort(names)
+		add("module keys (" .. #names .. "): " .. table.concat(names, ", "))
+		return
+	end
 
 	local RA
 	pcall(function()
