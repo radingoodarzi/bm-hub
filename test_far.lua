@@ -61,6 +61,7 @@ local function onFire(self, args)
 		token = args[4]
 		add("token captured (len " .. #token .. ")")
 		notify("token captured - now back away from the mob")
+		upload("far-test")
 	elseif rawequal(self, RA) then
 		attackArgs = args
 	end
@@ -77,7 +78,8 @@ local okHook, errHook = pcall(function()
 	end))
 end)
 add("hook:", okHook and "ok" or tostring(errHook))
-if not okHook then return upload("far-test") end
+upload("far-test")
+if not okHook then return end
 notify("Hit a mob once with M1")
 
 local function nearestMob()
@@ -133,4 +135,5 @@ task.spawn(function()
 	end
 	add(("== finished: tests=%d token=%s =="):format(tests, tostring(token ~= nil)))
 	upload("far-test")
+	notify("Done - tell Claude")
 end)
