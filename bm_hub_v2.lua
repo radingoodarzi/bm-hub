@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.68" }
+local Hub = { Connections = {}, Running = true, Version = "1.69" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -128,7 +128,7 @@ end
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, Weapon = "Melee", AttackMethod = "Auto",
-	FarmHeight = 12, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
+	FarmHeight = 12, TweenSpeed = 300, AutoClick = true, AttackRange = 60, BringRange = 300, BringMax = 15,
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
@@ -850,14 +850,23 @@ local function remoteAttack(root)
 	if not (RegisterAttack and RegisterHit) then return end
 	if tick() - cooldown.remote < 0.1 then return end
 	cooldown.remote = tick()
-	local hits = {}
+	-- نزدیک‌ترین ماب اولِ لیسته (هدف اصلی ضربه) و حداکثر 15 هدف توی یه ضربه
+	local found, hits = {}, {}
 	local enemies = workspace:FindFirstChild("Enemies")
 	if enemies then
 		for _, m in ipairs(enemies:GetChildren()) do
-			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
-				table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
+			if isAliveMob(m) then
+				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+				if d <= S.AttackRange then
+					table.insert(found, { m = m, d = d })
+				end
 			end
 		end
+	end
+	table.sort(found, function(a, b) return a.d < b.d end)
+	for i = 1, math.min(#found, 15) do
+		local m = found[i].m
+		table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
 	end
 	if #hits == 0 then return end
 	local ok, err = pcall(function()
@@ -930,25 +939,38 @@ local function nearestMobInRange()
 	return best
 end
 
+-- ماب‌های هم‌اسم رو (نزدیک‌ترین‌ها اول، تا BringMax تا و داخل BringRange) روی cf جمع می‌کنه
+local lastSimRadius = 0
 local function bringMobs(name, cf)
 	local enemies = workspace:FindFirstChild("Enemies")
 	local root = getRoot()
 	if not enemies or not root then return end
-	pcall(function()
-		if sethiddenproperty then sethiddenproperty(player, "SimulationRadius", math.huge) end
-	end)
+	if tick() - lastSimRadius > 2 then
+		lastSimRadius = tick()
+		pcall(function()
+			if sethiddenproperty then sethiddenproperty(player, "SimulationRadius", math.huge) end
+		end)
+	end
+	local list = {}
 	for _, m in ipairs(enemies:GetChildren()) do
 		if mobBaseName(m.Name) == name and isAliveMob(m) then
-			local hrp = m.HumanoidRootPart
-			if (hrp.Position - root.Position).Magnitude <= 300 then
-				pcall(function()
-					hrp.CanCollide = false
-					hrp.CFrame = cf
-					m.Humanoid.WalkSpeed = 0
-					m.Humanoid.JumpPower = 0
-				end)
-			end
+			local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+			if d <= S.BringRange then table.insert(list, { m = m, d = d }) end
 		end
+	end
+	table.sort(list, function(a, b) return a.d < b.d end)
+	for i = 1, math.min(#list, S.BringMax) do
+		local m = list[i].m
+		pcall(function()
+			local hrp, hum = m.HumanoidRootPart, m.Humanoid
+			hrp.CanCollide = false
+			hrp.CFrame = cf
+			-- سرعت صفر تا ماب‌ها از جمع فرار نکنن / پرت نشن
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			hum.WalkSpeed = 0
+			hum.JumpPower = 0
+		end)
 	end
 end
 
@@ -4694,6 +4716,8 @@ do
 	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
 	T:Slider("Attack Range", 10, 150, "AttackRange")
 	T:Toggle("Bring Mobs", "BringMobs")
+	T:Slider("Bring Range", 50, 500, "BringRange")
+	T:Slider("Max Mobs Brought", 1, 30, "BringMax")
 	T:Button("Attack Test (stand next to a mob, hold your weapon)", function()
 		-- هر روش کلیک رو 4 ثانیه امتحان می‌کنه و کم شدن جون ماب رو توی لاگ می‌نویسه
 		task.spawn(function()
