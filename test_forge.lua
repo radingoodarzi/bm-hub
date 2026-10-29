@@ -102,19 +102,28 @@ while os.clock() - t0 < 240 and tests < #BUCKETS do
 				end
 				local hum = mob:FindFirstChildOfClass("Humanoid")
 				local part = mob:FindFirstChild("UpperTorso") or mob:FindFirstChild("HumanoidRootPart")
-				local before = hum.Health
-				for i = 1, 2 do
-					pcall(function() RA:FireServer(0.4, 1) end)
-					task.wait(0.15)
-					pcall(function() RH:FireServer(part, {}, nil, token) end)
-					task.wait(0.3)
+				local head = mob:FindFirstChild("Head") or part
+				-- سه شکل: ساختگی با توکن | v1.35 قدیمی (بدون توکن) | شکل واقعی بدون توکن
+				local variants = {
+					{ "forged-token", function() RA:FireServer(0.4, 1) task.wait(0.15) RH:FireServer(part, {}, nil, token) end },
+					{ "v1.35-old", function() RA:FireServer(0) RH:FireServer(head, { { mob, head } }) end },
+					{ "real-no-token", function() RA:FireServer(0.4, 1) task.wait(0.15) RH:FireServer(part, {}, nil) end },
+				}
+				local res = {}
+				for _, v in ipairs(variants) do
+					if mob.Parent and hum.Health > 0 then
+						local before = hum.Health
+						for i = 1, 2 do
+							pcall(v[2])
+							task.wait(0.3)
+						end
+						task.wait(0.8)
+						res[#res + 1] = ("%s:%s(%.0f->%.0f)"):format(v[1], hum.Health < before and "DAMAGE" or "none", before, hum.Health)
+					end
 				end
-				task.wait(0.8)
-				add(("bucket %-6s d=%.1f  %s  hp %.0f -> %.0f  %s"):format(
-					b[3], d, mob.Name, before, hum.Health, hum.Health < before and "DAMAGE" or "none"
-				))
+				add(("bucket %-6s d=%.1f  %s  %s"):format(b[3], d, mob.Name, table.concat(res, "  ")))
 				upload("forge-test")
-				notify(b[3] .. ": " .. (hum.Health < before and "DAMAGE" or "none"))
+				notify(b[3] .. ": " .. table.concat(res, " "):gsub("%(.-%)", ""))
 				break
 			end
 		end
