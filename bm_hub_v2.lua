@@ -128,7 +128,7 @@ end
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, Weapon = "Melee", AttackMethod = "Auto",
-	FarmDistance = 3, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
+	FarmHeight = 12, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
@@ -915,15 +915,38 @@ local function enemyInRange()
 	return false
 end
 
+-- نزدیک‌ترین ماب زنده داخل Attack Range
+local function nearestMobInRange()
+	local root = getRoot()
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not root or not enemies then return nil end
+	local best, bestD
+	for _, m in ipairs(enemies:GetChildren()) do
+		if isAliveMob(m) then
+			local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+			if d <= S.AttackRange and (not bestD or d < bestD) then best, bestD = m, d end
+		end
+	end
+	return best
+end
+
 -- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
 task.spawn(function()
 	while Hub.Running do
 		task.wait(0.1)
-		if S.AutoClick and alive() and enemyInRange() then
-			pcall(function()
-				equipWeapon()
-				attack()
-			end)
+		if S.AutoClick and alive() then
+			local mob = nearestMobInRange()
+			if mob then
+				pcall(function()
+					equipWeapon()
+					-- مثل فارم رو به ماب می‌ایستیم (وقتی فارم روشنه خودش جای کاراکتر رو تنظیم می‌کنه)
+					if not mainFarmBusy() then
+						local root, p = getRoot(), mob.HumanoidRootPart.Position
+						root.CFrame = CFrame.lookAt(root.Position, Vector3.new(p.X, root.Position.Y, p.Z))
+					end
+					attack()
+				end)
+			end
 		end
 	end
 end)
@@ -983,12 +1006,11 @@ local function killMob(mob, keepGoing)
 			S.Status = "Skipping stuck " .. name
 			break
 		end
-		-- از کد بازی: هیت‌باکس M1 حدود 10 استاد جلوی کاراکتره و فقط ماب‌های «جلو»ی تو رو می‌زنه.
-		-- پس 4 استاد کنار ماب (سمتی که خودمون هستیم)، کمی بالاتر، رو به ماب (ارتفاع زیاد = هیچ ضربه‌ای ثبت نمیشه)
-		local h = math.clamp(S.FarmDistance, 0, 6)
+		-- بالای سر ماب‌ها می‌ایستیم (Farm Height) تا بهمون نرسن؛ کمی کنارشون که زاویه‌ی نگاه درست بمونه
+		local h = math.clamp(S.FarmHeight, 0, 40)
 		local away = Vector3.new(root.Position.X - hrp.Position.X, 0, root.Position.Z - hrp.Position.Z)
 		away = away.Magnitude > 0.1 and away.Unit or Vector3.new(0, 0, 1)
-		local standAt = hrp.Position + away * 4 + Vector3.new(0, h, 0)
+		local standAt = hrp.Position + away * 3 + Vector3.new(0, h, 0)
 		local target = CFrame.lookAt(standAt, Vector3.new(hrp.Position.X, standAt.Y, hrp.Position.Z))
 		-- Mastery: وقتی جون ماب کم شد، با سلاح مستری تمومش می‌کنیم
 		local masteryPhase = S.MasteryFarm and hum.MaxHealth > 0 and (hum.Health / hum.MaxHealth) * 100 <= S.MasteryHealth
@@ -1166,7 +1188,7 @@ task.spawn(function()
 				end
 				if boss.Parent ~= workspace:FindFirstChild("Enemies") then
 					S.Status = "Going to " .. S.SelectedBoss
-					tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmDistance, 0), keep)
+					tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmHeight, 0), keep)
 					return
 				end
 				killMob(boss, keep)
@@ -1214,7 +1236,7 @@ task.spawn(function()
 					if boss then
 						if boss.Parent ~= workspace:FindFirstChild("Enemies") then
 							S.Status = "Going to " .. bossName
-							tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmDistance, 0), keep)
+							tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmHeight, 0), keep)
 						else
 							killMob(boss, keep)
 						end
@@ -1329,7 +1351,7 @@ local function fightBoss(name, keep)
 	if not boss then return false end
 	if boss.Parent ~= workspace:FindFirstChild("Enemies") then
 		S.Status = "Going to " .. name
-		tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmDistance, 0), keep)
+		tweenTo(boss:GetPivot() * CFrame.new(0, S.FarmHeight, 0), keep)
 	else
 		killMob(boss, keep)
 	end
@@ -4737,7 +4759,7 @@ do
 	T:Toggle("Auto Observation (Ken)", "AutoKen")
 	T:Toggle("Auto Race Skill (T)", "AutoRace")
 	T:Section("Movement")
-	T:Slider("Farm Height (0-6, higher = no hits)", 0, 6, "FarmDistance")
+	T:Slider("Farm Height (above mobs)", 0, 40, "FarmHeight")
 	T:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
 end
 
