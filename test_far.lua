@@ -56,7 +56,16 @@ end
 
 -- توکن از ضربه‌ی واقعی خودت
 local token, attackArgs
+local nA, nH, lastHitArgs = 0, 0, nil
 local function onFire(self, args)
+	if rawequal(self, RH) then
+		nH += 1
+		local tys = {}
+		for i = 1, args.n do tys[#tys + 1] = typeof(args[i]) end
+		lastHitArgs = "n=" .. args.n .. " types=" .. table.concat(tys, ",")
+	else
+		nA += 1
+	end
 	if rawequal(self, RH) and type(args[4]) == "string" and not token then
 		token = args[4]
 		add("token captured (len " .. #token .. ")")
@@ -96,9 +105,22 @@ local function nearestMob()
 	return best, bestD
 end
 
-local BUCKETS = { { 0, 10, "near" }, { 10, 20, "10-20" }, { 20, 35, "20-35" }, { 35, 60, "35-60" } }
-local done = {}
+-- گزارش دوره‌ای: هوک چند تا ریموت دیده؟
 local t0 = os.clock()
+task.spawn(function()
+	local lastN = -1
+	while os.clock() - t0 < 240 do
+		task.wait(10)
+		if nA + nH ~= lastN then
+			lastN = nA + nH
+			add(("[%.0fs] seen: attack=%d hit=%d lastHit=%s token=%s"):format(os.clock() - t0, nA, nH, tostring(lastHitArgs), tostring(token ~= nil)))
+			upload("far-test")
+		end
+	end
+end)
+
+local BUCKETS ={ { 0, 10, "near" }, { 10, 20, "10-20" }, { 20, 35, "20-35" }, { 35, 60, "35-60" } }
+local done = {}
 local tests = 0
 
 task.spawn(function()
