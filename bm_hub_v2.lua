@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.69" }
+local Hub = { Connections = {}, Running = true, Version = "1.70" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -3347,13 +3347,20 @@ do
 	end
 	Hub.FullMoonNight = fullMoonNight
 
-	local EVENT_KEYS = { ["Mirage Island"] = { "mirage", "mystic" }, ["Kitsune Island"] = { "kitsune" }, ["Prehistoric Island"] = { "prehistoric" } }
+	local EVENT_KEYS = { ["Mirage Island"] = { "mirage", "mystic" }, ["Kitsune Island"] = { "kitsune" }, ["Prehistoric Island"] = { "prehistoric" }, ["Frozen Dimension"] = { "frozen" } }
+
+	local function eventPosition(t)
+		for _, k in ipairs(EVENT_KEYS[t]) do
+			local obj = Hub.Events[k]
+			if obj then return obj:IsA("Model") and obj:GetPivot().Position or obj.Position end
+		end
+	end
 
 	function Hub.HuntTargets()
 		local out = { "Any Fruit", "Full Moon" }
 		if Sea == 2 then table.insert(out, "Legendary Sword Dealer") end
 		if Sea == 3 then
-			for _, n in ipairs({ "Mirage Island", "Kitsune Island", "Prehistoric Island" }) do table.insert(out, n) end
+			for _, n in ipairs({ "Mirage Island", "Mirage + Full Moon", "Kitsune Island", "Prehistoric Island", "Frozen Dimension" }) do table.insert(out, n) end
 		end
 		for _, n in ipairs(bossNames()) do table.insert(out, "Boss: " .. n) end
 		return out
@@ -3371,11 +3378,13 @@ do
 		elseif t == "Legendary Sword Dealer" then
 			local cf = dealerPosition()
 			if cf then return cf.Position, t end
+		elseif t == "Mirage + Full Moon" then
+			-- برای Race V4 هر دو با هم لازمه
+			local pos = fullMoonNight() and eventPosition("Mirage Island")
+			if pos then return pos, t end
 		elseif EVENT_KEYS[t] then
-			for _, k in ipairs(EVENT_KEYS[t]) do
-				local obj = Hub.Events[k]
-				if obj then return (obj:IsA("Model") and obj:GetPivot().Position or obj.Position), t end
-			end
+			local pos = eventPosition(t)
+			if pos then return pos, t end
 		else
 			local name = t:match("^Boss: (.+)$")
 			local m = name and findMobAnywhere(name)
@@ -3407,6 +3416,33 @@ do
 	pcall(function()
 		connect(Svc.Teleport.TeleportInitFailed, function(p) if p == player then tpFailed = true end end)
 	end)
+
+	-- دکمه‌های یک‌کلیکی: هدف رو انتخاب و شکار رو شروع می‌کنه
+	function Hub.HuntStart(t)
+		S.HuntTarget = t
+		Hub.HuntReset()
+		S.HuntHop = true
+		if Hub.SaveSettings then Hub.SaveSettings() end
+	end
+	function Hub.HuntStop()
+		S.HuntHop = false
+		Hub.HuntReset()
+		if Hub.SaveSettings then Hub.SaveSettings() end
+	end
+
+	-- Job ID از نوتیفایرهای دیسکورد (دقیق‌ترین منبع برای Mirage / Full Moon / میوه‌ها)
+	function Hub.JoinJob(text)
+		local id = tostring(text or ""):match("%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x")
+		if not id then return false, "No valid Job ID found" end
+		if id == game.JobId then return false, "You are already in this server" end
+		if queueTp then pcall(queueTp, LOADER) end
+		tpFailed = false
+		pcall(function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, id, player) end)
+		local t0 = tick()
+		repeat task.wait(0.5) until tpFailed or tick() - t0 > 15
+		if tpFailed then return false, "Teleport failed (server full, closed or in another Sea)" end
+		return true
+	end
 
 	Hub.HuntStatus = "Off"
 	task.spawn(function()
@@ -4332,6 +4368,20 @@ local function createTab(name, icon)
 		table.insert(dynamicLabels, { label = l, fn = fn })
 	end
 
+	function api:Input(placeholder, cb)
+		local c = card(38)
+		local box = new("TextBox", {
+			Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -24, 1, -12), BackgroundColor3 = Theme.Panel,
+			Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Color3.new(1, 1, 1), PlaceholderText = placeholder,
+			PlaceholderColor3 = Theme.SubText, Text = "", ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd, Parent = c,
+		}, { corner(6), new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }) })
+		box.FocusLost:Connect(function(enter)
+			if enter and box.Text ~= "" then task.spawn(cb, box.Text) end
+		end)
+		return box
+	end
+
 	function api:Profile()
 		local c = card(70)
 		local stroke = new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 1, Transparency = 0.4, Parent = c })
@@ -4891,6 +4941,50 @@ do
 		goTo(r.CFrame * CFrame.new(0, 5, 0))
 	end)
 	T:Button("Stop Teleport", function() stopTween() end)
+	T:Section("Quick Find (one click, hops until found)")
+	local quick = { { "Find Fruit Server", "Any Fruit" }, { "Find Full Moon Server", "Full Moon" } }
+	if Sea == 2 then table.insert(quick, { "Find Legendary Sword Dealer", "Legendary Sword Dealer" }) end
+	if Sea == 3 then
+		for _, q in ipairs({
+			{ "Find Mirage Island Server", "Mirage Island" },
+			{ "Find Mirage + Full Moon (Race V4)", "Mirage + Full Moon" },
+			{ "Find Kitsune Island Server", "Kitsune Island" },
+			{ "Find Prehistoric Island Server", "Prehistoric Island" },
+			{ "Find Frozen Dimension Server", "Frozen Dimension" },
+		}) do table.insert(quick, q) end
+	end
+	for _, q in ipairs(quick) do
+		T:Button(q[1], function()
+			if Hub.HuntFind(q[2]) then return notify("Server Finder", q[2] .. " is already in this server ✔", 6) end
+			Hub.HuntStart(q[2])
+			notify("Server Finder", "Searching for " .. q[2] .. "...", 5)
+			if not Hub.CanQueue then
+				notify("Server Finder", "Your executor can't auto re-run after hop: put the loader in its autoexec folder", 10)
+			end
+		end)
+	end
+	T:Button("Stop Finder", function()
+		Hub.HuntStop()
+		notify("Server Finder", "Stopped", 3)
+	end)
+	T:Label(function() return "Target: " .. tostring(S.HuntTarget or "None") .. "  •  " .. tostring(Hub.HuntStatus) end)
+	T:Section("Join by Job ID (from Discord notifiers)")
+	local jobBox
+	jobBox = T:Input("Paste Job ID or join script, press Enter", function(text)
+		local ok, err = Hub.JoinJob(text)
+		if not ok then notify("Join Server", err, 6) end
+		jobBox.Text = ""
+	end)
+	if getclipboard then
+		T:Button("Join Job ID From Clipboard", function()
+			local ok, err = Hub.JoinJob(getclipboard())
+			if not ok then notify("Join Server", err, 6) end
+		end)
+	end
+	T:Button("Copy This Server's Job ID", function()
+		local copied = pcall(function() (setclipboard or toclipboard)(game.JobId) end)
+		notify("Job ID", copied and "Copied ✔" or game.JobId, 6)
+	end)
 	T:Section("Server Finder (hops servers until found)")
 	T:Dropdown("Find", Hub.HuntTargets, "HuntTarget")
 	T:Toggle("Server Hop Until Found", "HuntHop", function(on)
