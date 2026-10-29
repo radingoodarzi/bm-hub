@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.65" }
+local Hub = { Connections = {}, Running = true, Version = "1.66" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -127,7 +127,7 @@ end
 ---------------------------------------------------------------------
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
-	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
+	BringMobs = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 3, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
@@ -136,7 +136,7 @@ local S = {
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
 	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
-	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false, AutoMaterial = false, Material = nil, AutoRetreat = true, RetreatHP = 35, FarmSkills = true,
+	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false, AutoMaterial = false, Material = nil, AutoRetreat = true, RetreatHP = 35,
 	AutoTushita = false, AutoCDK = false, AutoRaceV2 = false, AutoRaceV3 = false, AutoSoulGuitar = false, AutoStyles = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
 	AutoKen = false, AutoRace = false, BossESP = false, BossNotify = true, FruitNotify = true,
@@ -875,7 +875,7 @@ local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
-	if S.FastAttack and (m == "Auto" or m == "Remote") then remoteAttack(root) end
+	if m == "Auto" or m == "Remote" then remoteAttack(root) end
 	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
 	if m == "Auto" or m == "Tool" then
@@ -1007,7 +1007,6 @@ local function killMob(mob, keepGoing)
 		if S.BringMobs then bringMobs(name, hrp.CFrame) end
 		attack(mob)
 		-- اسکیل‌ها وقتی ماب هنوز پرجونه (دمیج زیاد = زمان کمتر کنار ماب)
-		if S.FarmSkills and not masteryPhase and hum.MaxHealth > 0 and hum.Health / hum.MaxHealth > 0.25 then useSkills() end
 		task.wait(0.08)
 	end
 end
@@ -4401,9 +4400,7 @@ do
 	T:Dropdown("Select Mob", mobOptions, "SelectedMob")
 	T:Toggle("Take Quest", "TakeQuest")
 	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
-	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
 	T:Toggle("Bring Mobs", "BringMobs")
-	T:Toggle("Use Skills While Farming (Z/X/C)", "FarmSkills")
 	T:Toggle("Auto Retreat When Low HP", "AutoRetreat")
 	T:Slider("Retreat Below HP %", 10, 70, "RetreatHP")
 	if #(Hub.Materials or {}) > 0 then
@@ -4671,7 +4668,6 @@ do
 	T:Dropdown("Farm Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "Weapon")
 	T:Dropdown("Attack Method", function() return { "Auto", "Remote", "Click", "Tool" } end, "AttackMethod")
 	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
-	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
 	T:Slider("Attack Range", 10, 150, "AttackRange")
 	T:Toggle("Bring Mobs", "BringMobs")
 	T:Button("Attack Test (stand next to a mob, hold your weapon)", function()
