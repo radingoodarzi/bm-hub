@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.66" }
+local Hub = { Connections = {}, Running = true, Version = "1.68" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -930,27 +930,6 @@ local function nearestMobInRange()
 	return best
 end
 
--- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
-task.spawn(function()
-	while Hub.Running do
-		task.wait(0.1)
-		if S.AutoClick and alive() then
-			local mob = nearestMobInRange()
-			if mob then
-				pcall(function()
-					equipWeapon()
-					-- مثل فارم رو به ماب می‌ایستیم (وقتی فارم روشنه خودش جای کاراکتر رو تنظیم می‌کنه)
-					if not mainFarmBusy() then
-						local root, p = getRoot(), mob.HumanoidRootPart.Position
-						root.CFrame = CFrame.lookAt(root.Position, Vector3.new(p.X, root.Position.Y, p.Z))
-					end
-					attack()
-				end)
-			end
-		end
-	end
-end)
-
 local function bringMobs(name, cf)
 	local enemies = workspace:FindFirstChild("Enemies")
 	local root = getRoot()
@@ -972,6 +951,29 @@ local function bringMobs(name, cf)
 		end
 	end
 end
+
+-- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
+task.spawn(function()
+	while Hub.Running do
+		task.wait(0.1)
+		if S.AutoClick and alive() then
+			local mob = nearestMobInRange()
+			if mob then
+				pcall(function()
+					equipWeapon()
+					-- وقتی فارم روشنه خودش جای کاراکتر و ماب‌ها رو تنظیم می‌کنه؛ وگرنه مثل فارم:
+					-- رو به ماب می‌چرخیم و ماب‌ها رو 4 استاد جلوی خودمون میاریم (ضربه فقط از نزدیک ثبت میشه)
+					if not mainFarmBusy() then
+						local root, p = getRoot(), mob.HumanoidRootPart.Position
+						root.CFrame = CFrame.lookAt(root.Position, Vector3.new(p.X, root.Position.Y, p.Z))
+						if S.BringMobs then bringMobs(mobBaseName(mob.Name), root.CFrame * CFrame.new(0, 0, -4)) end
+					end
+					attack()
+				end)
+			end
+		end
+	end
+end)
 
 local function killMob(mob, keepGoing)
 	local hum = mob:FindFirstChildOfClass("Humanoid")
