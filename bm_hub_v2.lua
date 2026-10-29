@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.63" }
+local Hub = { Connections = {}, Running = true, Version = "1.64" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -129,7 +129,6 @@ local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 3, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
-	RemoteHit = false, RemoteRange = 40,
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
@@ -825,54 +824,66 @@ pcall(function() VIM = game:GetService("VirtualInputManager") end)
 
 Hub.AttackInfo = { remote = 0, click = 0, tool = 0, lastError = "none" }
 
--- حمله‌ی M1 درست مثل کلیک خود بازیکن: موس رو روی خود ماب می‌زنیم.
--- از کد بازی: موقع حمله کاراکتر به سمت نقطه‌ی موس می‌چرخه؛ کلیک وسط صفحه = ضربه به هوا.
-local cooldown = { click = 0, skill = 0 }
-local function clickAt(x, y)
-	if VIM and pcall(function()
-		VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
-		VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-	end) then
-		return true
-	end
-	return (pcall(function()
+local function clickScreen()
+	local vs = camera.ViewportSize
+	local pos = Vector2.new(vs.X * 0.85, vs.Y * 0.45)
+	local ok, err = pcall(function()
 		Svc.VirtualUser:CaptureController()
-		Svc.VirtualUser:Button1Down(Vector2.new(x, y), camera.CFrame)
-		Svc.VirtualUser:Button1Up(Vector2.new(x, y), camera.CFrame)
-	end))
-end
-
--- جای ماب روی صفحه (یه نقطه که منو روش نباشه، چون کلیک روی منو حمله حساب نمیشه)
-local function mobScreenPoint(part)
-	local v, onScreen = camera:WorldToViewportPoint(part.Position)
-	if not onScreen then return nil end
-	local pg = player:FindFirstChild("PlayerGui")
-	local inset = 0
-	pcall(function() inset = game:GetService("GuiService"):GetGuiInset().Y end)
-	for _, off in ipairs({ { 0, 0 }, { 0, -30 }, { 30, 0 }, { -30, 0 }, { 0, 30 } }) do
-		local x, y = v.X + off[1], v.Y + off[2]
-		local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(x, y - inset) end)
-		if ok and #objs == 0 then return x, y end
+		Svc.VirtualUser:Button1Down(pos, camera.CFrame)
+		Svc.VirtualUser:Button1Up(pos, camera.CFrame)
+	end)
+	if not ok and VIM then
+		ok, err = pcall(function()
+			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 0)
+			VIM:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+		end)
 	end
-	return v.X, v.Y
+	if ok then
+		Hub.AttackInfo.click += 1
+	else
+		Hub.AttackInfo.lastError = "click: " .. tostring(err)
+	end
 end
 
--- target: ماب (Model) یا یه Part؛ با سلاحی که دستته می‌زنه
-local function attack(target)
-	local char = getChar()
-	local tool = char and char:FindFirstChildOfClass("Tool")
-	if not tool then return end
-	if tick() - cooldown.click < (S.FastAttack and 0.1 or 0.2) then return end
+local cooldown = { remote = 0, click = 0, skill = 0 }
+local function remoteAttack(root)
+	if not (RegisterAttack and RegisterHit) then return end
+	if tick() - cooldown.remote < 0.1 then return end
+	cooldown.remote = tick()
+	local hits = {}
+	local enemies = workspace:FindFirstChild("Enemies")
+	if enemies then
+		for _, m in ipairs(enemies:GetChildren()) do
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
+				table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
+			end
+		end
+	end
+	if #hits == 0 then return end
+	local ok, err = pcall(function()
+		RegisterAttack:FireServer(0)
+		RegisterHit:FireServer(hits[1][2], hits)
+	end)
+	if ok then
+		Hub.AttackInfo.remote += 1
+	else
+		Hub.AttackInfo.lastError = "remote: " .. tostring(err)
+	end
+end
+
+local function attack()
+	local root = getRoot()
+	if not root then return end
+	local m = S.AttackMethod
+	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
-	local part = target and (target:IsA("Model") and target:FindFirstChild("HumanoidRootPart") or target)
-	local x, y
-	if part then x, y = mobScreenPoint(part) end
-	if not x then
-		local vs = camera.ViewportSize
-		x, y = vs.X / 2, vs.Y / 2
+	if m == "Auto" or m == "Tool" then
+		local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
+		if tool and pcall(function() tool:Activate() end) then
+			Hub.AttackInfo.tool += 1
+		end
 	end
-	if S.AttackMethod ~= "Tool" and clickAt(x, y) then Hub.AttackInfo.click += 1 end
-	if S.AttackMethod ~= "Click" and pcall(function() tool:Activate() end) then Hub.AttackInfo.tool += 1 end
+	if m == "Auto" or m == "Click" then clickScreen() end
 end
 
 -- استفاده از اسکیل‌ها (Z X C V) با شبیه‌سازی کیبورد
@@ -891,57 +902,27 @@ local function useSkills()
 	end
 end
 
--- کلیک خودکار: با سلاحی که دستته (عوضش نمی‌کنه) به نزدیک‌ترین ماب داخل برد می‌زنه
-task.spawn(function()
-	while Hub.Running do
-		task.wait(0.05)
-		if S.AutoClick and alive() then
-			pcall(function()
-				local char, root = getChar(), getRoot()
-				local held = char:FindFirstChildOfClass("Tool")
-				if not held then return end
-				-- ملی و شمشیر فقط حدود 10 استاد جلو رو می‌زنن
-				local reach = (held.ToolTip == "Melee" or held.ToolTip == "Sword") and math.min(S.AttackRange, 14) or S.AttackRange
-				local best, bestD
-				for _, m in ipairs(workspace.Enemies:GetChildren()) do
-					if isAliveMob(m) then
-						local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-						if d <= reach and (not bestD or d < bestD) then best, bestD = m, d end
-					end
-				end
-				if not best then return end
-				if not mainFarmBusy() then
-					local p = best.HumanoidRootPart.Position
-					root.CFrame = CFrame.lookAt(root.Position, Vector3.new(p.X, root.Position.Y, p.Z))
-				end
-				attack(best)
-			end)
+local function enemyInRange()
+	local root = getRoot()
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not root or not enemies then return false end
+	for _, m in ipairs(enemies:GetChildren()) do
+		if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
+			return true
 		end
 	end
-end)
+	return false
+end
 
--- Remote Hit (آزمایشی، پیش‌فرض خاموش): بدون انیمیشن و از دور با RegisterAttack/RegisterHit
--- شکل همون v1.35 (بدون توکن)؛ فقط برای ملی/شمشیر. به تاگل AutoClick ربطی نداره.
+-- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
 task.spawn(function()
 	while Hub.Running do
-		task.wait(0.12)
-		if S.RemoteHit and RegisterAttack and RegisterHit and alive() then
-			local ok, err = pcall(function()
-				local root, enemies = getRoot(), workspace:FindFirstChild("Enemies")
-				if not (root and enemies) then return end
-				local hits = {}
-				for _, m in ipairs(enemies:GetChildren()) do
-					if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.RemoteRange then
-						table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
-						if #hits >= 8 then break end
-					end
-				end
-				if #hits == 0 then return end
-				RegisterAttack:FireServer(0)
-				RegisterHit:FireServer(hits[1][2], hits)
-				Hub.AttackInfo.remote += 1
+		task.wait(0.1)
+		if S.AutoClick and alive() and enemyInRange() then
+			pcall(function()
+				equipWeapon()
+				attack()
 			end)
-			if not ok then Hub.AttackInfo.lastError = "remote: " .. tostring(err) end
 		end
 	end
 end)
@@ -4336,7 +4317,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, RemoteHit = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true }
 
 local function saveSettings()
 	local data = {}
@@ -4691,8 +4672,6 @@ do
 	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
 	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
 	T:Slider("Attack Range", 10, 150, "AttackRange")
-	T:Toggle("Remote Hit (experimental: hits mobs from afar, no animation; off after restart)", "RemoteHit")
-	T:Slider("Remote Hit Range", 10, 60, "RemoteRange")
 	T:Toggle("Bring Mobs", "BringMobs")
 	T:Button("Attack Test (stand next to a mob, hold your weapon)", function()
 		-- هر روش کلیک رو 4 ثانیه امتحان می‌کنه و کم شدن جون ماب رو توی لاگ می‌نویسه
