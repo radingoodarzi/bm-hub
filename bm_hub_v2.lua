@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.62" }
+local Hub = { Connections = {}, Running = true, Version = "1.63" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -129,6 +129,7 @@ local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, FastAttack = true, Weapon = "Melee", AttackMethod = "Auto",
 	FarmDistance = 3, TweenSpeed = 300, AutoClick = true, AttackRange = 60,
+	RemoteHit = false, RemoteRange = 40,
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
@@ -915,6 +916,32 @@ task.spawn(function()
 				end
 				attack(best)
 			end)
+		end
+	end
+end)
+
+-- Remote Hit (آزمایشی، پیش‌فرض خاموش): بدون انیمیشن و از دور با RegisterAttack/RegisterHit
+-- شکل همون v1.35 (بدون توکن)؛ فقط برای ملی/شمشیر. به تاگل AutoClick ربطی نداره.
+task.spawn(function()
+	while Hub.Running do
+		task.wait(0.12)
+		if S.RemoteHit and RegisterAttack and RegisterHit and alive() then
+			local ok, err = pcall(function()
+				local root, enemies = getRoot(), workspace:FindFirstChild("Enemies")
+				if not (root and enemies) then return end
+				local hits = {}
+				for _, m in ipairs(enemies:GetChildren()) do
+					if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.RemoteRange then
+						table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
+						if #hits >= 8 then break end
+					end
+				end
+				if #hits == 0 then return end
+				RegisterAttack:FireServer(0)
+				RegisterHit:FireServer(hits[1][2], hits)
+				Hub.AttackInfo.remote += 1
+			end)
+			if not ok then Hub.AttackInfo.lastError = "remote: " .. tostring(err) end
 		end
 	end
 end)
@@ -4309,7 +4336,7 @@ end
 ---------------------------------------------------------------------
 local SETTINGS_FILE = "BMHub_settings.json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true }
+local SKIP_SAVE = { Status = true, RemoteHit = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true }
 
 local function saveSettings()
 	local data = {}
@@ -4664,6 +4691,8 @@ do
 	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
 	T:Toggle("Fast Attack (faster normal clicks)", "FastAttack")
 	T:Slider("Attack Range", 10, 150, "AttackRange")
+	T:Toggle("Remote Hit (experimental: hits mobs from afar, no animation; off after restart)", "RemoteHit")
+	T:Slider("Remote Hit Range", 10, 60, "RemoteRange")
 	T:Toggle("Bring Mobs", "BringMobs")
 	T:Button("Attack Test (stand next to a mob, hold your weapon)", function()
 		-- هر روش کلیک رو 4 ثانیه امتحان می‌کنه و کم شدن جون ماب رو توی لاگ می‌نویسه
