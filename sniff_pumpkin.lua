@@ -120,26 +120,34 @@ end)
 save()
 
 -- ③ آرگومان ضربه‌ی M1 (فقط لاگ، همون رو به سرور میده)
-pcall(function()
-	local mod = ReplicatedStorage.Modules:FindFirstChild("CombatUtil")
-	local CU = mod and require(mod)
-	local orig = type(CU) == "table" and CU.SendHitsToServer
-	if type(orig) == "function" then
-		local calls = 0
-		CU.SendHitsToServer = function(...)
-			calls += 1
-			if calls <= 25 then
-				local args = table.pack(...)
-				local parts = {}
-				for i = 1, args.n do parts[#parts + 1] = ser(args[i]) end
-				add("M1 SendHitsToServer", calls, table.concat(parts, " | "):sub(1, 600))
+-- require ممکنه برای همیشه منتظر بمونه؛ پس جدا و با تایم‌اوت 5 ثانیه (بقیه‌ی شنود منتظرش نمیمونه)
+local m1Done = false
+task.spawn(function()
+	pcall(function()
+		local mod = ReplicatedStorage.Modules:FindFirstChild("CombatUtil")
+		local CU = mod and require(mod)
+		local orig = type(CU) == "table" and CU.SendHitsToServer
+		if type(orig) == "function" then
+			local calls = 0
+			CU.SendHitsToServer = function(...)
+				calls += 1
+				if calls <= 25 then
+					local args = table.pack(...)
+					local parts = {}
+					for i = 1, args.n do parts[#parts + 1] = ser(args[i]) end
+					add("M1 SendHitsToServer", calls, table.concat(parts, " | "):sub(1, 600))
+				end
+				return orig(...)
 			end
-			return orig(...)
+			add("M1 hook installed")
+		else
+			add("M1 hook: SendHitsToServer not found")
 		end
-		add("M1 hook installed")
-	else
-		add("M1 hook: SendHitsToServer not found")
-	end
+	end)
+	m1Done = true
+end)
+task.delay(5, function()
+	if not m1Done then add("M1 hook: require(CombatUtil) is stuck - skipped") end
 end)
 save()
 
