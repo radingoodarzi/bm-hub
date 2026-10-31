@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.74" }
+local Hub = { Connections = {}, Running = true, Version = "1.75" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1235,10 +1235,30 @@ end)
 ---------------------------------------------------------------------
 do
 	local cache, skipUntil = { t = 0, list = {} }, setmetatable({}, { __mode = "k" })
+	local plog = {}
 
 	local function scan(force)
 		if not force and tick() - cache.t < 4 then return cache.list end
 		cache.t = tick()
+		-- کدوهای واقعی هالووین: Workspace.PumpkinHunt.* (ویژگی PumpkinState / PumpkinHits، تگ M1HitRegistry)
+		local hunt = workspace:FindFirstChild("PumpkinHunt")
+		if hunt then
+			local huntList = {}
+			for _, o in ipairs(hunt:GetChildren()) do
+				if o:IsA("Model") or o:IsA("BasePart") then
+					-- بدنه‌ی درشت کدو (جای ضربه)
+					local part, size = o:IsA("BasePart") and o or nil, 0
+					if not part then
+						for _, c in ipairs(o:GetDescendants()) do
+							if c:IsA("BasePart") and c.Size.Magnitude > size then part, size = c, c.Size.Magnitude end
+						end
+					end
+					if part then table.insert(huntList, { obj = o, part = part }) end
+				end
+			end
+			cache.list = huntList
+			return huntList
+		end
 		local pat = tostring(S.PumpkinPattern or "pumpkin"):lower()
 		local list, n = {}, 0
 		for _, o in ipairs(workspace:GetDescendants()) do
@@ -1313,7 +1333,8 @@ do
 					local root = getRoot()
 					local best, bestD
 					for _, p in ipairs(scan()) do
-						if p.obj.Parent and p.part.Parent and (skipUntil[p.obj] or 0) < tick() then
+						local state = p.obj:GetAttribute("PumpkinState")
+						if p.obj.Parent and p.part.Parent and (state == nil or state == "Idle") and (skipUntil[p.obj] or 0) < tick() then
 							local d = (p.part.Position - root.Position).Magnitude
 							if not bestD or d < bestD then best, bestD = p, d end
 						end
@@ -1336,6 +1357,9 @@ do
 						tweenTo(CFrame.new(standPoint()), stillThere)
 					end
 					local t0, interrupted = tick(), false
+					local function snap() return ("state=%s hits=%s"):format(tostring(obj:GetAttribute("PumpkinState")), tostring(obj:GetAttribute("PumpkinHits"))) end
+					local before, lastSnap = snap(), nil
+					local trail = {}
 					while stillThere() and alive() and tick() - t0 < 8 do
 						if mobWithin(25) then interrupted = true break end
 						local r, sp = getRoot(), standPoint()
@@ -1343,10 +1367,20 @@ do
 						r.CFrame = CFrame.lookAt(sp, Vector3.new(part.Position.X, sp.Y, part.Position.Z))
 						equipWeapon("Melee")
 						swingAt(part)
+						local s = snap()
+						if s ~= lastSnap then
+							lastSnap = s
+							table.insert(trail, ("%.1fs %s"):format(tick() - t0, s))
+						end
 						task.wait(0.15)
 					end
+					-- لاگ هر کدو: وضعیت قبل/بعد (برای فهمیدن چرخه‌ی کدو)
+					table.insert(plog, ("%s %s | start %s | %s | removed=%s interrupted=%s took %.1fs"):format(
+						os.date("%H:%M:%S"), obj.Name, before, table.concat(trail, " > "), tostring(obj.Parent == nil), tostring(interrupted), tick() - t0))
+					while #plog > 100 do table.remove(plog, 1) end
+					pcall(function() writefile("bmscan/pumpkin_hub.txt", table.concat(plog, "\n")) end)
 					-- 8 ثانیه زدیم و نشکست: یه مدت ردش می‌کنیم
-					if not interrupted and stillThere() then skipUntil[obj] = tick() + 60 end
+					if not interrupted and stillThere() then skipUntil[obj] = tick() + 30 end
 				end)
 				if not ok then
 					S.Status = "Error: " .. tostring(err)
