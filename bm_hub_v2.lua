@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.70" }
+local Hub = { Connections = {}, Running = true, Version = "1.71" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -299,17 +299,42 @@ tweenTo = function(cf, keepGoing, manual)
 	end
 	stopTween()
 	setFloat(true)
-	local t = TweenService:Create(root, TweenInfo.new(dist / math.clamp(S.TweenSpeed, 50, MAX_SAFE_SPEED), Enum.EasingStyle.Linear), { CFrame = cf })
-	activeTween = t
-	t:Play()
-	while t.PlaybackState == Enum.PlaybackState.Playing do
-		if (keepGoing and not keepGoing()) or not alive() or not Hub.Running then
-			t:Cancel()
+	-- هر فریم از جای «واقعی» کاراکتر یه قدم به مقصد میریم (نه Tween ثابت): اگه سرور برگردوندمون
+	-- (rubber-band) از همونجا ادامه میدیم، به جای اینکه هی جلوتر بذاریم و دوباره برگردیم
+	local cancelled = false
+	local handle = { Cancel = function() cancelled = true end }
+	activeTween = handle
+	local goal = cf.Position
+	local speed = math.clamp(S.TweenSpeed, 50, MAX_SAFE_SPEED)
+	local expected, snaps = root.Position, 0
+	while not cancelled do
+		if (keepGoing and not keepGoing()) or not alive() or not Hub.Running then break end
+		root = getRoot()
+		if not root then break end
+		local dt = math.min(task.wait(), 0.1)
+		local pos = root.Position
+		if (pos - expected).Magnitude > 25 then
+			-- سرور برگردوندمون: کندتر میشیم، یه مکث کوتاه میکنیم و از جای فعلی ادامه میدیم
+			snaps += 1
+			if snaps > 6 then break end
+			speed = math.max(60, speed * 0.7)
+			S.Status = ("Server pushed back (%d) - slowing down"):format(snaps)
+			task.wait(0.4)
+			root = getRoot()
+			if not root then break end
+			pos = root.Position
+		end
+		local remaining = goal - pos
+		local step = speed * dt
+		if remaining.Magnitude <= step + 1 then
+			root.CFrame = cf
 			break
 		end
-		task.wait()
+		local nextPos = pos + remaining.Unit * step
+		root.CFrame = CFrame.new(nextPos) * root.CFrame.Rotation
+		expected = nextPos
 	end
-	if activeTween == t then activeTween = nil end
+	if activeTween == handle then activeTween = nil end
 	local r = getRoot()
 	return r ~= nil and (r.Position - cf.Position).Magnitude < 20
 end
@@ -694,10 +719,20 @@ end
 
 local function hasQuest(mob)
 	local txt = questTitle()
-	-- کادر کوئست پیدا نشد ولی سرور گفت قبول شد (0) → تا 60 ثانیه فعال حسابش می‌کنیم
 	if not txt then
+		-- کادر کوئست قبلاً دیده شده بود و الان نیست = کوئست تموم شد؛ بعد از 2.5 ثانیه (برای پرش لحظه‌ای کادر)
+		-- دیگه فعال حسابش نمی‌کنیم تا کوئست بعدی زود گرفته بشه
+		if Hub.QuestSeen then
+			Hub.QuestGoneSince = Hub.QuestGoneSince or tick()
+			if tick() - Hub.QuestGoneSince <= 2.5 then return Hub.QuestTakenMob ~= nil end
+			Hub.QuestTakenMob, Hub.QuestSeen, Hub.QuestGoneSince = nil, false, nil
+			return false
+		end
+		-- کادر کوئست پیدا نشد ولی سرور گفت قبول شد (0) → تا 60 ثانیه فعال حسابش می‌کنیم
 		return Hub.QuestTakenMob ~= nil and (mob == nil or Hub.QuestTakenMob == mob) and tick() - (Hub.QuestTakenAt or 0) < 60
 	end
+	Hub.QuestGoneSince = nil
+	if Hub.QuestTakenMob then Hub.QuestSeen = true end
 	if questDone(txt) then return false end
 	if not mob then return true end
 	return titleHasMob(txt, mob)
@@ -738,7 +773,7 @@ local function takeQuest(q, keepGoing)
 	if npcCF ~= q.npc then tweenTo(npcCF, keepGoing) end
 	-- سرور موقعیت جدید رو با کمی تاخیر می‌بینه
 	setFloat(true)
-	task.wait(0.5)
+	task.wait(0.25)
 	-- متن کوئست همیشه دقیقاً اسم ماب نیست؛ هر کوئست فعال و تموم‌نشده یعنی گرفته شد
 	local function taken()
 		if hasQuest(q.mob) then return true end
@@ -759,6 +794,7 @@ local function takeQuest(q, keepGoing)
 		end
 		if res == 0 or taken() then
 			Hub.QuestTakenAt, Hub.QuestTakenMob = tick(), q.mob
+			Hub.QuestSeen, Hub.QuestGoneSince = false, nil
 			questFailures[key] = 0
 			Hub.LastQuestTime = tick() - started
 			S.Status = ("Quest taken in %.1fs: %s"):format(Hub.LastQuestTime, q.mob)
