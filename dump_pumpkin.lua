@@ -118,13 +118,31 @@ local okRun, runErr = pcall(function()
 	add("matches in workspace:", #found)
 	for i = 1, math.min(#found, 60) do add(("d=%.0f"):format(distTo(found[i])), describe(found[i])) end
 
-	add("--- B) everything within 25 studs of you (models/parts, no mobs/players)")
-	local near = {}
-	for _, o in ipairs(workspace:GetDescendants()) do
-		if (o:IsA("Model") or o:IsA("BasePart")) and not excluded(o) and distTo(o) <= 25 then table.insert(near, o) end
-		if #near >= 60 then break end
-	end
-	for _, o in ipairs(near) do add(("d=%.0f"):format(distTo(o)), describe(o)) end
+	add("--- B) parts within 25 studs of you (no mobs/players)")
+	pcall(function()
+		local r = getRoot()
+		if not r then return add("no character root") end
+		local params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { player.Character }
+		local parts = workspace:GetPartBoundsInRadius(r.Position, 25, params)
+		table.sort(parts, function(a, b) return (a.Position - r.Position).Magnitude < (b.Position - r.Position).Magnitude end)
+		local shown = 0
+		for _, part in ipairs(parts) do
+			if not excluded(part) then
+				shown += 1
+				if shown > 40 then break end
+				local chain, cur = {}, part
+				while cur and cur ~= workspace do
+					chain[#chain + 1] = cur.Name
+					cur = cur.Parent
+				end
+				add(("d=%.0f"):format((part.Position - r.Position).Magnitude), describe(part))
+				add("  chain:", table.concat(chain, " < "))
+			end
+		end
+		if shown == 0 then add("(nothing within 25 studs - stand NEXT TO a pumpkin)") end
+	end)
 	save()
 
 	---------------------------------------------------------------- 2) live watch
