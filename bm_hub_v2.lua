@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.71" }
+local Hub = { Connections = {}, Running = true, Version = "1.72" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -4555,6 +4555,11 @@ do
 	T:Toggle("Skill X", "SkillX")
 	T:Toggle("Skill C", "SkillC")
 	T:Toggle("Skill V", "SkillV")
+	T:Section("Auto Stats")
+	T:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
+	T:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
+	T:Slider("Points Per Tick", 1, 100, "StatAmount")
+	T:Toggle("Auto Stats", "AutoStats")
 end
 
 -- دریای فعلی: فقط فارم‌ها، آیتم‌ها و پیشرفت همین دریا
