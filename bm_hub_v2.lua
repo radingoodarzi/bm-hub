@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.73" }
+local Hub = { Connections = {}, Running = true, Version = "1.74" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -128,7 +128,7 @@ end
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, Weapon = "Melee", AttackMethod = "Auto",
-	FarmHeight = 12, TweenSpeed = 300, AutoClick = true, AttackRange = 60, BringRange = 300, BringMax = 15,
+	FarmHeight = 12, TweenSpeed = 300, AutoClick = true, AttackRange = 60, BringRange = 300, BringMax = 15, AutoPumpkin = false, PumpkinPattern = "pumpkin",
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
@@ -178,7 +178,7 @@ local function dataValue(name)
 end
 -- فارم‌های اصلی اولویت دارن؛ صندوق/میوه وقتی اینا روشنن صبر می‌کنن تا سر حرکت دعوا نشه
 local function mainFarmBusy()
-	return S.AutoFarm or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
+	return S.AutoFarm or S.AutoPumpkin or S.AutoBoss or S.AutoFactory or S.AutoEcto or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid or S.AutoMaterial
 		or S.AutoTushita or S.AutoCDK or S.AutoRaceV2 or S.AutoRaceV3 or S.AutoSoulGuitar or S.AutoStyles
@@ -186,7 +186,7 @@ local function mainFarmBusy()
 end
 
 local function anyFarm()
-	return S.AutoFarm or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
+	return S.AutoFarm or S.AutoPumpkin or S.AutoBoss or S.AutoChest or S.AutoFruit or S.AutoFactory or S.AutoEcto
 		or S.AutoRengoku or S.AutoTrident or S.AutoAllBosses or S.AutoRaid or S.AutoDarkbeard or S.AutoBerries
 		or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber
 		or S.AutoElite or S.AutoYama or S.AutoBone or S.AutoCake or S.AutoSeaBeast or S.AutoPirateRaid or S.AutoMaterial
@@ -1228,6 +1228,135 @@ task.spawn(function()
 		end
 	end
 end)
+
+---------------------------------------------------------------------
+-- Halloween: کدوها رو با ملی می‌شکنه و ماب‌هایی که ازشون اسپان میشن رو می‌کشه
+-- اسم کدوها رو با Pumpkin Name (پیش‌فرض "pumpkin") توی workspace پیدا می‌کنه
+---------------------------------------------------------------------
+do
+	local cache, skipUntil = { t = 0, list = {} }, setmetatable({}, { __mode = "k" })
+
+	local function scan(force)
+		if not force and tick() - cache.t < 4 then return cache.list end
+		cache.t = tick()
+		local pat = tostring(S.PumpkinPattern or "pumpkin"):lower()
+		local list, n = {}, 0
+		for _, o in ipairs(workspace:GetDescendants()) do
+			n += 1
+			if n % 3000 == 0 then task.wait() end
+			if (o:IsA("Model") or o:IsA("BasePart")) and o.Name:lower():find(pat, 1, true) then
+				local par = o.Parent
+				local childOfMatch = par and par:IsA("Model") and par.Name:lower():find(pat, 1, true)
+				if not childOfMatch and not o:FindFirstAncestor("Enemies") and not o:FindFirstAncestor("Characters") then
+					local part = o:IsA("BasePart") and o or o:FindFirstChildWhichIsA("BasePart", true)
+					if part then table.insert(list, { obj = o, part = part }) end
+				end
+			end
+		end
+		cache.list = list
+		return list
+	end
+	Hub.ScanPumpkins = scan
+
+	-- لیست کدوها (اسم کامل، کلاس، جا، Attribute ها) توی فایل، برای وقتی که اسم‌ها فرق داشته باشن
+	function Hub.DumpPumpkins()
+		local lines = { "pattern: " .. tostring(S.PumpkinPattern), "" }
+		for i, p in ipairs(scan(true)) do
+			if i > 80 then break end
+			local attrs = {}
+			for k, v in pairs(p.obj:GetAttributes()) do table.insert(attrs, k .. "=" .. tostring(v)) end
+			local kids = {}
+			for _, c in ipairs(p.obj:GetChildren()) do table.insert(kids, c.Name .. "[" .. c.ClassName .. "]") end
+			table.insert(lines, ("%s | %s | pos %s | attrs: %s | children: %s"):format(
+				p.obj:GetFullName(), p.obj.ClassName, tostring(p.part.Position), table.concat(attrs, ","), table.concat(kids, ",")))
+		end
+		return pcall(function() writefile("bmscan/pumpkins.txt", table.concat(lines, "\n")) end), #lines - 2
+	end
+
+	local function mobWithin(r)
+		local root = getRoot()
+		local enemies = workspace:FindFirstChild("Enemies")
+		if not root or not enemies then return nil end
+		local best, bestD
+		for _, m in ipairs(enemies:GetChildren()) do
+			if isAliveMob(m) then
+				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+				if d <= r and (not bestD or d < bestD) then best, bestD = m, d end
+			end
+		end
+		return best
+	end
+
+	-- کلیک روی خود کدو (اگه روی صفحه باشه) + ضربه‌ی معمولی سلاح
+	local function swingAt(part)
+		attack()
+		local v, onScreen = camera:WorldToViewportPoint(part.Position)
+		if onScreen and VIM then
+			pcall(function()
+				VIM:SendMouseButtonEvent(v.X, v.Y, 0, true, game, 0)
+				VIM:SendMouseButtonEvent(v.X, v.Y, 0, false, game, 0)
+			end)
+		end
+	end
+
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(0.2)
+			if S.AutoPumpkin and alive() then
+				local ok, err = pcall(function()
+					-- اول ماب‌هایی که از کدو اسپان شدن
+					local mob = mobWithin(40)
+					if mob then
+						killMob(mob, function() return S.AutoPumpkin and mob.Parent ~= nil end)
+						return
+					end
+					local root = getRoot()
+					local best, bestD
+					for _, p in ipairs(scan()) do
+						if p.obj.Parent and p.part.Parent and (skipUntil[p.obj] or 0) < tick() then
+							local d = (p.part.Position - root.Position).Magnitude
+							if not bestD or d < bestD then best, bestD = p, d end
+						end
+					end
+					if not best then
+						S.Status = "No pumpkins found (check Pumpkin Name)"
+						task.wait(1)
+						return
+					end
+					local obj, part = best.obj, best.part
+					S.Status = "Breaking pumpkin: " .. obj.Name
+					local function stillThere() return S.AutoPumpkin and obj.Parent ~= nil and part.Parent ~= nil end
+					local function standPoint()
+						local r = getRoot()
+						local away = Vector3.new(r.Position.X - part.Position.X, 0, r.Position.Z - part.Position.Z)
+						away = away.Magnitude > 0.1 and away.Unit or Vector3.new(0, 0, 1)
+						return part.Position + away * 5 + Vector3.new(0, 2, 0)
+					end
+					if (root.Position - standPoint()).Magnitude > 60 then
+						tweenTo(CFrame.new(standPoint()), stillThere)
+					end
+					local t0, interrupted = tick(), false
+					while stillThere() and alive() and tick() - t0 < 8 do
+						if mobWithin(25) then interrupted = true break end
+						local r, sp = getRoot(), standPoint()
+						setFloat(true)
+						r.CFrame = CFrame.lookAt(sp, Vector3.new(part.Position.X, sp.Y, part.Position.Z))
+						equipWeapon("Melee")
+						swingAt(part)
+						task.wait(0.15)
+					end
+					-- 8 ثانیه زدیم و نشکست: یه مدت ردش می‌کنیم
+					if not interrupted and stillThere() then skipUntil[obj] = tick() + 60 end
+				end)
+				if not ok then
+					S.Status = "Error: " .. tostring(err)
+					logError("AutoPumpkin", err)
+					task.wait(1)
+				end
+			end
+		end
+	end)
+end
 
 -- Boss
 task.spawn(function()
@@ -4576,6 +4705,33 @@ do
 	T:Toggle("Skill X", "SkillX")
 	T:Toggle("Skill C", "SkillC")
 	T:Toggle("Skill V", "SkillV")
+	T:Section("Halloween")
+	T:Toggle("Auto Pumpkins (breaks them with melee, kills what spawns)", "AutoPumpkin", stopOff)
+	T:Input("Pumpkin Name contains (default: pumpkin), press Enter", function(text)
+		text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if text == "" then text = "pumpkin" end
+		S.PumpkinPattern = text
+		notify("Halloween", "Looking for objects named *" .. text .. "*", 4)
+	end)
+	T:Label(function() return "Searching for: *" .. tostring(S.PumpkinPattern) .. "*" end)
+	T:Button("Scan Pumpkins Now", function()
+		task.spawn(function()
+			local list = Hub.ScanPumpkins(true)
+			if #list == 0 then return notify("Halloween", "No pumpkins found with that name", 5) end
+			local names = {}
+			for i, p in ipairs(list) do
+				if i > 4 then break end
+				table.insert(names, p.obj.Name)
+			end
+			notify("Halloween", #list .. " found: " .. table.concat(names, ", "), 6)
+		end)
+	end)
+	T:Button("Save Pumpkin List To File (bmscan/pumpkins.txt)", function()
+		task.spawn(function()
+			local ok, n = Hub.DumpPumpkins()
+			notify("Halloween", ok and ("Saved " .. n .. " objects ✔") or "Could not write the file", 5)
+		end)
+	end)
 	T:Section("Auto Stats")
 	T:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
 	T:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
