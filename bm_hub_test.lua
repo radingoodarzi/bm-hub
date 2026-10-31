@@ -5453,20 +5453,21 @@ do
 local okLab, errLab = pcall(function()
 	for k, v in pairs({
 		TweenEngine = "Banana", ClickEngine = "Banana", BananaClickMs = 100, BananaHitCount = 1, BananaLift = 70,
-		BananaToolClick = false, ABMinutes = 3, ABRun = false,
+		BananaToolClick = false, ABMinutes = 3, ABRun = false, BananaPortals = true, PortalMode = "Snap (instant)",
 	}) do
 		if S[k] == nil then S[k] = v end
 	end
 
-	local Lab = { stats = {}, abLabel = "idle" }
+	local Lab = { stats = {}, abLabel = "idle", learned = {}, moving = false }
 	Hub.Lab = Lab
+	local bmTween = tweenTo -- موتور اصلی BM (قبل از جایگزینی پایین)
 
 	local function key() return tostring(S.TweenEngine) .. "/" .. tostring(S.ClickEngine) end
 	local function cur()
 		local k = key()
 		local s = Lab.stats[k]
 		if not s then
-			s = { sec = 0, kills = 0, killTime = 0, tweens = 0, tweenTime = 0, tweenDist = 0, tweenFail = 0, snaps = 0 }
+			s = { sec = 0, kills = 0, killTime = 0, tweens = 0, tweenTime = 0, tweenDist = 0, tweenFail = 0, snaps = 0, portals = 0, portalFails = 0 }
 			Lab.stats[k] = s
 		end
 		return s
@@ -5497,23 +5498,186 @@ local okLab, errLab = pcall(function()
 		if hit and hit.Instance and (hit.Instance.CanCollide or hit.Instance:IsA("Terrain")) then return hit end
 	end
 
+	-----------------------------------------------------------------
+	-- پرتال‌های Banana: ورودی نزدیک به مقصد انتخاب میشه و فقط اگه حداقل 750 استاد از پرواز مستقیم
+	-- کوتاه‌تر باشه استفاده میشه؛ ورودی ناموفق 8 ثانیه کنار میره. جدول ورودی‌های خود Banana بازیابی نشده:
+	-- پس ورودی‌های شناخته‌شده‌ی BM + ورودی‌هایی که موقع بازی کردنت یاد می‌گیره (جابجایی بزرگ خود بازی)
+	-----------------------------------------------------------------
+	local V = Vector3.new
+	local PORTALS = {
+		[1] = {
+			{ name = "Sea1 UnderwaterCity", dest = V(61163.9, 11.7, 1819.8), enter = V(4050.3, -1.7, -1814.1) },
+			{ name = "Sea1 UnderwaterExit", dest = V(3864.9, 6.7, -1926.8), enter = V(61170.0, -2, 1952.8) },
+			{ name = "Sea1 Sky", dest = V(-4166.6, 1093.7, -347.2), enter = V(-6020.3, 5469.2, 2209.8) },
+		},
+		[3] = {
+			{ name = "Hydra>Castle", dest = V(-5027.0, 316.5, -3206.7), enter = V(5650.9, 1017.3, -350.4) },
+			{ name = "Castle>Hydra", dest = V(5650.9, 1017.3, -350.4), enter = V(-5027.0, 316.5, -3206.7) },
+			{ name = "Castle>Mansion", dest = V(-12463.6, 378.3, -7566.1), enter = V(-5060.4, 316.5, -3193.2) },
+			{ name = "Mansion>Castle", dest = V(-5060.4, 318.5, -3193.2), enter = V(-12463.6, 376.4, -7566.1) },
+		},
+	}
+	local LEARN_FILE = "bmscan/portals_learned.json"
+
+	local function readLearnFile()
+		local ok, data = pcall(function()
+			if isfile and isfile(LEARN_FILE) then return Svc.Http:JSONDecode(readfile(LEARN_FILE)) end
+		end)
+		return ok and type(data) == "table" and data or {}
+	end
+	local function saveLearned()
+		pcall(function()
+			local all = readLearnFile()
+			local list = {}
+			for _, p in ipairs(Lab.learned) do
+				table.insert(list, { d = { p.dest.X, p.dest.Y, p.dest.Z }, e = { p.enter.X, p.enter.Y, p.enter.Z } })
+			end
+			all[tostring(game.PlaceId)] = list
+			if makefolder and not (isfolder and isfolder("bmscan")) then makefolder("bmscan") end
+			writefile(LEARN_FILE, Svc.Http:JSONEncode(all))
+		end)
+	end
+	Lab.saveLearned = saveLearned
+	do
+		local mine = readLearnFile()[tostring(game.PlaceId)]
+		for _, e in ipairs(type(mine) == "table" and mine or {}) do
+			if type(e.d) == "table" and type(e.e) == "table" then
+				table.insert(Lab.learned, { name = "learned", learned = true, dest = V(e.d[1], e.d[2], e.d[3]), enter = V(e.e[1], e.e[2], e.e[3]) })
+			end
+		end
+	end
+
+	local function portalList()
+		local list = {}
+		for _, p in ipairs(PORTALS[Sea] or {}) do table.insert(list, p) end
+		for _, p in ipairs(Lab.learned) do table.insert(list, p) end
+		return list
+	end
+	Lab.portalList = portalList
+
+	-- جابجایی بزرگی که کار ما نبود (از پرتال خود بازی رد شدی) = یک ورودی جدید
+	local function knownPair(list, a, b)
+		for _, p in ipairs(list) do
+			if (p.enter - a).Magnitude < 80 and (p.dest - b).Magnitude < 80 then return true end
+		end
+		return false
+	end
+	local lastChar, lastPos
+	connect(RunService.Heartbeat, function()
+		local r, char = getRoot(), getChar()
+		if not r or char ~= lastChar then
+			lastChar, lastPos = char, r and r.Position
+			return
+		end
+		local p = r.Position
+		if lastPos and not Lab.moving and #Lab.learned < 40 and (p - lastPos).Magnitude > 1500 then
+			if not (knownPair(PORTALS[Sea] or {}, lastPos, p) or knownPair(Lab.learned, lastPos, p)) then
+				table.insert(Lab.learned, { name = "learned", learned = true, enter = lastPos, dest = p })
+				saveLearned()
+				if notifyHook then notifyHook("A/B Lab", "New portal learned (" .. #Lab.learned .. ")", 4) end
+			end
+		end
+		lastPos = p
+	end)
+
+	local suppressedUntil, failCount = {}, {}
+	-- snap = روی نقطه‌ی ورود می‌پریم (فوری)؛ وگرنه با موتور BM تا اونجا پرواز می‌کنیم
+	local function enterPortal(p, snap, keep)
+		if snap then
+			local r = getRoot()
+			if not r then return false end
+			r.CFrame = CFrame.new(p.enter + V(0, 3, 0))
+			r.AssemblyLinearVelocity = Vector3.zero
+			task.wait(0.15)
+		else
+			bmTween(CFrame.new(p.enter + V(0, 3, 0)), keep)
+			task.wait(0.4)
+		end
+		if CollectionService:HasTag(player, "Teleporting") then task.wait(0.5) end
+		invoke("requestEntrance", p.dest)
+		local t0 = tick()
+		while tick() - t0 < (snap and 1.5 or 4) do
+			local r = getRoot()
+			if r and (r.Position - p.dest).Magnitude < 500 then return true end
+			task.wait(0.05)
+		end
+		return false
+	end
+
+	local function bananaPortals(goal, keep)
+		if Sea == 0 then return end
+		for _ = 1, 3 do
+			local root = getRoot()
+			if not root or (keep and not keep()) then return end
+			local direct = (root.Position - goal).Magnitude
+			local snap = S.PortalMode ~= "Fly to entry"
+			local best, bestCost
+			for _, p in ipairs(portalList()) do
+				if tick() >= (suppressedUntil[p] or 0) then
+					local cost = (goal - p.dest).Magnitude + (snap and 0 or (root.Position - p.enter).Magnitude)
+					if not bestCost or cost < bestCost then best, bestCost = p, cost end
+				end
+			end
+			if not best or bestCost + 750 >= direct then return end
+			Lab.moving = true
+			local ok, entered = pcall(enterPortal, best, snap, keep)
+			Lab.moving = false
+			local s = cur()
+			if ok and entered then
+				s.portals += 1
+				failCount[best] = nil
+				S.Status = "Banana portal: " .. best.name
+			else
+				s.portalFails += 1
+				failCount[best] = (failCount[best] or 0) + 1
+				if failCount[best] >= 2 then
+					failCount[best] = nil
+					suppressedUntil[best] = tick() + 8
+					best.bad = (best.bad or 0) + 1
+					-- ورودی یادگرفته‌شده‌ای که 3 دوره‌ی پشت‌سرهم شکست خورده احتمالاً پرتال نبوده
+					if best.learned and best.bad >= 3 then
+						for i, p in ipairs(Lab.learned) do
+							if p == best then
+								table.remove(Lab.learned, i)
+								break
+							end
+						end
+						saveLearned()
+					end
+				end
+				return
+			end
+			task.wait(0.3)
+		end
+	end
+
 	local function bananaTween(cf, keepGoing)
 		local root = getRoot()
 		if not root or not cf then return false end
 		if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
-		if (root.Position - cf.Position).Magnitude > 1500 then
-			pcall(portalHop, cf.Position, keepGoing)
-			root = getRoot()
-			if not root then return false end
-		end
 		local goal = cf.Position
-		if (root.Position - goal).Magnitude <= 10 then
+		-- نشسته (قایق و ...) باشیم اول بلند میشیم، مثل Banana
+		local hum = getHum()
+		if hum and hum.Sit then
+			hum.Sit = false
+			task.wait(0.1)
+		end
+		if S.BananaPortals then
+			pcall(bananaPortals, goal, keepGoing)
+		elseif (root.Position - goal).Magnitude > 1500 then
+			pcall(portalHop, goal, keepGoing)
+		end
+		root = getRoot()
+		if not root then return false end
+		local char = getChar()
+		-- نزدیک (زیر 50 استاد) و بدون مانع: مستقیم می‌پریم
+		local near = (root.Position - goal).Magnitude
+		if near <= 10 or (near < 50 and not obstacleAhead(root.Position, goal, char)) then
 			root.CFrame = cf
 			return true
 		end
 		stopTween()
 		setFloat(true)
-		local char = getChar()
 		local speedMax = math.clamp(S.TweenSpeed, 50, MAX_SAFE_SPEED)
 		-- سقف سرعت برای هر کاراکتر یادش می‌مونه؛ بعد از ریسپاون از 75٪ شروع و پله‌پله بالا میاد
 		if E.char ~= char then
@@ -5630,7 +5794,6 @@ local okLab, errLab = pcall(function()
 	-----------------------------------------------------------------
 	-- سوییچ تلپورت + ثبت آمار هر حرکت
 	-----------------------------------------------------------------
-	local bmTween = tweenTo
 	tweenTo = function(cf, keepGoing, manual)
 		local root = getRoot()
 		local target = typeof(cf) == "CFrame" and cf.Position or (typeof(cf) == "Vector3" and cf or nil)
@@ -5762,16 +5925,16 @@ local okLab, errLab = pcall(function()
 	-----------------------------------------------------------------
 	function Lab.report()
 		local out = { "BM Hub A/B report  " .. os.date("%Y-%m-%d %H:%M:%S") .. "  sea " .. tostring(Sea) .. "  tweenSpeed " .. tostring(S.TweenSpeed) }
-		table.insert(out, "combo(tp/click) | farm min | kills | kills/min | s/kill | tweens | studs/s | fail% | snaps")
+		table.insert(out, "combo(tp/click) | farm min | kills | kills/min | s/kill | tweens | studs/s | fail% | snaps | portals | pfail")
 		local keys = {}
 		for k in pairs(Lab.stats) do table.insert(keys, k) end
 		table.sort(keys)
 		for _, k in ipairs(keys) do
 			local s = Lab.stats[k]
 			local min = s.sec / 60
-			table.insert(out, ("%-15s | %8.1f | %5d | %9.2f | %6.1f | %6d | %7.0f | %5.0f | %5d"):format(
+			table.insert(out, ("%-15s | %8.1f | %5d | %9.2f | %6.1f | %6d | %7.0f | %5.0f | %5d | %7d | %5d"):format(
 				k, min, s.kills, min > 0 and s.kills / min or 0, s.kills > 0 and s.killTime / s.kills or 0,
-				s.tweens, s.tweenTime > 0 and s.tweenDist / s.tweenTime or 0, s.tweens > 0 and s.tweenFail / s.tweens * 100 or 0, s.snaps))
+				s.tweens, s.tweenTime > 0 and s.tweenDist / s.tweenTime or 0, s.tweens > 0 and s.tweenFail / s.tweens * 100 or 0, s.snaps, s.portals, s.portalFails))
 		end
 		return table.concat(out, "\n")
 	end
@@ -5790,7 +5953,7 @@ local okLab, errLab = pcall(function()
 	function Lab.line()
 		local s = cur()
 		local min = s.sec / 60
-		return ("%s  •  %.1f min  •  %d kills  •  %.2f/min  •  snaps %d"):format(key(), min, s.kills, min > 0 and s.kills / min or 0, s.snaps)
+		return ("%s  •  %.1f min  •  %d kills  •  %.2f/min  •  snaps %d  •  portals %d (fail %d)"):format(key(), min, s.kills, min > 0 and s.kills / min or 0, s.snaps, s.portals, s.portalFails)
 	end
 
 	local COMBOS = { { "BM", "BM" }, { "Banana", "BM" }, { "BM", "Banana" }, { "Banana", "Banana" } }
@@ -6438,6 +6601,19 @@ do
 	T:Slider("Lift Over Obstacles (studs)", 20, 200, "BananaLift")
 	T:Toggle("Banana Click Also Taps The Tool", "BananaToolClick")
 	T:Label(function() return "Tween speed uses the Tween Speed slider in Combat (max 300)" end)
+	T:Section("Banana portals")
+	T:Toggle("Use Portals (only when it saves 750+ studs)", "BananaPortals")
+	T:Dropdown("Portal Mode", function() return { "Snap (instant)", "Fly to entry" } end, "PortalMode")
+	T:Label(function()
+		local L = Hub.Lab
+		return L and ("Portals known: " .. #L.portalList() .. "  •  learned by you: " .. #L.learned) or ""
+	end)
+	T:Label(function() return "Walk through a game portal once and it is learned. Others = flight." end)
+	T:Button("Forget Learned Portals", function()
+		Hub.Lab.learned = {}
+		Hub.Lab.saveLearned()
+		notify("A/B", "Learned portals cleared", 3)
+	end)
 	T:Section("Live numbers (current combo)")
 	T:Label(function() return Hub.Lab and Hub.Lab.line() or "" end)
 	T:Button("Save + Copy Full Report", function()
