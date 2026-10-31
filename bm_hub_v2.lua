@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "1.72" }
+local Hub = { Connections = {}, Running = true, Version = "1.73" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -3368,10 +3368,11 @@ do
 		d.visited = type(d.visited) == "table" and d.visited or {}
 		d.hops = tonumber(d.hops) or 0
 		d.last = tonumber(d.last) or 0
+		d.start = tonumber(d.start) or os.time()
 		return d
 	end
 	local function writeHunt(d) pcall(function() writefile(HUNT_FILE, Svc.Http:JSONEncode(d)) end) end
-	function Hub.HuntReset() writeHunt({ visited = {}, hops = 0, last = os.time() }) end
+	function Hub.HuntReset() writeHunt({ visited = {}, hops = 0, last = os.time(), start = os.time() }) end
 	function Hub.HuntHops() return readHunt().hops end
 
 	local function fullMoonNight()
@@ -3429,15 +3430,17 @@ do
 	end
 
 	-- یه سرور تصادفی که قبلاً نرفتیم و جا داره
+	-- برمی‌گردونه: id یا nil + دلیل (برای وقتی که Roblox لیست سرورها رو نمیده / همه‌ی سرورها دیده شدن)
 	local function pickServer(seen)
-		local cursor, pool = nil, {}
+		local cursor, pool, reason = nil, {}, "no new servers"
 		for _ = 1, 3 do
 			local ok, body = pcall(function()
 				return game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Desc&limit=100" .. (cursor and ("&cursor=" .. cursor) or ""))
 			end)
-			if not ok then break end
+			if not ok then reason = "server list request failed (rate limited?)" break end
 			local okD, data = pcall(function() return Svc.Http:JSONDecode(body) end)
-			if not okD or type(data) ~= "table" then break end
+			if not okD or type(data) ~= "table" then reason = "bad server list reply" break end
+			if data.errors then reason = "Roblox refused the server list (too many requests)" break end
 			for _, s in ipairs(data.data or {}) do
 				if s.id and not seen[s.id] and (s.playing or 0) < (s.maxPlayers or 0) - 1 then table.insert(pool, s.id) end
 			end
@@ -3445,7 +3448,8 @@ do
 			if #pool >= 20 or not cursor then break end
 			task.wait(1)
 		end
-		return #pool > 0 and pool[math.random(#pool)] or nil
+		if #pool > 0 then return pool[math.random(#pool)] end
+		return nil, reason
 	end
 
 	local tpFailed = false
@@ -3486,16 +3490,27 @@ do
 		-- شکاری که بیشتر از ۲۰ دقیقه پیش ول شده ادامه پیدا نمی‌کنه
 		if S.HuntHop and os.time() - readHunt().last > 1200 then S.HuntHop = false end
 		local arrived = tick()
+		local pickFails = 0
+		local function giveUp(msg)
+			S.HuntHop = false
+			Hub.HuntReset()
+			if Hub.SaveSettings then Hub.SaveSettings() end
+			Hub.HuntStatus = "Stopped: " .. msg
+			if notifyHook then notifyHook("Server Finder", Hub.HuntStatus, 10) end
+		end
 		while Hub.Running do
 			task.wait(1)
 			if not S.HuntHop then
 				Hub.HuntStatus = "Off"
 				arrived = tick()
+				pickFails = 0
 			else
 				local d = readHunt()
 				local pos, what = Hub.HuntFind(S.HuntTarget)
 				local waited = tick() - arrived
-				if pos then
+				if not pos and os.time() - d.start > 1200 then
+					giveUp(("not found in 20 minutes (%d hops)"):format(d.hops))
+				elseif pos then
 					S.HuntHop = false
 					Hub.HuntReset()
 					if Hub.SaveSettings then Hub.SaveSettings() end
@@ -3515,11 +3530,17 @@ do
 				else
 					local seen = { [game.JobId] = true }
 					for _, id in ipairs(d.visited) do seen[id] = true end
-					local id = pickServer(seen)
+					local id, why = pickServer(seen)
 					if not id then
-						Hub.HuntStatus = "No new server found, retrying in 10s..."
-						arrived = tick() - S.HuntWait + 10
+						pickFails += 1
+						if pickFails >= 6 then
+							giveUp(tostring(why) .. " (6 tries)")
+						else
+							Hub.HuntStatus = ("%s - retry %d/6 in 15s..."):format(tostring(why), pickFails)
+							arrived = tick() - S.HuntWait + 15
+						end
 					else
+						pickFails = 0
 						table.insert(d.visited, game.JobId)
 						while #d.visited > 200 do table.remove(d.visited, 1) end
 						d.hops += 1
