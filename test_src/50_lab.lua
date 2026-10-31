@@ -211,7 +211,15 @@ local okLab, errLab = pcall(function()
 	-----------------------------------------------------------------
 	-- موتور اتو کلیک Banana: هدف‌گیری با خود CombatUtil بازی، جای ایستادن 7 کنار / 20 بالا
 	-----------------------------------------------------------------
-	local CombatUtil = safeRequire(Modules and Modules:FindFirstChild("CombatUtil"))
+	-- require روی Solara ممکنه گیر کنه (قفل کردن ترد اصلی = UI هیچ‌وقت بالا نمیاد)؛ پس توی ترد جدا لود میشه
+	-- و تا وقتی لود نشده از تشخیص دستی ماب استفاده میشه
+	local CombatUtil
+	task.spawn(function()
+		local m = Modules and Modules:FindFirstChild("CombatUtil")
+		if not m then return end
+		local ok, res = pcall(require, m)
+		if ok and type(res) == "table" then CombatUtil = res end
+	end)
 	local overlap = OverlapParams.new()
 	overlap.FilterType = Enum.RaycastFilterType.Exclude
 	local lastShot = 0
