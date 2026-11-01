@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "3.4"
+VERSION = "3.5"
 
 
 def patch(src, old, new, count=1):
@@ -68,6 +68,13 @@ src = patch(
     src,
     "me.Health / me.MaxHealth * 100 < S.RetreatHP then",
     "(me.Health / me.MaxHealth * 100 < S.RetreatHP or (Hub.InDanger and Hub.InDanger(me.Health))) then",
+)
+
+# Auto Click با میوه‌هایی که M1 دارن (50_brain)
+src = patch(
+    src,
+    'if m == "Auto" or m == "Remote" then remoteAttack(root) end\n',
+    'if (m == "Auto" or m == "Remote") and not (Hub.FruitM1 and Hub.FruitM1(root)) then remoteAttack(root) end\n',
 )
 
 # صندوق‌ها: Safe Carry و شمارش برای Chest Hop

@@ -14,7 +14,7 @@ local okBrain, errBrain = pcall(function()
 		BrainSeas = false, BrainDeaths = 2,
 		Watchdog = true, WatchdogSec = 45,
 		SmartDodge = true, DodgeHeight = 70, DodgeLearn = 12, DodgeAfter = 2,
-		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3,
+		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3, FruitM1 = true,
 		ChestHop = false, ChestHopAt = 20, SafeCarry = true,
 	}) do
 		if S[k] == nil then S[k] = v end
@@ -498,6 +498,37 @@ local okBrain, errBrain = pcall(function()
 	end
 	Brain.fightWorthIt = fightWorthIt
 
+	-- M1 میوه: ابزار میوه‌هایی که حمله‌ی کلیکی دارن یه LeftClickRemote داره (از Banana)
+	-- به جای RegisterHit، جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) فرستاده میشه
+	local fruitCombo, fruitAt = 0, 0
+	function Brain.heldFruitM1()
+		local char = getChar()
+		local tool = char and char:FindFirstChildOfClass("Tool")
+		local remote = tool and tool:FindFirstChild("LeftClickRemote")
+		return remote and tool, remote
+	end
+
+	-- true یعنی ابزار توی دست M1 میوه داره و ضربه‌ی ملی نباید فرستاده بشه
+	function Hub.FruitM1(root)
+		if not S.FruitM1 then return false end
+		local tool, remote = Brain.heldFruitM1()
+		if not tool then return false end
+		local mob = nearestMobInRange()
+		if not mob or tick() - fruitAt < 0.2 then return true end
+		fruitAt = tick()
+		fruitCombo = fruitCombo % 4 + 1
+		V3.once("fruitM1" .. tool.Name, function() V3.log("FRUIT M1 using " .. tool.Name) end)
+		local ok, err = pcall(function()
+			remote:FireServer((mob.HumanoidRootPart.Position - root.Position).Unit, fruitCombo)
+		end)
+		if ok then
+			Hub.AttackInfo.fruit = (Hub.AttackInfo.fruit or 0) + 1
+		else
+			Hub.AttackInfo.lastError = "fruit M1: " .. tostring(err)
+		end
+		return true
+	end
+
 	local nextSkill, skillAt = 1, 0
 	local SKILL_ORDER = { "Z", "X", "C", "V" }
 	function Hub.SmartSkill(mob, hum)
@@ -650,6 +681,13 @@ end
 local Brain = Hub.Brain
 if Brain and Brain.ready then
 	local T = createTab("Combat", "⚔")
+	T:Section("Fruit M1")
+	T:Toggle("Fruit M1 (Auto Click uses a fruit's click attack)", "FruitM1")
+	T:Label(function() return "Needs Farm Weapon = Blox Fruit" end)
+	T:Label(function()
+		local tool = Brain.heldFruitM1()
+		return "In your hand: " .. (tool and tool.Name .. " has M1 ✔" or "no fruit with M1")
+	end)
 	T:Section("Skills")
 	T:Toggle("Use Skills", "UseSkills")
 	T:Toggle("Skill Z", "SkillZ")
