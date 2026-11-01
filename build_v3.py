@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "3.5"
+VERSION = "3.6"
 
 
 def patch(src, old, new, count=1):
@@ -68,6 +68,18 @@ src = patch(
     src,
     "me.Health / me.MaxHealth * 100 < S.RetreatHP then",
     "(me.Health / me.MaxHealth * 100 < S.RetreatHP or (Hub.InDanger and Hub.InDanger(me.Health))) then",
+)
+
+# Auto Click سلاح رو عوض نمی‌کنه: هر فارم سلاح خودش رو می‌گیره، و بدون فارم با چیزی که دستته می‌زنه
+src = patch(
+    src,
+    "equipWeapon()\n\t\t\t\t\t-- وقتی فارم روشنه خودش جای کاراکتر",
+    'local held = getChar() and getChar():FindFirstChildOfClass("Tool")\n'
+    "\t\t\t\t\tif not held then\n"
+    "\t\t\t\t\t\tif not mainFarmBusy() then return end\n"
+    "\t\t\t\t\t\tequipWeapon()\n"
+    "\t\t\t\t\tend\n"
+    "\t\t\t\t\t-- وقتی فارم روشنه خودش جای کاراکتر",
 )
 
 # Auto Click با میوه‌هایی که M1 دارن (50_brain)

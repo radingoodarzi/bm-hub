@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "3.5" }
+local Hub = { Connections = {}, Running = true, Version = "3.6" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1021,7 +1021,11 @@ task.spawn(function()
 			local mob = nearestMobInRange()
 			if mob then
 				pcall(function()
-					equipWeapon()
+					local held = getChar() and getChar():FindFirstChildOfClass("Tool")
+					if not held then
+						if not mainFarmBusy() then return end
+						equipWeapon()
+					end
 					-- وقتی فارم روشنه خودش جای کاراکتر و ماب‌ها رو تنظیم می‌کنه؛ وگرنه مثل فارم:
 					-- رو به ماب می‌چرخیم و ماب‌ها رو 4 استاد جلوی خودمون میاریم (ضربه فقط از نزدیک ثبت میشه)
 					if not mainFarmBusy() then
@@ -5788,12 +5792,13 @@ local okBrain, errBrain = pcall(function()
 
 	local savedFlags
 	task.spawn(function()
-		local wasOn = false
+		local wasOn, firstLoop = false, true
 		while Hub.Running do
 			task.wait(1.5)
 			if S.BrainOn and not wasOn then
 				savedFlags = { SelectedBoss = S.SelectedBoss }
-				for f in pairs(managed) do savedFlags[f] = S[f] == true end
+				-- اگه با تنظیمات ذخیره‌شده روشن شده، کلیدهای روشن مال خود مغز بودن نه کاربر
+				for f in pairs(managed) do savedFlags[f] = S[f] == true and not firstLoop end
 				Brain.current, Brain.since = nil, 0
 				Brain.note("Brain on")
 			elseif wasOn and not S.BrainOn then
@@ -5804,7 +5809,7 @@ local okBrain, errBrain = pcall(function()
 				S.SelectedBoss = savedFlags and savedFlags.SelectedBoss
 				Brain.note("Brain off, your switches are back")
 			end
-			wasOn = S.BrainOn
+			wasOn, firstLoop = S.BrainOn, false
 			if S.BrainOn and alive() then
 				local ok, err = pcall(Brain.tick)
 				if not ok then
@@ -7927,7 +7932,7 @@ if Brain and Brain.ready then
 	local T = createTab("Combat", "⚔")
 	T:Section("Fruit M1")
 	T:Toggle("Fruit M1 (Auto Click uses a fruit's click attack)", "FruitM1")
-	T:Label(function() return "Needs Farm Weapon = Blox Fruit" end)
+	T:Label(function() return "Hold the fruit. While farming: Farm Weapon = Blox Fruit" end)
 	T:Label(function()
 		local tool = Brain.heldFruitM1()
 		return "In your hand: " .. (tool and tool.Name .. " has M1 ✔" or "no fruit with M1")
