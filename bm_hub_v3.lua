@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "3.8" }
+local Hub = { Connections = {}, Running = true, Version = "3.9" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -922,9 +922,9 @@ local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
-	local fruit = (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root) or nil
-	if (m == "Auto" or m == "Remote") and (not fruit or fruit.hit) then remoteAttack(root) end
-	if fruit and not fruit.click then return end
+	-- میوه‌ی M1 دار: بدون کلیک روی صفحه و انیمیشن
+	if (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root) then return end
+	if m == "Auto" or m == "Remote" then remoteAttack(root) end
 	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
 	if m == "Auto" or m == "Tool" then
@@ -5976,18 +5976,10 @@ local okBrain, errBrain = pcall(function()
 
 	-- M1 میوه: ابزار میوه‌هایی که حمله‌ی کلیکی دارن یه LeftClickRemote داره (از Banana)
 	-- جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) فرستاده میشه. سرور ضربه‌های زیادی رو رد می‌کنه
-	-- (لاگ Dragon-Dragon: فاصله‌ی 0.1 با RegisterHit نصف فاصله‌ی 0.2 دمیج داد)، پس برای هر میوه
-	-- یه بار چند حالت با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه.
-	-- gap: فاصله‌ی M1 (بدون gap یعنی فقط حمله‌ی خود بازی)، click: کلیک و انیمیشن، hit: RegisterHit
-	local FRUIT_MODES = {
-		{ gap = 0.2, click = true },
-		{ gap = 0.3 },
-		{ gap = 0.5 },
-		{ gap = 0.8 },
-		{ gap = 0.3, hit = true },
-		{ click = true },
-	}
-	local TUNE_SECONDS = 5
+	-- (لاگ Dragon-Dragon: فاصله‌ی 0.1 نصف فاصله‌ی 0.2 دمیج داد)، پس برای هر میوه یه بار چند فاصله
+	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
+	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 } }
+	local TUNE_SECONDS = 8
 	local tune
 	local fruitCombo, fruitAt = 0, 0
 	function Brain.heldFruitM1()
@@ -5999,7 +5991,8 @@ local okBrain, errBrain = pcall(function()
 
 	local function fruitMode(tool)
 		local saved = Brain.store.fruit[tool.Name]
-		if saved then return saved end
+		-- نتیجه‌ی نسخه‌های قبل که کلیک داشتن دیگه معتبر نیست
+		if saved and saved.gap and not saved.click and not saved.hit then return saved end
 		if not tune or tune.tool ~= tool.Name then
 			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 			Brain.note("Testing the best M1 for " .. tool.Name)
@@ -6014,7 +6007,7 @@ local okBrain, errBrain = pcall(function()
 		if not tool then return nil end
 		local mode = fruitMode(tool)
 		local mob = nearestMobInRange()
-		if not mob or not mode.gap or tick() - fruitAt < mode.gap then return mode end
+		if not mob or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
 		fruitCombo = fruitCombo % 4 + 1
 		local ok, err = pcall(function()
@@ -6038,8 +6031,7 @@ local okBrain, errBrain = pcall(function()
 		if tune.time < TUNE_SECONDS then return end
 		local mode = FRUIT_MODES[tune.i]
 		local rate = tune.damage / TUNE_SECONDS / (tune.mobs / (TUNE_SECONDS * 2))
-		V3.log(("FRUIT TEST %s %d/%d gap=%s click=%s hit=%s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES,
-			tostring(mode.gap), tostring(mode.click == true), tostring(mode.hit == true), math.floor(rate)))
+		V3.log(("FRUIT TEST %s %d/%d gap=%s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, tostring(mode.gap), math.floor(rate)))
 		if rate > tune.bestRate then tune.best, tune.bestRate = mode, rate end
 		tune.i += 1
 		tune.time, tune.damage, tune.mobs = 0, 0, 0
@@ -6055,8 +6047,8 @@ local okBrain, errBrain = pcall(function()
 	function Brain.fruitStatus(tool)
 		if tune and tune.tool == tool.Name then return ("testing %d/%d, keep fighting"):format(tune.i, #FRUIT_MODES) end
 		local m = Brain.store.fruit[tool.Name]
-		if not m then return "will test on the first fight" end
-		return (m.gap and ("every %.1fs"):format(m.gap) or "game attack only") .. (m.click and " with animation" or " no animation")
+		if not m or not m.gap or m.click or m.hit then return "will test on the first fight" end
+		return ("every %.1fs, no screen clicks"):format(m.gap)
 	end
 
 	function Brain.retestFruit(tool)
@@ -8024,7 +8016,7 @@ local Brain = Hub.Brain
 if Brain and Brain.ready then
 	local T = createTab("Combat", "⚔")
 	T:Section("Fruit M1")
-	T:Toggle("Fruit M1 (Auto Click uses a fruit's click attack)", "FruitM1")
+	T:Toggle("Fruit M1 (no screen clicks, no animation)", "FruitM1")
 	T:Label(function() return "Hold the fruit. While farming: Farm Weapon = Blox Fruit" end)
 	T:Label(function()
 		local tool = Brain.heldFruitM1()
