@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "3.3" }
+local Hub = { Connections = {}, Running = true, Version = "3.4" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -998,7 +998,7 @@ local function bringMobs(name, cf)
 		end
 	end
 	table.sort(list, function(a, b) return a.d < b.d end)
-	for i = 1, math.min(#list, S.BringMax) do
+	for i = 1, math.min(#list, Hub.BringGroup and math.max(S.BringMax, 15) or S.BringMax) do
 		local m = list[i].m
 		pcall(function()
 			local hrp, hum = m.HumanoidRootPart, m.Humanoid
@@ -1068,6 +1068,7 @@ local function killMob(mob, keepGoing)
 			Hub.LastProgress = lastHit
 		elseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120 then
 			mobSkipUntil[mob] = tick() + 45
+			if Hub.LiveLog then Hub.LiveLog(("SKIP %s for 45s: no damage in 8s, hp=%d dist=%d"):format(name, hum.Health, (root.Position - hrp.Position).Magnitude)) end
 			S.Status = "Skipping stuck " .. name
 			break
 		end
@@ -2214,6 +2215,31 @@ do
 		return not questDone(title) and title:lower():find("mumm", 1, true) ~= nil
 	end
 
+	local BONE_CLEAR = 150
+	local function boneScan()
+		local root = getRoot()
+		local nearest, nearestDist, mummy, mummyDist
+		for _, n in ipairs(BONE_MOBS) do
+			local m = findMob(n)
+			if m then
+				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+				if not nearestDist or d < nearestDist then nearest, nearestDist = m, d end
+				if n == "Posessed Mummy" then mummy, mummyDist = m, d end
+			end
+		end
+		return nearest, nearestDist, mummy, mummyDist
+	end
+
+	local function boneTarget()
+		local nearest, nearestDist, mummy, mummyDist = boneScan()
+		if not nearest then return nil end
+		local quest = mummyQuestActive()
+		if nearestDist <= BONE_CLEAR then
+			return quest and mummy and mummyDist <= BONE_CLEAR and mummy or nearest
+		end
+		return quest and mummy or nearest
+	end
+
 	local function stepBone(keep)
 		-- Soul Reaper اسپاون شد → اول اون
 		if findMobAnywhere("Soul Reaper") then
@@ -2272,25 +2298,15 @@ do
 		elseif S.TakeQuest and q and not questBlocked(q) then
 			-- کوئست تازه تموم شده؛ سرور یه لحظه طول می‌کشه تا کوئست بعدی رو قبول کنه
 			Hub.MummyGoneAt = Hub.MummyGoneAt or tick()
-			if tick() - Hub.MummyGoneAt >= 1.5 then
+			local _, nearDist = boneScan()
+			local clear = not nearDist or nearDist > BONE_CLEAR
+			if tick() - Hub.MummyGoneAt >= 1.5 and (clear or tick() - Hub.MummyGoneAt >= 20) then
 				takeQuest(q, keep)
 				if mummyQuestActive() then Hub.MummyGoneAt = nil end
 				return
 			end
 		end
-		local target = mummyQuestActive() and findMob("Posessed Mummy") or nil
-		-- وقتی مومیایی نیست، بقیه‌ی ماب‌های Bone رو می‌زنیم (بدون کوئست، فقط برای Bone)
-		if not target then
-			local root = getRoot()
-			local bestDist
-			for _, n in ipairs(BONE_MOBS) do
-				local m = findMob(n)
-				if m then
-					local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-					if not bestDist or d < bestDist then target, bestDist = m, d end
-				end
-			end
-		end
+		local target = boneTarget()
 		if not target then
 			S.Status = "Bone: waiting for mobs"
 			if (getRoot().Position - HAUNTED).Magnitude > 300 then

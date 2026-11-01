@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "3.3"
+VERSION = "3.4"
 
 
 def patch(src, old, new, count=1):
@@ -90,17 +90,78 @@ src = patch(
     '\t\tlocal title = questTitle()\n\t\tif not title then return hasQuest("Posessed Mummy") end\n',
     '\t\tlocal active = hasQuest("Posessed Mummy")\n\t\tlocal title = questTitle()\n\t\tif not title then return active end\n',
 )
-# 2) بدون کوئست مومیایی دنبال مومیایی نریم: نزدیک‌ترین ماب Bone = پرواز کمتر
+# 2) اول ماب‌های اطراف تموم میشن؛ مومیایی دور و تحویل کوئست وقتی اطراف خالی شد
 src = patch(
     src,
-    'local target = findMob("Posessed Mummy")\n',
-    'local target = mummyQuestActive() and findMob("Posessed Mummy") or nil\n',
+    "\tlocal function stepBone(keep)\n",
+    "\tlocal BONE_CLEAR = 150\n"
+    "\tlocal function boneScan()\n"
+    "\t\tlocal root = getRoot()\n"
+    "\t\tlocal nearest, nearestDist, mummy, mummyDist\n"
+    "\t\tfor _, n in ipairs(BONE_MOBS) do\n"
+    "\t\t\tlocal m = findMob(n)\n"
+    "\t\t\tif m then\n"
+    "\t\t\t\tlocal d = (m.HumanoidRootPart.Position - root.Position).Magnitude\n"
+    "\t\t\t\tif not nearestDist or d < nearestDist then nearest, nearestDist = m, d end\n"
+    '\t\t\t\tif n == "Posessed Mummy" then mummy, mummyDist = m, d end\n'
+    "\t\t\tend\n"
+    "\t\tend\n"
+    "\t\treturn nearest, nearestDist, mummy, mummyDist\n"
+    "\tend\n\n"
+    "\tlocal function boneTarget()\n"
+    "\t\tlocal nearest, nearestDist, mummy, mummyDist = boneScan()\n"
+    "\t\tif not nearest then return nil end\n"
+    "\t\tlocal quest = mummyQuestActive()\n"
+    "\t\tif nearestDist <= BONE_CLEAR then\n"
+    "\t\t\treturn quest and mummy and mummyDist <= BONE_CLEAR and mummy or nearest\n"
+    "\t\tend\n"
+    "\t\treturn quest and mummy or nearest\n"
+    "\tend\n\n"
+    "\tlocal function stepBone(keep)\n",
 )
-# 3) هر چهار نوع ماب Bone یک‌جا جمع بشن تا ضربه به همه بخوره
+src = patch(
+    src,
+    'local target = findMob("Posessed Mummy")\n'
+    "\t\t-- وقتی مومیایی نیست، بقیه‌ی ماب‌های Bone رو می‌زنیم (بدون کوئست، فقط برای Bone)\n"
+    "\t\tif not target then\n"
+    "\t\t\tlocal root = getRoot()\n"
+    "\t\t\tlocal bestDist\n"
+    "\t\t\tfor _, n in ipairs(BONE_MOBS) do\n"
+    "\t\t\t\tlocal m = findMob(n)\n"
+    "\t\t\t\tif m then\n"
+    "\t\t\t\t\tlocal d = (m.HumanoidRootPart.Position - root.Position).Magnitude\n"
+    "\t\t\t\t\tif not bestDist or d < bestDist then target, bestDist = m, d end\n"
+    "\t\t\t\tend\n"
+    "\t\t\tend\n"
+    "\t\tend\n",
+    "local target = boneTarget()\n",
+)
+# گرفتن کوئست هم صبر می‌کنه تا اطراف تمیز بشه، ولی حداکثر 20 ثانیه تا کوئست یادش نره
+src = patch(
+    src,
+    "\t\t\tif tick() - Hub.MummyGoneAt >= 1.5 then\n\t\t\t\ttakeQuest(q, keep)\n",
+    "\t\t\tlocal _, nearDist = boneScan()\n"
+    "\t\t\tlocal clear = not nearDist or nearDist > BONE_CLEAR\n"
+    "\t\t\tif tick() - Hub.MummyGoneAt >= 1.5 and (clear or tick() - Hub.MummyGoneAt >= 20) then\n"
+    "\t\t\t\ttakeQuest(q, keep)\n",
+)
+# 3) هر چهار نوع ماب Bone یک‌جا جمع بشن تا ضربه به همه بخوره، و سقف جمع کردن برای Bone حداقل 15 باشه
 src = patch(
     src,
     '\t\tif mobBaseName(m.Name) == name and isAliveMob(m) then\n\t\t\tlocal d = (m.HumanoidRootPart.Position - root.Position).Magnitude\n\t\t\tif d <= S.BringRange then',
     '\t\tlocal base = mobBaseName(m.Name)\n\t\tif (base == name or (Hub.BringGroup and Hub.BringGroup[base])) and isAliveMob(m) then\n\t\t\tlocal d = (m.HumanoidRootPart.Position - root.Position).Magnitude\n\t\t\tif d <= S.BringRange then',
+)
+src = patch(
+    src,
+    "\tfor i = 1, math.min(#list, S.BringMax) do\n",
+    "\tfor i = 1, math.min(#list, Hub.BringGroup and math.max(S.BringMax, 15) or S.BringMax) do\n",
+)
+# لاگ: ببینیم ردشدن 45 ثانیه‌ای واقعاً رخ میده یا نه
+src = patch(
+    src,
+    "\t\t\tmobSkipUntil[mob] = tick() + 45\n",
+    "\t\t\tmobSkipUntil[mob] = tick() + 45\n"
+    '\t\t\tif Hub.LiveLog then Hub.LiveLog(("SKIP %s for 45s: no damage in 8s, hp=%d dist=%d"):format(name, hum.Health, (root.Position - hrp.Position).Magnitude)) end\n',
 )
 src = patch(
     src,
