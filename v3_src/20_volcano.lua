@@ -334,7 +334,7 @@ end
 
 --@@UI@@
 if Sea == 3 then
-	local T = createTab("Volcano", "▲")
+	local T = createTab("Sea", "⚓")
 	T:Section("Prehistoric Island (full event)")
 	T:Toggle("Auto Prehistoric Event (craft magnet → find → run event)", "AutoVolcano", stopOff)
 	T:Toggle("I Already Have The Magnet (skip crafting)", "IgnoreMagnet")

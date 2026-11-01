@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "3.2" }
+local Hub = { Connections = {}, Running = true, Version = "3.3" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -991,7 +991,8 @@ local function bringMobs(name, cf)
 	end
 	local list = {}
 	for _, m in ipairs(enemies:GetChildren()) do
-		if mobBaseName(m.Name) == name and isAliveMob(m) then
+		local base = mobBaseName(m.Name)
+		if (base == name or (Hub.BringGroup and Hub.BringGroup[base])) and isAliveMob(m) then
 			local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
 			if d <= S.BringRange then table.insert(list, { m = m, d = d }) end
 		end
@@ -2207,8 +2208,9 @@ do
 	-- Auto Bone: فقط کوئست مومیایی (Posessed Mummy). متن کوئست رو با «mumm» چک می‌کنیم
 	-- چون اسم ماب Posessed ولی ممکنه توی متن Possessed/Mummies باشه
 	local function mummyQuestActive()
+		local active = hasQuest("Posessed Mummy")
 		local title = questTitle()
-		if not title then return hasQuest("Posessed Mummy") end
+		if not title then return active end
 		return not questDone(title) and title:lower():find("mumm", 1, true) ~= nil
 	end
 
@@ -2276,7 +2278,7 @@ do
 				return
 			end
 		end
-		local target = findMob("Posessed Mummy")
+		local target = mummyQuestActive() and findMob("Posessed Mummy") or nil
 		-- وقتی مومیایی نیست، بقیه‌ی ماب‌های Bone رو می‌زنیم (بدون کوئست، فقط برای Bone)
 		if not target then
 			local root = getRoot()
@@ -2299,7 +2301,10 @@ do
 			return
 		end
 		S.Status = "Bone: " .. mobBaseName(target.Name) .. (mummyQuestActive() and " (mummy quest)" or "")
-		killMob(target, keep)
+		Hub.BringGroup = { ["Reborn Skeleton"] = true, ["Living Zombie"] = true, ["Demonic Soul"] = true, ["Posessed Mummy"] = true }
+		local fought, fightErr = pcall(killMob, target, keep)
+		Hub.BringGroup = nil
+		if not fought then error(fightErr, 0) end
 	end
 
 	local function stepCake(keep)
@@ -5801,11 +5806,14 @@ local okBrain, errBrain = pcall(function()
 	Hub.DodgeY = 0
 	local danger, recentAnims, dirty, dodgeEnd = {}, {}, false, 0
 	Brain.danger = danger
-	Brain.store = { danger = danger, ledger = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
+	-- v=2: نسخه‌ی قبلی ضربه‌ی ماب‌های معمولی رو هم یاد می‌گرفت، اون داده دور ریخته میشه
+	Brain.store = { v = 2, danger = danger, ledger = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
 	pcall(function()
 		if isfile and not isfile(BRAIN_FILE) then return end
 		local d = Svc.Http:JSONDecode(readfile(BRAIN_FILE))
-		for id, v in pairs(type(d) == "table" and d.danger or {}) do danger[id] = v end
+		if d.v == 2 then
+			for id, v in pairs(d.danger or {}) do danger[id] = v end
+		end
 		if type(d.ledger) == "table" then Brain.store.ledger = d.ledger end
 	end)
 	function Brain.markDirty() dirty = true end
@@ -5848,9 +5856,25 @@ local okBrain, errBrain = pcall(function()
 		end)
 	end
 
+	-- فقط باس‌ها: ضربه‌ی عادی ماب‌ها هم سنگینه و اگه ازشون جاخالی بدیم از برد حمله بیرون می‌مونیم
+	local bossSet, bossSetAt = {}, 0
+	function Brain.isBoss(mob)
+		if mob.Name:find("[Boss]", 1, true) then return true end
+		if tick() - bossSetAt > 30 then
+			bossSetAt = tick()
+			table.clear(bossSet)
+			for _, n in ipairs(bossNames()) do bossSet[n] = true end
+			for _, n in ipairs(ELITES) do bossSet[n] = true end
+			for _, b in ipairs(Hub.Special or {}) do
+				for _, n in ipairs(b.names) do bossSet[n] = true end
+			end
+		end
+		return bossSet[mobBaseName(mob.Name)] == true
+	end
+
 	local watched = setmetatable({}, { __mode = "k" })
 	function Hub.WatchMob(mob, hum)
-		if not S.SmartDodge or not hum or watched[hum] then return end
+		if not S.SmartDodge or not hum or watched[hum] or not Brain.isBoss(mob) then return end
 		watched[hum] = true
 		local name = mobBaseName(mob.Name)
 		pcall(function()
@@ -5918,7 +5942,7 @@ local okBrain, errBrain = pcall(function()
 		local n = 0
 		for _, m in ipairs(enemies:GetChildren()) do
 			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
-				if m.Name:find("[Boss]", 1, true) then return true end
+				if Brain.isBoss(m) then return true end
 				n += 1
 			end
 		end
@@ -6620,6 +6644,7 @@ local pageHolder = new("Frame", {
 })
 
 local Pages, Tabs, tabCount = {}, {}, 0
+Hub.TabUI = { apis = {}, groups = {}, order = { Home = 1, Brain = 2, Farm = 3, Quests = 4, Bosses = 5, Sea = 6, Items = 7, Combat = 8, Teleport = 9, Settings = 10 } }
 local currentPage
 local dynamicLabels = {}
 -- کلیدها با وضعیت واقعی هماهنگ می‌مونن (وقتی اسکریپت خودش یه گزینه رو خاموش می‌کنه)
@@ -6651,10 +6676,12 @@ local function selectPage(name)
 end
 
 local function createTab(name, icon)
+	-- اسم تکراری = بخش‌های جدید به انتهای همون صفحه اضافه میشن
+	if Hub.TabUI.apis[name] then return Hub.TabUI.apis[name] end
 	tabCount += 1
 	local btn = new("TextButton", {
 		Size = UDim2.new(1, -4, 0, 34), BackgroundColor3 = Theme.Card, BackgroundTransparency = 1, Text = "",
-		AutoButtonColor = false, LayoutOrder = tabCount, Parent = tabList,
+		AutoButtonColor = false, LayoutOrder = Hub.TabUI.order[name] or tabCount + 20, Parent = tabList,
 	}, { corner(8) })
 	local bar = new("Frame", {
 		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 2, 0.5, 0), Size = UDim2.fromOffset(3, 0),
@@ -6684,12 +6711,16 @@ local function createTab(name, icon)
 
 	local order = 0
 	local api = {}
+	local groups, group = {}, nil
+	Hub.TabUI.apis[name], Hub.TabUI.groups[name] = api, groups
 
 	local function card(h)
 		order += 1
-		return new("Frame", {
+		local c = new("Frame", {
 			Size = UDim2.new(1, 0, 0, h), BackgroundColor3 = Theme.Card, LayoutOrder = order, Parent = page,
 		}, { corner(9) })
+		if group then table.insert(group.items, c) end
+		return c
 	end
 
 	local function cardLabel(c, text, h)
@@ -6708,6 +6739,17 @@ local function createTab(name, icon)
 			LayoutOrder = order, Parent = page,
 		}, { new("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingTop = UDim.new(0, 6) }) })
 		gradient().Parent = l
+		local g = { items = {} }
+		function g.show(on)
+			g.open = on
+			l.Text = (on and "–  " or "+  ") .. string.upper(text)
+			for _, c in ipairs(g.items) do c.Visible = on end
+		end
+		local hit = new("TextButton", { BackgroundTransparency = 1, Text = "", Size = UDim2.fromScale(1, 1), ZIndex = 10, Parent = l })
+		hit.Activated:Connect(function() g.show(not g.open) end)
+		g.show(true)
+		group = g
+		table.insert(groups, g)
 	end
 
 	function api:Toggle(text, key, cb)
@@ -7043,30 +7085,6 @@ if Brain and Brain.ready then
 	for i = 1, 5 do
 		T:Label(function() return Brain.log[i] or "-" end)
 	end
-	T:Section("Learned Dodge")
-	T:Toggle("Learn And Dodge Boss Attacks", "SmartDodge")
-	T:Slider("Lift Height While Dodging", 30, 75, "DodgeHeight")
-	T:Slider("Heavy Hit = % Of Max HP", 5, 40, "DodgeLearn")
-	T:Slider("Dodge After Seeing It N Times", 1, 5, "DodgeAfter")
-	T:Label(function() return ("Learned attacks: %d  •  Dodges this session: %d"):format(Brain.learnedCount(), Brain.dodges) end)
-	T:Button("Forget Learned Attacks", function()
-		Brain.forget()
-		notify("Learned Dodge", "Cleared", 3)
-	end)
-	T:Section("Smart Combat")
-	T:Toggle("Smart Skills (bosses and groups of 3+)", "SmartSkills")
-	T:Toggle("Smart Race Transform (energy full + worthy fight)", "SmartRace")
-	T:Toggle("Smart Retreat (leaves before you die, uses Auto Retreat)", "SmartRetreat")
-	T:Slider("Retreat If Dead In N Seconds", 1, 8, "DeathTime")
-	T:Section("Stuck Guard")
-	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
-	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
-	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
-	T:Section("Chests")
-	T:Toggle("Chest Hop", "ChestHop")
-	T:Slider("Hop After N Chests", 5, 60, "ChestHopAt")
-	T:Toggle("Safe Carry (no chests with Fist / Chalice)", "SafeCarry")
-	T:Label(function() return "Chests this server: " .. Hub.ChestsTaken .. (Hub.CanQueue and "" or "  •  hub won't restart after a hop here") end)
 	T:Section("Session Income")
 	T:Label(function() return "XP / hour: " .. formatNumber(math.floor(Brain.perHour("Exp"))) end)
 	T:Label(function() return "Beli / hour: " .. formatNumber(math.floor(Brain.perHour("Beli"))) end)
@@ -7080,7 +7098,7 @@ do
 -- @top
 local Planner, Brain = Hub.Planner, Hub.Brain
 if Planner and Planner.ready then
-	local T = createTab("Planner", "☑")
+	local T = createTab("Brain", "✺")
 	T:Section("Account Plan (Brain goal: Account Plan)")
 	for i = 1, 6 do
 		if Planner.stepLine(i) then
@@ -7100,23 +7118,6 @@ if Planner and Planner.ready then
 			return ("%d. %s: %s/h  (%d min measured)"):format(i, j.label, formatNumber(math.floor(j.rate)), math.floor(j.mins))
 		end)
 	end
-	T:Section("Smart Mastery (with Auto Farm)")
-	T:Toggle("Train Swords One By One", "SmartMastery")
-	T:Slider("Target Mastery", 50, 600, "MasteryTarget")
-	T:Label(function()
-		if not Planner.masteryName then return "Training: nothing" end
-		return ("Training: %s  (%d)"):format(Planner.masteryName, Planner.mastery[Planner.masteryName] or 0)
-	end)
-	T:Section("Alerts")
-	T:Toggle("Tell Me About New Items", "LootWatch")
-	T:Toggle("Hourly Report To Discord", "HourlyReport")
-	T:Button("Send Report Now", function()
-		Hub.V3.webhook("Session Report", Planner.report())
-		notify("Report", S.WebhookOn and "Sent" or "Turn on the webhook in Extras first", 4)
-	end)
-	T:Section("Safety")
-	T:Toggle("Restart Hub After Teleports", "AutoReload")
-	T:Toggle("PK Guard (hop when a player keeps hitting you)", "PKGuard")
 end
 end
 
@@ -7128,8 +7129,6 @@ do
 	T:Dropdown("Farm Mode", function() return { "Level", "Nearest Mob", "Selected Mob" } end, "FarmMode")
 	T:Dropdown("Select Mob", mobOptions, "SelectedMob")
 	T:Toggle("Take Quest", "TakeQuest")
-	T:Toggle("Auto Click (attacks with the weapon in your hand)", "AutoClick")
-	T:Toggle("Bring Mobs", "BringMobs")
 	T:Toggle("Auto Retreat When Low HP", "AutoRetreat")
 	T:Slider("Retreat Below HP %", 10, 70, "RetreatHP")
 	if #(Hub.Materials or {}) > 0 then
@@ -7146,12 +7145,6 @@ do
 	T:Toggle("Mastery Farm (with Auto Farm)", "MasteryFarm")
 	T:Dropdown("Mastery Weapon", function() return { "Blox Fruit", "Sword", "Gun" } end, "MasteryWeapon")
 	T:Slider("Switch at Mob HP %", 5, 90, "MasteryHealth")
-	T:Section("Skills")
-	T:Toggle("Use Skills", "UseSkills")
-	T:Toggle("Skill Z", "SkillZ")
-	T:Toggle("Skill X", "SkillX")
-	T:Toggle("Skill C", "SkillC")
-	T:Toggle("Skill V", "SkillV")
 	T:Section("Halloween")
 	T:Toggle("Auto Pumpkins (breaks them with melee, kills what spawns)", "AutoPumpkin", stopOff)
 	T:Input("Pumpkin Name contains (default: pumpkin), press Enter", function(text)
@@ -7188,7 +7181,7 @@ end
 
 -- دریای فعلی: فقط فارم‌ها، آیتم‌ها و پیشرفت همین دریا
 do
-	local T = createTab(SEA_NAME, "≋")
+	local T = createTab("Quests", "≋")
 	if Sea == 1 then
 		T:Section("Progress")
 		T:Toggle("Auto Saber (Lv 200+)", "AutoSaber", stopOff)
@@ -7261,7 +7254,7 @@ end
 
 -- Sea Events: فقط دریای 2 و 3
 if Sea == 2 or Sea == 3 then
-	local T = createTab("Sea Events", "⚓")
+	local T = createTab("Sea", "⚓")
 	T:Section("Sea Beasts")
 	T:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", stopOff)
 	T:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")
@@ -7371,7 +7364,7 @@ end
 -- ===== 10_sea.lua (UI) =====
 do
 if Sea >= 2 then
-	local T = createTab("Sea Hunt", "⚓")
+	local T = createTab("Sea", "⚓")
 	T:Section("Boat")
 	T:Toggle("Auto Buy Boat (spends beli!)", "AutoBuyBoat")
 	T:Toggle("Respawn Near Dealer When Far (saves flight time)", "ResetForBoat")
@@ -7420,7 +7413,7 @@ end
 -- ===== 20_volcano.lua (UI) =====
 do
 if Sea == 3 then
-	local T = createTab("Volcano", "▲")
+	local T = createTab("Sea", "⚓")
 	T:Section("Prehistoric Island (full event)")
 	T:Toggle("Auto Prehistoric Event (craft magnet → find → run event)", "AutoVolcano", stopOff)
 	T:Toggle("I Already Have The Magnet (skip crafting)", "IgnoreMagnet")
@@ -7446,7 +7439,7 @@ end
 -- ===== 30_trials.lua (UI) =====
 do
 if Sea >= 2 then
-	local T = createTab("Trials", "✦")
+	local T = createTab("Quests", "≋")
 	if Sea == 3 then
 		T:Section("Race V4 (Temple of Time)")
 		T:Toggle("Auto Trial (go to the door, fight your race trial)", "AutoTrial", stopOff)
@@ -7470,30 +7463,16 @@ end
 
 -- ===== 40_extras.lua (UI) =====
 do
-do
-	local T = createTab("Extras", "★")
-	T:Section("Discord Webhook")
-	T:Input("Paste your Discord webhook URL, press Enter", function(text)
-		S.WebhookUrl = (text:gsub("%s+", ""))
-		notify("Webhook", "URL saved", 3)
+if Sea == 3 then
+	local T = createTab("Sea", "⚓")
+	T:Section("Kitsune Island")
+	T:Dropdown("Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
+	T:Toggle("Auto Spawn Kitsune Island (full moon night)", "AutoKitsuneSpawn", stopOff)
+	T:Toggle("Auto Pray At Kitsune Statue (needs Azure Ember)", "AutoKitsunePray")
+	T:Slider("Azure Ember Needed", 1, 20, "AzureEmberNeed")
+	T:Label(function()
+		return "Kitsune Island: " .. (Hub.Events and Hub.Events.kitsune and "SPAWNED ✔" or "no") .. "  •  Azure Ember: " .. tostring(materialCount("Azure Ember") or 0)
 	end)
-	T:Toggle("Send Alerts To Discord (events, Leviathan, Prehistoric, finds)", "WebhookOn")
-	T:Button("Send Test Message", function()
-		if S.WebhookUrl == "" then return notify("Webhook", "Paste the URL first") end
-		Hub.V3.webhook("BM Hub", "Test message ✔ — " .. player.Name)
-		notify("Webhook", "Test sent (if nothing arrives, check the URL)", 4)
-	end)
-	T:Label(function() return "Webhook: " .. (S.WebhookUrl ~= "" and "saved ✔" or "not set") end)
-	if Sea == 3 then
-		T:Section("Kitsune Island")
-		T:Dropdown("Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
-		T:Toggle("Auto Spawn Kitsune Island (full moon night)", "AutoKitsuneSpawn", stopOff)
-		T:Toggle("Auto Pray At Kitsune Statue (needs Azure Ember)", "AutoKitsunePray")
-		T:Slider("Azure Ember Needed", 1, 20, "AzureEmberNeed")
-		T:Label(function()
-			return "Kitsune Island: " .. (Hub.Events and Hub.Events.kitsune and "SPAWNED ✔" or "no") .. "  •  Azure Ember: " .. tostring(materialCount("Azure Ember") or 0)
-		end)
-	end
 end
 end
 
@@ -7635,7 +7614,7 @@ end
 
 -- Shop
 do
-	local T = createTab("Shop", "$")
+	local T = createTab("Items", "◆")
 	T:Section("Codes")
 	T:Button("Redeem All Codes", function()
 		notify("Codes", "Redeeming " .. #CODES .. " codes...", 3)
@@ -7803,19 +7782,9 @@ do
 	end
 end
 
--- Stats
-do
-	local T = createTab("Stats", "▲")
-	T:Section("Auto Stats")
-	T:Dropdown("Stat", function() return { "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType")
-	T:Dropdown("Split With", function() return { "None", "Melee", "Defense", "Sword", "Gun", "Demon Fruit" } end, "StatType2")
-	T:Slider("Points Per Tick", 1, 100, "StatAmount")
-	T:Toggle("Auto Stats", "AutoStats")
-end
-
 -- ESP
 do
-	local T = createTab("ESP", "◉")
+	local T = createTab("Settings", "✦")
 	T:Section("ESP")
 	T:Toggle("Player ESP", "PlayerESP")
 	T:Toggle("Fruit ESP", "FruitESP")
@@ -7829,7 +7798,7 @@ end
 
 -- Misc
 do
-	local T = createTab("Misc", "✦")
+	local T = createTab("Settings", "✦")
 	T:Section("Team")
 	T:Dropdown("Team", function() return { "Pirates", "Marines" } end, "TeamChoice")
 	T:Toggle("Auto Pick Team", "AutoTeam")
@@ -7884,6 +7853,92 @@ do
 		notify("Settings", loadSettings() and "Loaded ✔  re-run the hub to refresh the UI" or "No saved settings", 4)
 	end)
 	T:Button("Destroy Hub", function() Hub.Destroy() end)
+end
+-- ===== 40_extras.lua (UI late) =====
+do
+do
+	local T = createTab("Settings", "✦")
+	T:Section("Discord Webhook")
+	T:Input("Paste your Discord webhook URL, press Enter", function(text)
+		S.WebhookUrl = (text:gsub("%s+", ""))
+		notify("Webhook", "URL saved", 3)
+	end)
+	T:Toggle("Send Alerts To Discord (events, Leviathan, Prehistoric, finds)", "WebhookOn")
+	T:Button("Send Test Message", function()
+		if S.WebhookUrl == "" then return notify("Webhook", "Paste the URL first") end
+		Hub.V3.webhook("BM Hub", "Test message ✔ — " .. player.Name)
+		notify("Webhook", "Test sent (if nothing arrives, check the URL)", 4)
+	end)
+	T:Label(function() return "Webhook: " .. (S.WebhookUrl ~= "" and "saved ✔" or "not set") end)
+end
+end
+
+-- ===== 50_brain.lua (UI late) =====
+do
+local Brain = Hub.Brain
+if Brain and Brain.ready then
+	local T = createTab("Combat", "⚔")
+	T:Section("Skills")
+	T:Toggle("Use Skills", "UseSkills")
+	T:Toggle("Skill Z", "SkillZ")
+	T:Toggle("Skill X", "SkillX")
+	T:Toggle("Skill C", "SkillC")
+	T:Toggle("Skill V", "SkillV")
+	T:Section("Smart Combat")
+	T:Toggle("Smart Skills (bosses and groups of 3+)", "SmartSkills")
+	T:Toggle("Smart Race Transform (energy full + worthy fight)", "SmartRace")
+	T:Toggle("Smart Retreat (leaves before you die, uses Auto Retreat)", "SmartRetreat")
+	T:Slider("Retreat If Dead In N Seconds", 1, 8, "DeathTime")
+	T:Section("Learned Dodge (bosses only)")
+	T:Toggle("Learn And Dodge Boss Attacks", "SmartDodge")
+	T:Slider("Lift Height While Dodging", 30, 75, "DodgeHeight")
+	T:Slider("Heavy Hit = % Of Max HP", 5, 40, "DodgeLearn")
+	T:Slider("Dodge After Seeing It N Times", 1, 5, "DodgeAfter")
+	T:Label(function() return ("Learned attacks: %d  •  Dodges this session: %d"):format(Brain.learnedCount(), Brain.dodges) end)
+	T:Button("Forget Learned Attacks", function()
+		Brain.forget()
+		notify("Learned Dodge", "Cleared", 3)
+	end)
+
+	T = createTab("Items", "◆")
+	T:Section("Chest Hop")
+	T:Toggle("Chest Hop", "ChestHop")
+	T:Slider("Hop After N Chests", 5, 60, "ChestHopAt")
+	T:Toggle("Safe Carry (no chests with Fist / Chalice)", "SafeCarry")
+	T:Label(function() return "Chests this server: " .. Hub.ChestsTaken .. (Hub.CanQueue and "" or "  •  hub won't restart after a hop here") end)
+
+	T = createTab("Settings", "✦")
+	T:Section("Stuck Guard")
+	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
+	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
+	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
+end
+end
+
+-- ===== 60_planner.lua (UI late) =====
+do
+local Planner = Hub.Planner
+if Planner and Planner.ready then
+	local T = createTab("Farm", "☰")
+	T:Section("Smart Mastery (with Auto Farm)")
+	T:Toggle("Train Swords One By One", "SmartMastery")
+	T:Slider("Target Mastery", 50, 600, "MasteryTarget")
+	T:Label(function()
+		if not Planner.masteryName then return "Training: nothing" end
+		return ("Training: %s  (%d)"):format(Planner.masteryName, Planner.mastery[Planner.masteryName] or 0)
+	end)
+	T = createTab("Settings", "✦")
+	T:Section("Alerts")
+	T:Toggle("Tell Me About New Items", "LootWatch")
+	T:Toggle("Hourly Report To Discord", "HourlyReport")
+	T:Button("Send Report Now", function()
+		Hub.V3.webhook("Session Report", Planner.report())
+		notify("Report", S.WebhookOn and "Sent" or "Turn on the webhook in Extras first", 4)
+	end)
+	T:Section("Safety")
+	T:Toggle("Restart Hub After Teleports", "AutoReload")
+	T:Toggle("PK Guard (hop when a player keeps hitting you)", "PKGuard")
+end
 end
 end -- صفحه‌ها
 
@@ -8174,6 +8229,15 @@ task.spawn(function()
 	floatBtn.Visible = true
 	showMain(true)
 	task.wait(0.5)
+	for _, groups in pairs(Hub.TabUI.groups) do
+		local total = 0
+		for _, g in ipairs(groups) do total += #g.items end
+		if total > 14 then
+			for i, g in ipairs(groups) do
+				if i > 1 then g.show(false) end
+			end
+		end
+	end
 	selectPage("Home")
 	notify("BM Hub", ("Loaded ✔  Sea %s  •  %d quests"):format(Sea > 0 and Sea or "?", #QuestList), 4)
 	if Sea == 0 then notify("BM Hub", "This doesn't look like Blox Fruits!", 5) end

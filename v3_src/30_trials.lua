@@ -324,7 +324,7 @@ end
 
 --@@UI@@
 if Sea >= 2 then
-	local T = createTab("Trials", "✦")
+	local T = createTab("Quests", "≋")
 	if Sea == 3 then
 		T:Section("Race V4 (Temple of Time)")
 		T:Toggle("Auto Trial (go to the door, fight your race trial)", "AutoTrial", stopOff)

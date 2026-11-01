@@ -95,8 +95,21 @@ if not okEx then logError("v3 extras", errEx) end
 end
 
 --@@UI@@
+if Sea == 3 then
+	local T = createTab("Sea", "⚓")
+	T:Section("Kitsune Island")
+	T:Dropdown("Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
+	T:Toggle("Auto Spawn Kitsune Island (full moon night)", "AutoKitsuneSpawn", stopOff)
+	T:Toggle("Auto Pray At Kitsune Statue (needs Azure Ember)", "AutoKitsunePray")
+	T:Slider("Azure Ember Needed", 1, 20, "AzureEmberNeed")
+	T:Label(function()
+		return "Kitsune Island: " .. (Hub.Events and Hub.Events.kitsune and "SPAWNED ✔" or "no") .. "  •  Azure Ember: " .. tostring(materialCount("Azure Ember") or 0)
+	end)
+end
+
+--@@UI-LATE@@
 do
-	local T = createTab("Extras", "★")
+	local T = createTab("Settings", "✦")
 	T:Section("Discord Webhook")
 	T:Input("Paste your Discord webhook URL, press Enter", function(text)
 		S.WebhookUrl = (text:gsub("%s+", ""))
@@ -109,14 +122,4 @@ do
 		notify("Webhook", "Test sent (if nothing arrives, check the URL)", 4)
 	end)
 	T:Label(function() return "Webhook: " .. (S.WebhookUrl ~= "" and "saved ✔" or "not set") end)
-	if Sea == 3 then
-		T:Section("Kitsune Island")
-		T:Dropdown("Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
-		T:Toggle("Auto Spawn Kitsune Island (full moon night)", "AutoKitsuneSpawn", stopOff)
-		T:Toggle("Auto Pray At Kitsune Statue (needs Azure Ember)", "AutoKitsunePray")
-		T:Slider("Azure Ember Needed", 1, 20, "AzureEmberNeed")
-		T:Label(function()
-			return "Kitsune Island: " .. (Hub.Events and Hub.Events.kitsune and "SPAWNED ✔" or "no") .. "  •  Azure Ember: " .. tostring(materialCount("Azure Ember") or 0)
-		end)
-	end
 end

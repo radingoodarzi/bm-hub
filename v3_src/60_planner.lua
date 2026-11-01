@@ -353,7 +353,7 @@ end
 -- @top
 local Planner, Brain = Hub.Planner, Hub.Brain
 if Planner and Planner.ready then
-	local T = createTab("Planner", "☑")
+	local T = createTab("Brain", "✺")
 	T:Section("Account Plan (Brain goal: Account Plan)")
 	for i = 1, 6 do
 		if Planner.stepLine(i) then
@@ -373,6 +373,12 @@ if Planner and Planner.ready then
 			return ("%d. %s: %s/h  (%d min measured)"):format(i, j.label, formatNumber(math.floor(j.rate)), math.floor(j.mins))
 		end)
 	end
+end
+
+--@@UI-LATE@@
+local Planner = Hub.Planner
+if Planner and Planner.ready then
+	local T = createTab("Farm", "☰")
 	T:Section("Smart Mastery (with Auto Farm)")
 	T:Toggle("Train Swords One By One", "SmartMastery")
 	T:Slider("Target Mastery", 50, 600, "MasteryTarget")
@@ -380,6 +386,7 @@ if Planner and Planner.ready then
 		if not Planner.masteryName then return "Training: nothing" end
 		return ("Training: %s  (%d)"):format(Planner.masteryName, Planner.mastery[Planner.masteryName] or 0)
 	end)
+	T = createTab("Settings", "✦")
 	T:Section("Alerts")
 	T:Toggle("Tell Me About New Items", "LootWatch")
 	T:Toggle("Hourly Report To Discord", "HourlyReport")

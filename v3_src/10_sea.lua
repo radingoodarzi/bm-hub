@@ -421,7 +421,7 @@ end
 
 --@@UI@@
 if Sea >= 2 then
-	local T = createTab("Sea Hunt", "⚓")
+	local T = createTab("Sea", "⚓")
 	T:Section("Boat")
 	T:Toggle("Auto Buy Boat (spends beli!)", "AutoBuyBoat")
 	T:Toggle("Respawn Near Dealer When Far (saves flight time)", "ResetForBoat")

@@ -354,11 +354,14 @@ local okBrain, errBrain = pcall(function()
 	Hub.DodgeY = 0
 	local danger, recentAnims, dirty, dodgeEnd = {}, {}, false, 0
 	Brain.danger = danger
-	Brain.store = { danger = danger, ledger = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
+	-- v=2: نسخه‌ی قبلی ضربه‌ی ماب‌های معمولی رو هم یاد می‌گرفت، اون داده دور ریخته میشه
+	Brain.store = { v = 2, danger = danger, ledger = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
 	pcall(function()
 		if isfile and not isfile(BRAIN_FILE) then return end
 		local d = Svc.Http:JSONDecode(readfile(BRAIN_FILE))
-		for id, v in pairs(type(d) == "table" and d.danger or {}) do danger[id] = v end
+		if d.v == 2 then
+			for id, v in pairs(d.danger or {}) do danger[id] = v end
+		end
 		if type(d.ledger) == "table" then Brain.store.ledger = d.ledger end
 	end)
 	function Brain.markDirty() dirty = true end
@@ -401,9 +404,25 @@ local okBrain, errBrain = pcall(function()
 		end)
 	end
 
+	-- فقط باس‌ها: ضربه‌ی عادی ماب‌ها هم سنگینه و اگه ازشون جاخالی بدیم از برد حمله بیرون می‌مونیم
+	local bossSet, bossSetAt = {}, 0
+	function Brain.isBoss(mob)
+		if mob.Name:find("[Boss]", 1, true) then return true end
+		if tick() - bossSetAt > 30 then
+			bossSetAt = tick()
+			table.clear(bossSet)
+			for _, n in ipairs(bossNames()) do bossSet[n] = true end
+			for _, n in ipairs(ELITES) do bossSet[n] = true end
+			for _, b in ipairs(Hub.Special or {}) do
+				for _, n in ipairs(b.names) do bossSet[n] = true end
+			end
+		end
+		return bossSet[mobBaseName(mob.Name)] == true
+	end
+
 	local watched = setmetatable({}, { __mode = "k" })
 	function Hub.WatchMob(mob, hum)
-		if not S.SmartDodge or not hum or watched[hum] then return end
+		if not S.SmartDodge or not hum or watched[hum] or not Brain.isBoss(mob) then return end
 		watched[hum] = true
 		local name = mobBaseName(mob.Name)
 		pcall(function()
@@ -471,7 +490,7 @@ local okBrain, errBrain = pcall(function()
 		local n = 0
 		for _, m in ipairs(enemies:GetChildren()) do
 			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= S.AttackRange then
-				if m.Name:find("[Boss]", 1, true) then return true end
+				if Brain.isBoss(m) then return true end
 				n += 1
 			end
 		end
@@ -620,7 +639,29 @@ if Brain and Brain.ready then
 	for i = 1, 5 do
 		T:Label(function() return Brain.log[i] or "-" end)
 	end
-	T:Section("Learned Dodge")
+	T:Section("Session Income")
+	T:Label(function() return "XP / hour: " .. formatNumber(math.floor(Brain.perHour("Exp"))) end)
+	T:Label(function() return "Beli / hour: " .. formatNumber(math.floor(Brain.perHour("Beli"))) end)
+	T:Label(function() return "Fragments / hour: " .. formatNumber(math.floor(Brain.perHour("Fragments"))) end)
+	T:Button("Reset Income Stats", function() Brain.resetStats() end)
+end
+
+--@@UI-LATE@@
+local Brain = Hub.Brain
+if Brain and Brain.ready then
+	local T = createTab("Combat", "⚔")
+	T:Section("Skills")
+	T:Toggle("Use Skills", "UseSkills")
+	T:Toggle("Skill Z", "SkillZ")
+	T:Toggle("Skill X", "SkillX")
+	T:Toggle("Skill C", "SkillC")
+	T:Toggle("Skill V", "SkillV")
+	T:Section("Smart Combat")
+	T:Toggle("Smart Skills (bosses and groups of 3+)", "SmartSkills")
+	T:Toggle("Smart Race Transform (energy full + worthy fight)", "SmartRace")
+	T:Toggle("Smart Retreat (leaves before you die, uses Auto Retreat)", "SmartRetreat")
+	T:Slider("Retreat If Dead In N Seconds", 1, 8, "DeathTime")
+	T:Section("Learned Dodge (bosses only)")
 	T:Toggle("Learn And Dodge Boss Attacks", "SmartDodge")
 	T:Slider("Lift Height While Dodging", 30, 75, "DodgeHeight")
 	T:Slider("Heavy Hit = % Of Max HP", 5, 40, "DodgeLearn")
@@ -630,23 +671,17 @@ if Brain and Brain.ready then
 		Brain.forget()
 		notify("Learned Dodge", "Cleared", 3)
 	end)
-	T:Section("Smart Combat")
-	T:Toggle("Smart Skills (bosses and groups of 3+)", "SmartSkills")
-	T:Toggle("Smart Race Transform (energy full + worthy fight)", "SmartRace")
-	T:Toggle("Smart Retreat (leaves before you die, uses Auto Retreat)", "SmartRetreat")
-	T:Slider("Retreat If Dead In N Seconds", 1, 8, "DeathTime")
-	T:Section("Stuck Guard")
-	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
-	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
-	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
-	T:Section("Chests")
+
+	T = createTab("Items", "◆")
+	T:Section("Chest Hop")
 	T:Toggle("Chest Hop", "ChestHop")
 	T:Slider("Hop After N Chests", 5, 60, "ChestHopAt")
 	T:Toggle("Safe Carry (no chests with Fist / Chalice)", "SafeCarry")
 	T:Label(function() return "Chests this server: " .. Hub.ChestsTaken .. (Hub.CanQueue and "" or "  •  hub won't restart after a hop here") end)
-	T:Section("Session Income")
-	T:Label(function() return "XP / hour: " .. formatNumber(math.floor(Brain.perHour("Exp"))) end)
-	T:Label(function() return "Beli / hour: " .. formatNumber(math.floor(Brain.perHour("Beli"))) end)
-	T:Label(function() return "Fragments / hour: " .. formatNumber(math.floor(Brain.perHour("Fragments"))) end)
-	T:Button("Reset Income Stats", function() Brain.resetStats() end)
+
+	T = createTab("Settings", "✦")
+	T:Section("Stuck Guard")
+	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
+	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
+	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
 end
