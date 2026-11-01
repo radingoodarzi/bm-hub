@@ -500,7 +500,8 @@ local okBrain, errBrain = pcall(function()
 	Brain.fightWorthIt = fightWorthIt
 
 	-- M1 میوه: ابزار میوه‌هایی که حمله‌ی کلیکی دارن یه LeftClickRemote داره (از Banana)
-	-- به جای RegisterHit، جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) فرستاده میشه
+	-- جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) با همون سرعت ضربه‌ی ملی فرستاده میشه،
+	-- و ضربه‌ی چندهدفه‌ی ملی هم کنارش میره (لاگ Dragon-Dragon بدون اون یک‌چهارم ملی دمیج داشت)
 	local fruitCombo, fruitAt = 0, 0
 	function Brain.heldFruitM1()
 		local char = getChar()
@@ -509,13 +510,12 @@ local okBrain, errBrain = pcall(function()
 		return remote and tool, remote
 	end
 
-	-- true یعنی ابزار توی دست M1 میوه داره و ضربه‌ی ملی نباید فرستاده بشه
 	function Hub.FruitM1(root)
-		if not S.FruitM1 then return false end
+		if not S.FruitM1 then return end
 		local tool, remote = Brain.heldFruitM1()
-		if not tool then return false end
+		if not tool then return end
 		local mob = nearestMobInRange()
-		if not mob or tick() - fruitAt < 0.2 then return true end
+		if not mob or tick() - fruitAt < 0.1 then return end
 		fruitAt = tick()
 		fruitCombo = fruitCombo % 4 + 1
 		V3.once("fruitM1" .. tool.Name, function() V3.log("FRUIT M1 using " .. tool.Name) end)
@@ -527,8 +527,33 @@ local okBrain, errBrain = pcall(function()
 		else
 			Hub.AttackInfo.lastError = "fruit M1: " .. tostring(err)
 		end
-		return true
 	end
+
+	-- دمیج واقعی برای لاگ: جمع کم شدن جون ماب‌های نزدیک، تا سلاح‌ها با عدد مقایسه بشن
+	local mobHp, damage, damageFrom = setmetatable({}, { __mode = "k" }), 0, tick()
+	function Brain.sampleDamage()
+		local root = getRoot()
+		local enemies = workspace:FindFirstChild("Enemies")
+		if not root or not enemies then return end
+		for _, m in ipairs(enemies:GetChildren()) do
+			local hum, hrp = m:FindFirstChildOfClass("Humanoid"), m:FindFirstChild("HumanoidRootPart")
+			if hum and hrp and (hrp.Position - root.Position).Magnitude <= S.AttackRange + 20 then
+				if mobHp[hum] and hum.Health < mobHp[hum] then damage += mobHp[hum] - hum.Health end
+				mobHp[hum] = hum.Health
+			end
+		end
+	end
+	function Hub.DamageRate()
+		local rate = damage / math.max(tick() - damageFrom, 0.5)
+		damage, damageFrom = 0, tick()
+		return rate
+	end
+	task.spawn(function()
+		while Hub.Running do
+			pcall(Brain.sampleDamage)
+			task.wait(0.5)
+		end
+	end)
 
 	local nextSkill, skillAt = 1, 0
 	local SKILL_ORDER = { "Z", "X", "C", "V" }

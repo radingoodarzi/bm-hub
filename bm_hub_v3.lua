@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "3.6" }
+local Hub = { Connections = {}, Running = true, Version = "3.7" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -922,7 +922,10 @@ local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
-	if (m == "Auto" or m == "Remote") and not (Hub.FruitM1 and Hub.FruitM1(root)) then remoteAttack(root) end
+	if m == "Auto" or m == "Remote" then
+		if Hub.FruitM1 then Hub.FruitM1(root) end
+		remoteAttack(root)
+	end
 	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
 	if m == "Auto" or m == "Tool" then
@@ -4006,9 +4009,9 @@ do
 						local held = char:FindFirstChildOfClass("Tool")
 						local a = Hub.AttackInfo
 						local function flag(n) local v = char:FindFirstChild(n) return v and tostring(v.Value) or "-" end
-						push(("ATTACK held=%s near=%d target=%s hp=%d dist=%d | clicks=%d activates=%d err=%s | Stun=%s Busy=%s Sit=%s"):format(
+						push(("ATTACK held=%s near=%d target=%s hp=%d dist=%d dmg/s=%d fruitM1=%d | clicks=%d activates=%d err=%s | Stun=%s Busy=%s Sit=%s"):format(
 							held and (held.Name .. "[" .. tostring(held.ToolTip) .. "]") or "none", near, mobBaseName(best.Name),
-							math.floor(best.Humanoid.Health), math.floor(bestD), a.click, a.tool, tostring(a.lastError),
+							math.floor(best.Humanoid.Health), math.floor(bestD), math.floor(Hub.DamageRate and Hub.DamageRate() or 0), a.fruit or 0, a.click, a.tool, tostring(a.lastError),
 							flag("Stun"), flag("Busy"), tostring(hum and hum.Sit)))
 					end
 				end
@@ -5972,7 +5975,8 @@ local okBrain, errBrain = pcall(function()
 	Brain.fightWorthIt = fightWorthIt
 
 	-- M1 میوه: ابزار میوه‌هایی که حمله‌ی کلیکی دارن یه LeftClickRemote داره (از Banana)
-	-- به جای RegisterHit، جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) فرستاده میشه
+	-- جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) با همون سرعت ضربه‌ی ملی فرستاده میشه،
+	-- و ضربه‌ی چندهدفه‌ی ملی هم کنارش میره (لاگ Dragon-Dragon بدون اون یک‌چهارم ملی دمیج داشت)
 	local fruitCombo, fruitAt = 0, 0
 	function Brain.heldFruitM1()
 		local char = getChar()
@@ -5981,13 +5985,12 @@ local okBrain, errBrain = pcall(function()
 		return remote and tool, remote
 	end
 
-	-- true یعنی ابزار توی دست M1 میوه داره و ضربه‌ی ملی نباید فرستاده بشه
 	function Hub.FruitM1(root)
-		if not S.FruitM1 then return false end
+		if not S.FruitM1 then return end
 		local tool, remote = Brain.heldFruitM1()
-		if not tool then return false end
+		if not tool then return end
 		local mob = nearestMobInRange()
-		if not mob or tick() - fruitAt < 0.2 then return true end
+		if not mob or tick() - fruitAt < 0.1 then return end
 		fruitAt = tick()
 		fruitCombo = fruitCombo % 4 + 1
 		V3.once("fruitM1" .. tool.Name, function() V3.log("FRUIT M1 using " .. tool.Name) end)
@@ -5999,8 +6002,33 @@ local okBrain, errBrain = pcall(function()
 		else
 			Hub.AttackInfo.lastError = "fruit M1: " .. tostring(err)
 		end
-		return true
 	end
+
+	-- دمیج واقعی برای لاگ: جمع کم شدن جون ماب‌های نزدیک، تا سلاح‌ها با عدد مقایسه بشن
+	local mobHp, damage, damageFrom = setmetatable({}, { __mode = "k" }), 0, tick()
+	function Brain.sampleDamage()
+		local root = getRoot()
+		local enemies = workspace:FindFirstChild("Enemies")
+		if not root or not enemies then return end
+		for _, m in ipairs(enemies:GetChildren()) do
+			local hum, hrp = m:FindFirstChildOfClass("Humanoid"), m:FindFirstChild("HumanoidRootPart")
+			if hum and hrp and (hrp.Position - root.Position).Magnitude <= S.AttackRange + 20 then
+				if mobHp[hum] and hum.Health < mobHp[hum] then damage += mobHp[hum] - hum.Health end
+				mobHp[hum] = hum.Health
+			end
+		end
+	end
+	function Hub.DamageRate()
+		local rate = damage / math.max(tick() - damageFrom, 0.5)
+		damage, damageFrom = 0, tick()
+		return rate
+	end
+	task.spawn(function()
+		while Hub.Running do
+			pcall(Brain.sampleDamage)
+			task.wait(0.5)
+		end
+	end)
 
 	local nextSkill, skillAt = 1, 0
 	local SKILL_ORDER = { "Z", "X", "C", "V" }
