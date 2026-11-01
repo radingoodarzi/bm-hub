@@ -14,7 +14,7 @@ local okBrain, errBrain = pcall(function()
 		BrainSeas = false, BrainDeaths = 2,
 		Watchdog = true, WatchdogSec = 45,
 		SmartDodge = true, DodgeHeight = 70, DodgeLearn = 12, DodgeAfter = 2,
-		SmartSkills = true, SmartRace = false,
+		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3,
 		ChestHop = false, ChestHopAt = 20, SafeCarry = true,
 	}) do
 		if S[k] == nil then S[k] = v end
@@ -40,7 +40,10 @@ local okBrain, errBrain = pcall(function()
 		for k in pairs(earned) do
 			local v = dataValue(k)
 			if type(v) == "number" then
-				if lastValue[k] and v > lastValue[k] then earned[k] += v - lastValue[k] end
+				if lastValue[k] and v > lastValue[k] then
+					earned[k] += v - lastValue[k]
+					if Brain.onIncome then Brain.onIncome(k, v - lastValue[k]) end
+				end
 				lastValue[k] = v
 			end
 		end
@@ -73,11 +76,20 @@ local okBrain, errBrain = pcall(function()
 		return true
 	end
 
-	-- سرور کم‌جمعیت = صندوق دست‌نخورده‌ی بیشتر؛ اگه executor اجازه بده هاب بعد از هاپ خودش برمی‌گرده
-	function Brain.hop()
+	-- اگه executor اجازه بده هاب بعد از تلپورت خودش برمی‌گرده (یک بار برای هر تلپورت)
+	local reloadQueued = false
+	function Hub.QueueReload()
+		if reloadQueued then return end
+		reloadQueued = true
 		if Hub.SaveSettings then Hub.SaveSettings() end
 		local queueTp = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 		if queueTp then pcall(queueTp, LOADER) end
+	end
+	function Hub.ReloadFailed() reloadQueued = false end
+
+	-- سرور کم‌جمعیت = صندوق دست‌نخورده‌ی بیشتر
+	function Brain.hop()
+		Hub.QueueReload()
 		return serverHop(true)
 	end
 
@@ -166,29 +178,44 @@ local okBrain, errBrain = pcall(function()
 		{ name = "Ectoplasm", flag = "AutoEcto", sea = 2 },
 		{ name = "Bones", flag = "AutoBone", sea = 3 },
 		{ name = "Cake Prince", flag = "AutoCake", sea = 3 },
-		{ name = "Elite Hunter", flag = "AutoElite", sea = 3 },
-		{ name = "Sea Events", flag = "AutoSeaEvent", seas = { [2] = true, [3] = true } },
+		{ name = "Elite Hunter", flag = "AutoElite", sea = 3, noBest = true },
+		{ name = "Sea Events", flag = "AutoSeaEvent", seas = { [2] = true, [3] = true }, noBest = true },
 	}
 	local function goalFits(g)
 		if g.seas then return g.seas[Sea] == true end
 		return not g.sea or g.sea == Sea
 	end
 	for _, g in ipairs(GOALS) do managed[g.flag] = true end
+	Brain.extraGoals = {} -- هدف‌های پویا (Planner اضافه می‌کنه)
 	function Brain.goalNames()
 		local out = {}
 		for _, g in ipairs(GOALS) do
 			if goalFits(g) then table.insert(out, g.name) end
 		end
+		for _, n in ipairs(Brain.extraGoals) do table.insert(out, n) end
 		return out
 	end
-	local function goalRule()
+	-- هدف‌هایی که می‌شه درآمدشون رو با هم مقایسه کرد
+	function Brain.goalCandidates()
+		local out = {}
+		for _, g in ipairs(GOALS) do
+			if goalFits(g) and not g.noBest then table.insert(out, g.name) end
+		end
+		return out
+	end
+	function Brain.goalByName(name)
 		local g = GOALS[1]
 		for _, c in ipairs(GOALS) do
-			if c.name == S.BrainGoal and goalFits(c) then g = c end
+			if c.name == name and goalFits(c) then g = c end
 		end
 		g.id, g.label, g.goal, g.why = "Goal" .. g.name, g.name, true, "nothing better to do right now"
 		g.want = function() return true end
 		return g
+	end
+	-- کلیدی که Planner موقتاً دست مغز میده
+	function Brain.claim(flag) managed[flag] = true end
+	local function goalRule()
+		return (Brain.dynamicGoal and Brain.dynamicGoal(S.BrainGoal)) or Brain.goalByName(S.BrainGoal)
 	end
 
 	-- بعضی کارها چند مرحله‌ای‌ان (CDK، Tushita و...): اگه خودت روشنشون کردی مغز وسطشون نمی‌پره
@@ -196,7 +223,7 @@ local okBrain, errBrain = pcall(function()
 		"AutoRaceV2", "AutoRaceV3", "AutoSoulGuitar", "AutoStyles", "AutoSeaBeast", "AutoMaterial" }
 	local function longJobRunning()
 		for _, f in ipairs(LONG_JOBS) do
-			if S[f] then return f end
+			if S[f] and not managed[f] then return f end
 		end
 		for _, t in ipairs(Hub.V3Tasks) do
 			if S[t.flag] and not managed[t.flag] and (not t.cond or t.cond()) then return t.flag end
@@ -254,7 +281,9 @@ local okBrain, errBrain = pcall(function()
 		end
 		local cur = Brain.current
 		if cur and cur.maxRun and tick() - Brain.since > cur.maxRun then
-			Brain.ban[cur.id] = tick() + cur.rest
+			-- هر بار که دوباره طول بکشه استراحتش دو برابر میشه (تا 8 برابر)
+			cur.rests = math.min((cur.rests or 0) + 1, 4)
+			Brain.ban[cur.id] = tick() + cur.rest * 2 ^ (cur.rests - 1)
 			Brain.note(cur.label .. " took too long, resting it")
 			Brain.current, cur = nil, nil
 		end
@@ -303,7 +332,7 @@ local okBrain, errBrain = pcall(function()
 				Brain.current = nil
 				Brain.why = "Off"
 				stopTween()
-				for k, v in pairs(savedFlags or {}) do S[k] = v end
+				for f in pairs(managed) do S[f] = savedFlags ~= nil and savedFlags[f] == true end
 				S.SelectedBoss = savedFlags and savedFlags.SelectedBoss
 				Brain.note("Brain off, your switches are back")
 			end
@@ -325,11 +354,14 @@ local okBrain, errBrain = pcall(function()
 	Hub.DodgeY = 0
 	local danger, recentAnims, dirty, dodgeEnd = {}, {}, false, 0
 	Brain.danger = danger
+	Brain.store = { danger = danger, ledger = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
 	pcall(function()
 		if isfile and not isfile(BRAIN_FILE) then return end
 		local d = Svc.Http:JSONDecode(readfile(BRAIN_FILE))
 		for id, v in pairs(type(d) == "table" and d.danger or {}) do danger[id] = v end
+		if type(d.ledger) == "table" then Brain.store.ledger = d.ledger end
 	end)
+	function Brain.markDirty() dirty = true end
 
 	function Brain.learnedCount()
 		local n = 0
@@ -386,6 +418,21 @@ local okBrain, errBrain = pcall(function()
 		end)
 	end
 
+	-- فرار هوشمند: درصد ثابت جلوی باس‌های قوی دیر میشه؛ از دمیج 3 ثانیه‌ی اخیر زمان تا مرگ رو حساب می‌کنیم
+	local hits = {}
+	function Brain.recordHit(drop)
+		table.insert(hits, { t = tick(), drop = drop })
+		while #hits > 0 and tick() - hits[1].t > 3 do table.remove(hits, 1) end
+	end
+	function Hub.InDanger(hp)
+		if not S.SmartRetreat then return false end
+		local sum = 0
+		for _, h in ipairs(hits) do
+			if tick() - h.t <= 3 then sum += h.drop end
+		end
+		return sum > 0 and hp / (sum / 3) < S.DeathTime
+	end
+
 	local function hookCharacter(char)
 		local hum = char:WaitForChild("Humanoid", 10)
 		if not hum then return end
@@ -393,7 +440,11 @@ local okBrain, errBrain = pcall(function()
 		connect(hum.HealthChanged, function(h)
 			local drop = hp - h
 			hp = h
-			if S.SmartDodge and hum.MaxHealth > 0 and drop / hum.MaxHealth * 100 >= S.DodgeLearn then Brain.learnHit() end
+			if drop <= 0 or hum.MaxHealth <= 0 then return end
+			Brain.recordHit(drop)
+			local pct = drop / hum.MaxHealth * 100
+			if S.SmartDodge and pct >= S.DodgeLearn then Brain.learnHit() end
+			if Brain.onHeavyHit then Brain.onHeavyHit(pct) end
 		end)
 		connect(hum.Died, Brain.onDeath)
 	end
@@ -405,7 +456,7 @@ local okBrain, errBrain = pcall(function()
 			task.wait(30)
 			if dirty then
 				dirty = false
-				pcall(function() writefile(BRAIN_FILE, Svc.Http:JSONEncode({ danger = danger })) end)
+				pcall(function() writefile(BRAIN_FILE, Svc.Http:JSONEncode(Brain.store)) end)
 			end
 		end
 	end)
@@ -582,6 +633,8 @@ if Brain and Brain.ready then
 	T:Section("Smart Combat")
 	T:Toggle("Smart Skills (bosses and groups of 3+)", "SmartSkills")
 	T:Toggle("Smart Race Transform (energy full + worthy fight)", "SmartRace")
+	T:Toggle("Smart Retreat (leaves before you die, uses Auto Retreat)", "SmartRetreat")
+	T:Slider("Retreat If Dead In N Seconds", 1, 8, "DeathTime")
 	T:Section("Stuck Guard")
 	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
 	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")

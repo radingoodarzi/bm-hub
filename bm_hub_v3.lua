@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "3.1" }
+local Hub = { Connections = {}, Running = true, Version = "3.2" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1046,7 +1046,7 @@ local function killMob(mob, keepGoing)
 		local root = getRoot()
 		-- جون کم: میریم بالا (بیرون از دسترس ماب‌ها) تا جون برگرده، بعد ادامه
 		local me = getHum()
-		if S.AutoRetreat and me and me.MaxHealth > 0 and me.Health / me.MaxHealth * 100 < S.RetreatHP then
+		if S.AutoRetreat and me and me.MaxHealth > 0 and (me.Health / me.MaxHealth * 100 < S.RetreatHP or (Hub.InDanger and Hub.InDanger(me.Health))) then
 			S.Status = "Low HP — healing above the mobs"
 			tweenTo(CFrame.new(root.Position + Vector3.new(0, 150, 0)), keepGoing)
 			local t0 = tick()
@@ -5461,7 +5461,7 @@ local okBrain, errBrain = pcall(function()
 		BrainSeas = false, BrainDeaths = 2,
 		Watchdog = true, WatchdogSec = 45,
 		SmartDodge = true, DodgeHeight = 70, DodgeLearn = 12, DodgeAfter = 2,
-		SmartSkills = true, SmartRace = false,
+		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3,
 		ChestHop = false, ChestHopAt = 20, SafeCarry = true,
 	}) do
 		if S[k] == nil then S[k] = v end
@@ -5487,7 +5487,10 @@ local okBrain, errBrain = pcall(function()
 		for k in pairs(earned) do
 			local v = dataValue(k)
 			if type(v) == "number" then
-				if lastValue[k] and v > lastValue[k] then earned[k] += v - lastValue[k] end
+				if lastValue[k] and v > lastValue[k] then
+					earned[k] += v - lastValue[k]
+					if Brain.onIncome then Brain.onIncome(k, v - lastValue[k]) end
+				end
 				lastValue[k] = v
 			end
 		end
@@ -5520,11 +5523,20 @@ local okBrain, errBrain = pcall(function()
 		return true
 	end
 
-	-- سرور کم‌جمعیت = صندوق دست‌نخورده‌ی بیشتر؛ اگه executor اجازه بده هاب بعد از هاپ خودش برمی‌گرده
-	function Brain.hop()
+	-- اگه executor اجازه بده هاب بعد از تلپورت خودش برمی‌گرده (یک بار برای هر تلپورت)
+	local reloadQueued = false
+	function Hub.QueueReload()
+		if reloadQueued then return end
+		reloadQueued = true
 		if Hub.SaveSettings then Hub.SaveSettings() end
 		local queueTp = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 		if queueTp then pcall(queueTp, LOADER) end
+	end
+	function Hub.ReloadFailed() reloadQueued = false end
+
+	-- سرور کم‌جمعیت = صندوق دست‌نخورده‌ی بیشتر
+	function Brain.hop()
+		Hub.QueueReload()
 		return serverHop(true)
 	end
 
@@ -5613,29 +5625,44 @@ local okBrain, errBrain = pcall(function()
 		{ name = "Ectoplasm", flag = "AutoEcto", sea = 2 },
 		{ name = "Bones", flag = "AutoBone", sea = 3 },
 		{ name = "Cake Prince", flag = "AutoCake", sea = 3 },
-		{ name = "Elite Hunter", flag = "AutoElite", sea = 3 },
-		{ name = "Sea Events", flag = "AutoSeaEvent", seas = { [2] = true, [3] = true } },
+		{ name = "Elite Hunter", flag = "AutoElite", sea = 3, noBest = true },
+		{ name = "Sea Events", flag = "AutoSeaEvent", seas = { [2] = true, [3] = true }, noBest = true },
 	}
 	local function goalFits(g)
 		if g.seas then return g.seas[Sea] == true end
 		return not g.sea or g.sea == Sea
 	end
 	for _, g in ipairs(GOALS) do managed[g.flag] = true end
+	Brain.extraGoals = {} -- هدف‌های پویا (Planner اضافه می‌کنه)
 	function Brain.goalNames()
 		local out = {}
 		for _, g in ipairs(GOALS) do
 			if goalFits(g) then table.insert(out, g.name) end
 		end
+		for _, n in ipairs(Brain.extraGoals) do table.insert(out, n) end
 		return out
 	end
-	local function goalRule()
+	-- هدف‌هایی که می‌شه درآمدشون رو با هم مقایسه کرد
+	function Brain.goalCandidates()
+		local out = {}
+		for _, g in ipairs(GOALS) do
+			if goalFits(g) and not g.noBest then table.insert(out, g.name) end
+		end
+		return out
+	end
+	function Brain.goalByName(name)
 		local g = GOALS[1]
 		for _, c in ipairs(GOALS) do
-			if c.name == S.BrainGoal and goalFits(c) then g = c end
+			if c.name == name and goalFits(c) then g = c end
 		end
 		g.id, g.label, g.goal, g.why = "Goal" .. g.name, g.name, true, "nothing better to do right now"
 		g.want = function() return true end
 		return g
+	end
+	-- کلیدی که Planner موقتاً دست مغز میده
+	function Brain.claim(flag) managed[flag] = true end
+	local function goalRule()
+		return (Brain.dynamicGoal and Brain.dynamicGoal(S.BrainGoal)) or Brain.goalByName(S.BrainGoal)
 	end
 
 	-- بعضی کارها چند مرحله‌ای‌ان (CDK، Tushita و...): اگه خودت روشنشون کردی مغز وسطشون نمی‌پره
@@ -5643,7 +5670,7 @@ local okBrain, errBrain = pcall(function()
 		"AutoRaceV2", "AutoRaceV3", "AutoSoulGuitar", "AutoStyles", "AutoSeaBeast", "AutoMaterial" }
 	local function longJobRunning()
 		for _, f in ipairs(LONG_JOBS) do
-			if S[f] then return f end
+			if S[f] and not managed[f] then return f end
 		end
 		for _, t in ipairs(Hub.V3Tasks) do
 			if S[t.flag] and not managed[t.flag] and (not t.cond or t.cond()) then return t.flag end
@@ -5701,7 +5728,9 @@ local okBrain, errBrain = pcall(function()
 		end
 		local cur = Brain.current
 		if cur and cur.maxRun and tick() - Brain.since > cur.maxRun then
-			Brain.ban[cur.id] = tick() + cur.rest
+			-- هر بار که دوباره طول بکشه استراحتش دو برابر میشه (تا 8 برابر)
+			cur.rests = math.min((cur.rests or 0) + 1, 4)
+			Brain.ban[cur.id] = tick() + cur.rest * 2 ^ (cur.rests - 1)
 			Brain.note(cur.label .. " took too long, resting it")
 			Brain.current, cur = nil, nil
 		end
@@ -5750,7 +5779,7 @@ local okBrain, errBrain = pcall(function()
 				Brain.current = nil
 				Brain.why = "Off"
 				stopTween()
-				for k, v in pairs(savedFlags or {}) do S[k] = v end
+				for f in pairs(managed) do S[f] = savedFlags ~= nil and savedFlags[f] == true end
 				S.SelectedBoss = savedFlags and savedFlags.SelectedBoss
 				Brain.note("Brain off, your switches are back")
 			end
@@ -5772,11 +5801,14 @@ local okBrain, errBrain = pcall(function()
 	Hub.DodgeY = 0
 	local danger, recentAnims, dirty, dodgeEnd = {}, {}, false, 0
 	Brain.danger = danger
+	Brain.store = { danger = danger, ledger = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
 	pcall(function()
 		if isfile and not isfile(BRAIN_FILE) then return end
 		local d = Svc.Http:JSONDecode(readfile(BRAIN_FILE))
 		for id, v in pairs(type(d) == "table" and d.danger or {}) do danger[id] = v end
+		if type(d.ledger) == "table" then Brain.store.ledger = d.ledger end
 	end)
+	function Brain.markDirty() dirty = true end
 
 	function Brain.learnedCount()
 		local n = 0
@@ -5833,6 +5865,21 @@ local okBrain, errBrain = pcall(function()
 		end)
 	end
 
+	-- فرار هوشمند: درصد ثابت جلوی باس‌های قوی دیر میشه؛ از دمیج 3 ثانیه‌ی اخیر زمان تا مرگ رو حساب می‌کنیم
+	local hits = {}
+	function Brain.recordHit(drop)
+		table.insert(hits, { t = tick(), drop = drop })
+		while #hits > 0 and tick() - hits[1].t > 3 do table.remove(hits, 1) end
+	end
+	function Hub.InDanger(hp)
+		if not S.SmartRetreat then return false end
+		local sum = 0
+		for _, h in ipairs(hits) do
+			if tick() - h.t <= 3 then sum += h.drop end
+		end
+		return sum > 0 and hp / (sum / 3) < S.DeathTime
+	end
+
 	local function hookCharacter(char)
 		local hum = char:WaitForChild("Humanoid", 10)
 		if not hum then return end
@@ -5840,7 +5887,11 @@ local okBrain, errBrain = pcall(function()
 		connect(hum.HealthChanged, function(h)
 			local drop = hp - h
 			hp = h
-			if S.SmartDodge and hum.MaxHealth > 0 and drop / hum.MaxHealth * 100 >= S.DodgeLearn then Brain.learnHit() end
+			if drop <= 0 or hum.MaxHealth <= 0 then return end
+			Brain.recordHit(drop)
+			local pct = drop / hum.MaxHealth * 100
+			if S.SmartDodge and pct >= S.DodgeLearn then Brain.learnHit() end
+			if Brain.onHeavyHit then Brain.onHeavyHit(pct) end
 		end)
 		connect(hum.Died, Brain.onDeath)
 	end
@@ -5852,7 +5903,7 @@ local okBrain, errBrain = pcall(function()
 			task.wait(30)
 			if dirty then
 				dirty = false
-				pcall(function() writefile(BRAIN_FILE, Svc.Http:JSONEncode({ danger = danger })) end)
+				pcall(function() writefile(BRAIN_FILE, Svc.Http:JSONEncode(Brain.store)) end)
 			end
 		end
 	end)
@@ -5988,6 +6039,358 @@ local okBrain, errBrain = pcall(function()
 	Brain.ready = true
 end)
 if not okBrain then logError("v3 brain", errBrain) end
+end
+
+-- ===== 60_planner.lua =====
+---------------------------------------------------------------------
+-- v3 · Planner: برنامه‌ی حساب و یادگیری درآمد
+-- Account Plan: قدم بعدی آیتم‌ها رو از اینونتوری خود بازی پیدا می‌کنه و همون رو اجرا می‌کنه
+-- Best Income: درآمد واقعی هر کار رو می‌سنجه و پردرآمدترین رو نگه می‌داره
+-- Smart Mastery (از Banana: فیلدهای Mastery/Rarity توی getInventoryWeapons و LoadItem)
+-- به‌علاوه‌ی ردیاب آیتم، گزارش ساعتی، برگشت هاب بعد از تلپورت و PK Guard
+---------------------------------------------------------------------
+do
+local okPlan, errPlan = pcall(function()
+	local V3, Brain = Hub.V3, Hub.Brain
+	if not (Brain and Brain.ready) then return end
+	for k, v in pairs({
+		BrainMetric = "Beli", BestTrial = 5, PlanStepMax = 40,
+		SmartMastery = false, MasteryTarget = 350,
+		LootWatch = true, HourlyReport = false, AutoReload = true, PKGuard = false,
+	}) do
+		if S[k] == nil then S[k] = v end
+	end
+
+	local Planner = { have = {}, mastery = {}, weapons = {}, skip = {}, seen = {}, needMastery = {}, scanned = false }
+	Hub.Planner = Planner
+
+	-----------------------------------------------------------------
+	-- برنامه‌ی حساب: فقط قدم‌هایی که با داشتن آیتم تموم میشن و پول/آیتم خرج نمی‌کنن
+	-----------------------------------------------------------------
+	local STEPS = {
+		{ id = "Saber", label = "Saber", sea = 1, minLv = 200, flag = "AutoSaber", have = "Saber" },
+		{ id = "Rengoku", label = "Rengoku", sea = 2, minLv = 1350, flag = "AutoRengoku", have = "Rengoku" },
+		{ id = "Trident", label = "Dragon Trident", sea = 2, minLv = 1475, flag = "AutoTrident", have = "Dragon Trident" },
+		{ id = "Yama", label = "Yama", sea = 3, minLv = 1775, flag = "AutoYama", have = "Yama" },
+		{ id = "Tushita", label = "Tushita", sea = 3, minLv = 2200, flag = "AutoTushita", have = "Tushita" },
+		{ id = "CDK", label = "Cursed Dual Katana", sea = 3, flag = "AutoCDK", have = "Cursed Dual Katana",
+			mastery = { Yama = 350, Tushita = 350 } },
+	}
+	local function seaSteps()
+		local out = {}
+		for _, s in ipairs(STEPS) do
+			if s.sea == Sea then table.insert(out, s) end
+		end
+		return out
+	end
+
+	-- چرا الان نمیشه این قدم رو رفت (nil یعنی آماده‌ست)
+	function Planner.blocked(s)
+		if s.minLv and (dataValue("Level") or 0) < s.minLv then return "needs level " .. s.minLv end
+		if (Planner.skip[s.id] or 0) > tick() then return "resting, it took too long" end
+		for name, need in pairs(s.mastery or {}) do
+			if not Planner.have[name] then return "needs " .. name end
+			if (Planner.mastery[name] or 0) < need then return ("needs %d mastery on %s"):format(need, name) end
+		end
+	end
+
+	function Planner.nextStep()
+		if not Planner.scanned then return nil end
+		table.clear(Planner.needMastery)
+		for _, s in ipairs(seaSteps()) do
+			if not Planner.have[s.id] then
+				if not Planner.blocked(s) then
+					if Planner.stepId ~= s.id then Planner.stepId, Planner.stepSince = s.id, tick() end
+					if tick() - Planner.stepSince <= S.PlanStepMax * 60 then return s end
+					Planner.skip[s.id] = tick() + 1800
+					Planner.stepId = nil
+					Brain.note("Plan: " .. s.label .. " took too long, trying again in 30 min")
+				else
+					-- قدم فقط منتظر Mastery ـه: Smart Mastery باید همون شمشیرها رو بالا ببره
+					for name, need in pairs(s.mastery or {}) do
+						if Planner.have[name] and (Planner.mastery[name] or 0) < need then Planner.needMastery[name] = need end
+					end
+				end
+			end
+		end
+	end
+
+	function Planner.stepLine(i)
+		local s = seaSteps()[i]
+		if not s then return nil end
+		if not Planner.scanned then return "· " .. s.label .. " (reading inventory...)" end
+		if Planner.have[s.id] then return "✔ " .. s.label end
+		local why = Planner.blocked(s)
+		return (why and "· " or "→ ") .. s.label .. (why and " (" .. why .. ")" or "")
+	end
+
+	-----------------------------------------------------------------
+	-- دفتر درآمد: هر کار چقدر پول/XP/Fragment آورده (بین اجراها می‌مونه)
+	-----------------------------------------------------------------
+	local function entry(label)
+		local key = Sea .. ":" .. label
+		local e = Brain.store.ledger[key]
+		if not e then
+			e = { t = 0, Exp = 0, Beli = 0, Fragments = 0 }
+			Brain.store.ledger[key] = e
+		end
+		return e
+	end
+	Planner.entry = entry
+
+	function Brain.onIncome(k, delta)
+		if S.BrainOn and Brain.current then
+			local e = entry(Brain.current.label)
+			e[k] += delta
+			Brain.markDirty()
+		end
+	end
+
+	-- داده‌ی قدیمی کم‌کم وزنش کم میشه تا تغییر لول و آپدیت بازی رو دنبال کنه
+	function Planner.addTime(label, dt)
+		local e = entry(label)
+		e.t += dt
+		if e.t > 7200 then
+			for k, v in pairs(e) do e[k] = v / 2 end
+		end
+	end
+
+	function Planner.rate(label, metric)
+		local e = entry(label)
+		if e.t < 30 then return 0 end
+		return e[metric] / e.t * 3600
+	end
+
+	function Planner.topJobs()
+		local prefix, out = Sea .. ":", {}
+		for key, e in pairs(Brain.store.ledger) do
+			if key:sub(1, #prefix) == prefix and e.t >= 60 then
+				local label = key:sub(#prefix + 1)
+				table.insert(out, { label = label, rate = Planner.rate(label, S.BrainMetric), mins = e.t / 60 })
+			end
+		end
+		table.sort(out, function(a, b) return a.rate > b.rate end)
+		return out
+	end
+
+	-- کار بعدی: اول هر هدفی که هنوز به اندازه‌ی کافی امتحان نشده، بعد بهترین؛ هر 30 دقیقه یکی دوباره سنجیده میشه
+	function Planner.bestGoal()
+		local now = tick()
+		if Planner.active and now < Planner.activeUntil then return Planner.active end
+		local names, trial = Brain.goalCandidates(), S.BestTrial * 60
+		local pick, hold, leastT, bestRate
+		for _, n in ipairs(names) do
+			local t = entry(n).t
+			if t < trial and (not leastT or t < leastT) then pick, leastT, hold = n, t, trial end
+		end
+		if not pick then
+			Planner.checkedAt = Planner.checkedAt or now
+			if now - Planner.checkedAt > 1800 then
+				Planner.checkedAt = now
+				for _, n in ipairs(names) do
+					if n ~= Planner.active and (not pick or (Planner.seen[n] or 0) < (Planner.seen[pick] or 0)) then pick = n end
+				end
+				hold = trial
+			end
+		end
+		if not pick then
+			for _, n in ipairs(names) do
+				local r = Planner.rate(n, S.BrainMetric)
+				if not bestRate or r > bestRate then pick, bestRate = n, r end
+			end
+			hold = 600
+		end
+		Planner.seen[pick] = now
+		Planner.active, Planner.activeUntil = pick, now + hold
+		return pick
+	end
+
+	table.insert(Brain.extraGoals, "Best Income")
+	if #seaSteps() > 0 then table.insert(Brain.extraGoals, "Account Plan") end
+
+	function Brain.dynamicGoal(name)
+		if name == "Best Income" then
+			local g = Brain.goalByName(Planner.bestGoal())
+			g.why = ("best %s so far (%s/h)"):format(S.BrainMetric, formatNumber(math.floor(Planner.rate(g.label, S.BrainMetric))))
+			return g
+		end
+		if name == "Account Plan" then
+			-- قدم‌ها وقتی تموم بشن کلید خودشون رو خاموش می‌کنن؛ بدون این خط تا اسکن بعدی دوباره روشن میشد
+			local cur = Brain.current
+			if cur and cur.planStep and not S[cur.flag] then Planner.have[cur.planStep] = true end
+			local s = Planner.nextStep()
+			if s then
+				Brain.claim(s.flag)
+				return { id = "Plan" .. s.id, label = "Plan: " .. s.label, flag = s.flag, goal = true, planStep = s.id, why = "next step of your account plan" }
+			end
+		end
+	end
+
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(5)
+			local cur = Brain.current
+			if S.BrainOn and cur then pcall(Planner.addTime, cur.label, 5) end
+		end
+	end)
+
+	-----------------------------------------------------------------
+	-- Smart Mastery: اول شمشیرهایی که برنامه لازم داره، بعد با ارزش‌ترین شمشیر زیر هدف
+	-----------------------------------------------------------------
+	function Planner.pickMastery()
+		local best, bestScore
+		for _, w in ipairs(Planner.weapons) do
+			local need = Planner.needMastery[w.Name]
+			if w.Type == "Sword" and (tonumber(w.Mastery) or 0) < (need or S.MasteryTarget) then
+				local score = (need and 1000 or 0) + (tonumber(w.Rarity) or 0)
+				if not bestScore or score > bestScore then best, bestScore = w, score end
+			end
+		end
+		return best
+	end
+
+	function Planner.masteryWanted()
+		return S.SmartMastery or (S.BrainOn and S.BrainGoal == "Account Plan" and next(Planner.needMastery) ~= nil)
+	end
+
+	function Planner.runMastery()
+		local w = Planner.masteryWanted() and S.AutoFarm and Planner.pickMastery()
+		if not w then
+			if Planner.masteryName then
+				Planner.masteryName = nil
+				S.MasteryFarm = false
+				Brain.note("Mastery goals reached")
+			end
+			return
+		end
+		if Planner.masteryName ~= w.Name then
+			Planner.masteryName = w.Name
+			Brain.note("Mastery: training " .. w.Name)
+		end
+		if not backpackTool(w.Name) then invoke("LoadItem", w.Name) end
+		S.MasteryFarm, S.MasteryWeapon = true, "Sword"
+	end
+
+	-----------------------------------------------------------------
+	-- ردیاب آیتم: هر چیز تازه‌ای که به اینونتوری اضافه بشه خبر میده
+	-----------------------------------------------------------------
+	local knownItems
+	function Planner.watchLoot(names)
+		if not knownItems then
+			knownItems = {}
+			for n in pairs(names) do knownItems[n] = true end
+			return
+		end
+		for n in pairs(names) do
+			if not knownItems[n] then
+				knownItems[n] = true
+				if S.LootWatch then
+					Brain.note("New item: " .. n)
+					V3.notify("New Item", n, 8)
+					V3.webhook("New Item", n .. " (" .. player.Name .. ")")
+				end
+			end
+		end
+	end
+
+	-- اگه سرور جواب نده داده‌ی قبلی می‌مونه
+	function Planner.scan()
+		local r = invoke("getInventoryWeapons")
+		if type(r) ~= "table" then return false end
+		local weapons = {}
+		for _, w in pairs(r) do
+			if type(w) == "table" and w.Name then
+				table.insert(weapons, w)
+				Planner.mastery[w.Name] = tonumber(w.Mastery) or 0
+			end
+		end
+		Planner.weapons = weapons
+		for _, s in ipairs(seaSteps()) do
+			Planner.have[s.id] = hasItem(s.have)
+			for name in pairs(s.mastery or {}) do Planner.have[name] = hasItem(name) end
+		end
+		Planner.watchLoot(inventoryNames())
+		Planner.scanned = true
+		return true
+	end
+
+	task.spawn(function()
+		while Hub.Running do
+			pcall(Planner.scan)
+			pcall(Planner.runMastery)
+			task.wait(30)
+		end
+	end)
+
+	-----------------------------------------------------------------
+	-- گزارش ساعتی به دیسکورد
+	-----------------------------------------------------------------
+	function Planner.report()
+		return ("Level %s  •  XP/h %s  •  Beli/h %s  •  Fragments/h %s  •  Deaths %d  •  Rescues %d"):format(
+			tostring(dataValue("Level")), formatNumber(math.floor(Brain.perHour("Exp"))), formatNumber(math.floor(Brain.perHour("Beli"))),
+			formatNumber(math.floor(Brain.perHour("Fragments"))), Brain.deathTotal, Brain.rescues)
+	end
+	task.spawn(function()
+		local last = tick()
+		while Hub.Running do
+			task.wait(60)
+			if S.HourlyReport and tick() - last >= 3600 then
+				last = tick()
+				pcall(function() V3.webhook("Hourly Report", Planner.report()) end)
+			end
+		end
+	end)
+
+	-----------------------------------------------------------------
+	-- برگشت هاب بعد از هر تلپورت (Rejoin، Hop): Server Finder خودش این کار رو می‌کنه
+	-----------------------------------------------------------------
+	pcall(function()
+		connect(player.OnTeleport, function(state)
+			if state == Enum.TeleportState.Failed then
+				Hub.ReloadFailed()
+			elseif S.AutoReload and not S.HuntHop then
+				Hub.QueueReload()
+			end
+		end)
+	end)
+
+	-----------------------------------------------------------------
+	-- PK Guard: اگه ماب نزدیک نیست ولی یه بازیکن نزدیکه و دو ضربه خوردی، سرور عوض میشه
+	-----------------------------------------------------------------
+	local pkHits, pkHopAt = {}, 0
+	function Planner.attackerNearby()
+		local root = getRoot()
+		if not root then return nil end
+		local enemies = workspace:FindFirstChild("Enemies")
+		for _, m in ipairs(enemies and enemies:GetChildren() or {}) do
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= 60 then return nil end
+		end
+		for _, p in ipairs(Players:GetPlayers()) do
+			local r = p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+			if r and (r.Position - root.Position).Magnitude <= 120 then return p end
+		end
+	end
+
+	function Brain.onHeavyHit(pct)
+		if not S.PKGuard or pct < 15 then return end
+		local attacker = Planner.attackerNearby()
+		if not attacker then return end
+		local now, recent = tick(), { tick() }
+		for _, t in ipairs(pkHits) do
+			if now - t < 20 then table.insert(recent, t) end
+		end
+		pkHits = recent
+		if #recent >= 2 and now - pkHopAt > 30 and not Brain.carrying() then
+			pkHopAt = now
+			pkHits = {}
+			Brain.note("PK Guard: leaving the server (" .. attacker.Name .. ")")
+			task.spawn(Brain.hop)
+		end
+	end
+
+	Planner.ready = true
+end)
+if not okPlan then logError("v3 planner", errPlan) end
 end
 
 ---------------------------------------------------------------------
@@ -6653,6 +7056,8 @@ if Brain and Brain.ready then
 	T:Section("Smart Combat")
 	T:Toggle("Smart Skills (bosses and groups of 3+)", "SmartSkills")
 	T:Toggle("Smart Race Transform (energy full + worthy fight)", "SmartRace")
+	T:Toggle("Smart Retreat (leaves before you die, uses Auto Retreat)", "SmartRetreat")
+	T:Slider("Retreat If Dead In N Seconds", 1, 8, "DeathTime")
 	T:Section("Stuck Guard")
 	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
 	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
@@ -6667,6 +7072,51 @@ if Brain and Brain.ready then
 	T:Label(function() return "Beli / hour: " .. formatNumber(math.floor(Brain.perHour("Beli"))) end)
 	T:Label(function() return "Fragments / hour: " .. formatNumber(math.floor(Brain.perHour("Fragments"))) end)
 	T:Button("Reset Income Stats", function() Brain.resetStats() end)
+end
+end
+
+-- ===== 60_planner.lua (UI) =====
+do
+-- @top
+local Planner, Brain = Hub.Planner, Hub.Brain
+if Planner and Planner.ready then
+	local T = createTab("Planner", "☑")
+	T:Section("Account Plan (Brain goal: Account Plan)")
+	for i = 1, 6 do
+		if Planner.stepLine(i) then
+			T:Label(function() return Planner.stepLine(i) or "-" end)
+		end
+	end
+	T:Slider("Give Up On A Step After (minutes)", 10, 120, "PlanStepMax")
+	T:Section("Best Income (Brain goal: Best Income)")
+	T:Dropdown("Measure", function() return { "Beli", "Exp", "Fragments" } end, "BrainMetric", function()
+		Planner.activeUntil = 0
+	end)
+	T:Slider("Test Each Job For (minutes)", 3, 15, "BestTrial")
+	for i = 1, 5 do
+		T:Label(function()
+			local j = Planner.topJobs()[i]
+			if not j then return "-" end
+			return ("%d. %s: %s/h  (%d min measured)"):format(i, j.label, formatNumber(math.floor(j.rate)), math.floor(j.mins))
+		end)
+	end
+	T:Section("Smart Mastery (with Auto Farm)")
+	T:Toggle("Train Swords One By One", "SmartMastery")
+	T:Slider("Target Mastery", 50, 600, "MasteryTarget")
+	T:Label(function()
+		if not Planner.masteryName then return "Training: nothing" end
+		return ("Training: %s  (%d)"):format(Planner.masteryName, Planner.mastery[Planner.masteryName] or 0)
+	end)
+	T:Section("Alerts")
+	T:Toggle("Tell Me About New Items", "LootWatch")
+	T:Toggle("Hourly Report To Discord", "HourlyReport")
+	T:Button("Send Report Now", function()
+		Hub.V3.webhook("Session Report", Planner.report())
+		notify("Report", S.WebhookOn and "Sent" or "Turn on the webhook in Extras first", 4)
+	end)
+	T:Section("Safety")
+	T:Toggle("Restart Hub After Teleports", "AutoReload")
+	T:Toggle("PK Guard (hop when a player keeps hitting you)", "PKGuard")
 end
 end
 

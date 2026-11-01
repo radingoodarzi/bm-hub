@@ -13,7 +13,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "3.1"
+VERSION = "3.2"
 
 
 def patch(src, old, new, count=1):
@@ -59,6 +59,13 @@ src = patch(
     src,
     "\t\tattack(mob)\n",
     "\t\tattack(mob)\n\t\tif Hub.SmartSkill then Hub.SmartSkill(mob, hum) end\n",
+)
+
+# فرار هوشمند: علاوه بر درصد ثابت، وقتی با این سرعت دمیج چند ثانیه‌ی دیگه می‌میریم
+src = patch(
+    src,
+    "me.Health / me.MaxHealth * 100 < S.RetreatHP then",
+    "(me.Health / me.MaxHealth * 100 < S.RetreatHP or (Hub.InDanger and Hub.InDanger(me.Health))) then",
 )
 
 # صندوق‌ها: Safe Carry و شمارش برای Chest Hop
