@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "3.7" }
+local Hub = { Connections = {}, Running = true, Version = "3.8" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -922,10 +922,9 @@ local function attack()
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
-	if m == "Auto" or m == "Remote" then
-		if Hub.FruitM1 then Hub.FruitM1(root) end
-		remoteAttack(root)
-	end
+	local fruit = (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root) or nil
+	if (m == "Auto" or m == "Remote") and (not fruit or fruit.hit) then remoteAttack(root) end
+	if fruit and not fruit.click then return end
 	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
 	if m == "Auto" or m == "Tool" then
@@ -5831,7 +5830,7 @@ local okBrain, errBrain = pcall(function()
 	local danger, recentAnims, dirty, dodgeEnd = {}, {}, false, 0
 	Brain.danger = danger
 	-- v=2: نسخه‌ی قبلی ضربه‌ی ماب‌های معمولی رو هم یاد می‌گرفت، اون داده دور ریخته میشه
-	Brain.store = { v = 2, danger = danger, ledger = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
+	Brain.store = { v = 2, danger = danger, ledger = {}, fruit = {} } -- هر چیزی که مغز یاد می‌گیره و باید بمونه
 	pcall(function()
 		if isfile and not isfile(BRAIN_FILE) then return end
 		local d = Svc.Http:JSONDecode(readfile(BRAIN_FILE))
@@ -5839,6 +5838,7 @@ local okBrain, errBrain = pcall(function()
 			for id, v in pairs(d.danger or {}) do danger[id] = v end
 		end
 		if type(d.ledger) == "table" then Brain.store.ledger = d.ledger end
+		if type(d.fruit) == "table" then Brain.store.fruit = d.fruit end
 	end)
 	function Brain.markDirty() dirty = true end
 
@@ -5975,8 +5975,20 @@ local okBrain, errBrain = pcall(function()
 	Brain.fightWorthIt = fightWorthIt
 
 	-- M1 میوه: ابزار میوه‌هایی که حمله‌ی کلیکی دارن یه LeftClickRemote داره (از Banana)
-	-- جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) با همون سرعت ضربه‌ی ملی فرستاده میشه،
-	-- و ضربه‌ی چندهدفه‌ی ملی هم کنارش میره (لاگ Dragon-Dragon بدون اون یک‌چهارم ملی دمیج داشت)
+	-- جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) فرستاده میشه. سرور ضربه‌های زیادی رو رد می‌کنه
+	-- (لاگ Dragon-Dragon: فاصله‌ی 0.1 با RegisterHit نصف فاصله‌ی 0.2 دمیج داد)، پس برای هر میوه
+	-- یه بار چند حالت با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه.
+	-- gap: فاصله‌ی M1 (بدون gap یعنی فقط حمله‌ی خود بازی)، click: کلیک و انیمیشن، hit: RegisterHit
+	local FRUIT_MODES = {
+		{ gap = 0.2, click = true },
+		{ gap = 0.3 },
+		{ gap = 0.5 },
+		{ gap = 0.8 },
+		{ gap = 0.3, hit = true },
+		{ click = true },
+	}
+	local TUNE_SECONDS = 5
+	local tune
 	local fruitCombo, fruitAt = 0, 0
 	function Brain.heldFruitM1()
 		local char = getChar()
@@ -5985,15 +5997,26 @@ local okBrain, errBrain = pcall(function()
 		return remote and tool, remote
 	end
 
+	local function fruitMode(tool)
+		local saved = Brain.store.fruit[tool.Name]
+		if saved then return saved end
+		if not tune or tune.tool ~= tool.Name then
+			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
+			Brain.note("Testing the best M1 for " .. tool.Name)
+		end
+		return FRUIT_MODES[tune.i]
+	end
+
+	-- حالت M1 ابزار توی دست رو برمی‌گردونه (nil یعنی میوه‌ی M1 دار دستت نیست)
 	function Hub.FruitM1(root)
-		if not S.FruitM1 then return end
+		if not S.FruitM1 then return nil end
 		local tool, remote = Brain.heldFruitM1()
-		if not tool then return end
+		if not tool then return nil end
+		local mode = fruitMode(tool)
 		local mob = nearestMobInRange()
-		if not mob or tick() - fruitAt < 0.1 then return end
+		if not mob or not mode.gap or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
 		fruitCombo = fruitCombo % 4 + 1
-		V3.once("fruitM1" .. tool.Name, function() V3.log("FRUIT M1 using " .. tool.Name) end)
 		local ok, err = pcall(function()
 			remote:FireServer((mob.HumanoidRootPart.Position - root.Position).Unit, fruitCombo)
 		end)
@@ -6002,6 +6025,44 @@ local okBrain, errBrain = pcall(function()
 		else
 			Hub.AttackInfo.lastError = "fruit M1: " .. tostring(err)
 		end
+		return mode
+	end
+
+	-- هر نیم ثانیه‌ی جنگ با میوه: دمیج به ازای هر ماب حساب میشه تا تعداد ماب‌ها نتیجه رو خراب نکنه
+	function Brain.tuneStep(drop, mobs)
+		local held = Brain.heldFruitM1()
+		if not tune or mobs == 0 or not held or held.Name ~= tune.tool then return end
+		tune.time += 0.5
+		tune.damage += drop
+		tune.mobs += mobs
+		if tune.time < TUNE_SECONDS then return end
+		local mode = FRUIT_MODES[tune.i]
+		local rate = tune.damage / TUNE_SECONDS / (tune.mobs / (TUNE_SECONDS * 2))
+		V3.log(("FRUIT TEST %s %d/%d gap=%s click=%s hit=%s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES,
+			tostring(mode.gap), tostring(mode.click == true), tostring(mode.hit == true), math.floor(rate)))
+		if rate > tune.bestRate then tune.best, tune.bestRate = mode, rate end
+		tune.i += 1
+		tune.time, tune.damage, tune.mobs = 0, 0, 0
+		if tune.i > #FRUIT_MODES then
+			Brain.store.fruit[tune.tool] = tune.best
+			Brain.markDirty()
+			Brain.note(("M1 test done for %s: %d dmg/s per mob"):format(tune.tool, math.floor(tune.bestRate)))
+			V3.notify("Fruit M1", "Best mode found for " .. tune.tool, 5)
+			tune = nil
+		end
+	end
+
+	function Brain.fruitStatus(tool)
+		if tune and tune.tool == tool.Name then return ("testing %d/%d, keep fighting"):format(tune.i, #FRUIT_MODES) end
+		local m = Brain.store.fruit[tool.Name]
+		if not m then return "will test on the first fight" end
+		return (m.gap and ("every %.1fs"):format(m.gap) or "game attack only") .. (m.click and " with animation" or " no animation")
+	end
+
+	function Brain.retestFruit(tool)
+		Brain.store.fruit[tool.Name] = nil
+		Brain.markDirty()
+		tune = nil
 	end
 
 	-- دمیج واقعی برای لاگ: جمع کم شدن جون ماب‌های نزدیک، تا سلاح‌ها با عدد مقایسه بشن
@@ -6010,13 +6071,17 @@ local okBrain, errBrain = pcall(function()
 		local root = getRoot()
 		local enemies = workspace:FindFirstChild("Enemies")
 		if not root or not enemies then return end
+		local drop, mobs = 0, 0
 		for _, m in ipairs(enemies:GetChildren()) do
 			local hum, hrp = m:FindFirstChildOfClass("Humanoid"), m:FindFirstChild("HumanoidRootPart")
 			if hum and hrp and (hrp.Position - root.Position).Magnitude <= S.AttackRange + 20 then
-				if mobHp[hum] and hum.Health < mobHp[hum] then damage += mobHp[hum] - hum.Health end
+				if mobHp[hum] and hum.Health < mobHp[hum] then drop += mobHp[hum] - hum.Health end
 				mobHp[hum] = hum.Health
+				if hum.Health > 0 then mobs += 1 end
 			end
 		end
+		damage += drop
+		Brain.tuneStep(drop, mobs)
 	end
 	function Hub.DamageRate()
 		local rate = damage / math.max(tick() - damageFrom, 0.5)
@@ -7964,6 +8029,16 @@ if Brain and Brain.ready then
 	T:Label(function()
 		local tool = Brain.heldFruitM1()
 		return "In your hand: " .. (tool and tool.Name .. " has M1 ✔" or "no fruit with M1")
+	end)
+	T:Label(function()
+		local tool = Brain.heldFruitM1()
+		return "Mode: " .. (tool and Brain.fruitStatus(tool) or "-")
+	end)
+	T:Button("Test This Fruit Again", function()
+		local tool = Brain.heldFruitM1()
+		if not tool then return notify("Fruit M1", "Hold a fruit with M1 first", 4) end
+		Brain.retestFruit(tool)
+		notify("Fruit M1", "Fight mobs for about 30 seconds", 4)
 	end)
 	T:Section("Skills")
 	T:Toggle("Use Skills", "UseSkills")

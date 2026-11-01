@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "3.7"
+VERSION = "3.8"
 
 
 def patch(src, old, new, count=1):
@@ -86,7 +86,9 @@ src = patch(
 src = patch(
     src,
     'if m == "Auto" or m == "Remote" then remoteAttack(root) end\n',
-    'if m == "Auto" or m == "Remote" then\n\t\tif Hub.FruitM1 then Hub.FruitM1(root) end\n\t\tremoteAttack(root)\n\tend\n',
+    'local fruit = (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root) or nil\n'
+    '\tif (m == "Auto" or m == "Remote") and (not fruit or fruit.hit) then remoteAttack(root) end\n'
+    "\tif fruit and not fruit.click then return end\n",
 )
 # لاگ حمله: دمیج واقعی در ثانیه و تعداد M1 میوه، برای مقایسه‌ی سلاح‌ها
 src = patch(
