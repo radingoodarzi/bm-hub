@@ -13,7 +13,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "3.0"
+VERSION = "3.1"
 
 
 def patch(src, old, new, count=1):
@@ -39,12 +39,47 @@ src = patch(
     "for k in pairs(Hub.V3SkipSave or {}) do SKIP_SAVE[k] = true end\n\nlocal function saveSettings()",
 )
 
-logic, ui = [], []
+# قلاب‌های مغز توی killMob (جاخالی، اسکیل هوشمند، نشونه‌ی پیشرفت برای نگهبان)
+src = patch(
+    src,
+    'S.Status = "Farming: " .. name\n\tlocal lastHp, lastHit',
+    'S.Status = "Farming: " .. name\n\tif Hub.WatchMob then Hub.WatchMob(mob, hum) end\n\tlocal lastHp, lastHit',
+)
+src = patch(
+    src,
+    "\t\t\tlastHp, lastHit = hum.Health, tick()\n",
+    "\t\t\tlastHp, lastHit = hum.Health, tick()\n\t\t\tHub.LastProgress = lastHit\n",
+)
+src = patch(
+    src,
+    "local h = math.clamp(S.FarmHeight, 0, 40)\n",
+    "local h = math.clamp(S.FarmHeight, 0, 40) + (Hub.DodgeY or 0)\n",
+)
+src = patch(
+    src,
+    "\t\tattack(mob)\n",
+    "\t\tattack(mob)\n\t\tif Hub.SmartSkill then Hub.SmartSkill(mob, hum) end\n",
+)
+
+# صندوق‌ها: Safe Carry و شمارش برای Chest Hop
+src = patch(
+    src,
+    "if S.AutoChest and alive() and not mainFarmBusy() then",
+    "if S.AutoChest and alive() and not mainFarmBusy() and not (Hub.CarryBlock and Hub.CarryBlock()) then",
+)
+src = patch(
+    src,
+    'S.Status = "Collecting chest"\n',
+    'S.Status = "Collecting chest"\n\t\t\t\tHub.ChestsTaken = (Hub.ChestsTaken or 0) + 1\n',
+)
+
+logic, ui, top_ui = [], [], []
 for m in sorted((ROOT / "v3_src").glob("[0-9][0-9]_*.lua")):
     head, _, tail = m.read_text(encoding="utf-8").partition("--@@UI@@\n")
     logic.append(f"-- ===== {m.name} =====\n{head.rstrip()}\n")
     if tail.strip():
-        ui.append(f"-- ===== {m.name} (UI) =====\ndo\n{tail.rstrip()}\nend\n")
+        # فایلی که UI اش با «-- @top» شروع بشه، تبش درست بعد از Home میاد
+        (top_ui if tail.startswith("-- @top") else ui).append(f"-- ===== {m.name} (UI) =====\ndo\n{tail.rstrip()}\nend\n")
 
 ui_banner = "---------------------------------------------------------------------\n-- UI\n"
 src = patch(src, ui_banner, "\n".join(logic) + "\n" + ui_banner)
@@ -52,6 +87,10 @@ src = patch(src, ui_banner, "\n".join(logic) + "\n" + ui_banner)
 # تب‌های جدید قبل از تب Items
 items_at = src.index("-- Items:")
 src = src[:items_at] + "\n".join(ui) + "\n" + src[items_at:]
+
+if top_ui:
+    farm_at = src.index("-- Farm: فارم")
+    src = src[:farm_at] + "\n".join(top_ui) + "\n" + src[farm_at:]
 
 OUT.write_text(src, encoding="utf-8", newline="\r\n")
 print(f"wrote {OUT.name}: {len(src.splitlines())} lines, {len(logic)} modules")
