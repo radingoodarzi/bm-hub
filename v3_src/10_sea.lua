@@ -10,6 +10,8 @@ local okSea, errSea = pcall(function()
 		ResetForBoat = true, AutoBuyBoat = false, RepairBoat = true,
 		SeaSpotSet = false, SeaSpotX = 0, SeaSpotZ = 0, SeaWeapon = "Blox Fruit", SeaHover = 60,
 		BoatMaxSpeedOn = false, BoatMaxSpeed = 200,
+		SeaHunt = true, SeaDanger = 5, SeaRotate = true, SeaBeastHover = 200, SeaRetreat = true,
+		SeaHitBeasts = true, SeaHitShark = true, SeaHitBoats = true, SeaHitSmall = true,
 	}) do
 		if S[k] == nil then S[k] = v end
 	end
@@ -268,7 +270,9 @@ local okSea, errSea = pcall(function()
 	end
 
 	-----------------------------------------------------------------
-	-- Sea Event: هیولاهای دریا (SeaBeast، Terrorshark) و قایق‌های دشمن
+	-- Sea Event: هیولاهای دریا (SeaBeast، Terrorshark)، قایق‌های دشمن و ماب‌های دریا
+	-- از Banana: Sea Event فقط توی دریای عمیق (Danger Level) اسپاون میشه، پس وقتی هدفی نیست
+	-- قایق رو به دریای عمیق می‌بریم و گشت می‌زنیم؛ فاصله از هر نوع هدف و جاخالی Sea Beast هم از اونجاست
 	-----------------------------------------------------------------
 	local function aliveSea(o)
 		if not o or not o.Parent then return false end
@@ -278,36 +282,149 @@ local okSea, errSea = pcall(function()
 		return h ~= nil and h.Health > 0
 	end
 
+	-- نزدیک‌ترین جزیره (برای تشخیص «وسط دریا» و جهت رفتن به دریای عمیق)
+	local function nearestIsland(pos)
+		local wo = workspace:FindFirstChild("_WorldOrigin")
+		local loc = wo and wo:FindFirstChild("Locations")
+		local best, bestD
+		for _, c in ipairs(loc and loc:GetChildren() or {}) do
+			if c:IsA("BasePart") then
+				local d = V3.flatDist(c.Position, pos)
+				if not bestD or d < bestD then best, bestD = c.Position, d end
+			end
+		end
+		return best, bestD
+	end
+	V3.nearestIsland = nearestIsland
+
+	-- عدد Danger Level قطب‌نمای خود بازی (همون که Banana می‌خونه)؛ nil یعنی خونده نشد
+	local function dangerLevel()
+		local ok, n = pcall(function()
+			local d = player.PlayerGui.Main.Compass.Frame.DangerLevel
+			if not d.Visible then return 0 end
+			return tonumber(d.TextLabel.Text)
+		end)
+		return ok and n or nil
+	end
+	V3.dangerLevel = dangerLevel
+
+	-- rank: هر چی کمتر زودتر؛ Terrorshark جایزه‌ی بیشتری داره
+	local RANK = { shark = 1, beast = 2, boat = 3, small = 4 }
+	local SEA_RANGE = 3000
+
 	local function seaTargets()
 		local out, root = {}, getRoot()
 		if not root then return out end
-		local function add(o, kind)
+		local seen = {}
+		local function add(o, kind, label)
+			if seen[o] then return end
 			local part = o:FindFirstChild("HumanoidRootPart") or o:FindFirstChild("Engine") or o.PrimaryPart
 			if part and aliveSea(o) then
-				table.insert(out, { obj = o, part = part, kind = kind, d = (part.Position - root.Position).Magnitude })
+				local d = (part.Position - root.Position).Magnitude
+				if d <= SEA_RANGE then
+					seen[o] = true
+					table.insert(out, { obj = o, part = part, kind = kind, label = label or o.Name, d = d })
+				end
 			end
 		end
-		local sb = workspace:FindFirstChild("SeaBeasts")
-		if sb then
-			for _, o in ipairs(sb:GetChildren()) do add(o, o.Name) end
+		if S.SeaHitShark then
+			local ts = findMobAnywhere("Terrorshark")
+			if ts then add(ts, "shark", "Terrorshark") end
 		end
-		local ts = findMobAnywhere("Terrorshark")
-		if ts then add(ts, "Terrorshark") end
+		local sb = workspace:FindFirstChild("SeaBeasts")
+		if S.SeaHitBeasts and sb then
+			for _, o in ipairs(sb:GetChildren()) do add(o, "beast", "Sea Beast") end
+		end
 		local boats = workspace:FindFirstChild("Boats")
-		if boats then
+		if S.SeaHitBoats and boats then
 			for _, b in ipairs(boats:GetChildren()) do
 				local owner = b:FindFirstChild("Owner")
 				-- قایق بازیکن‌ها رو نمی‌زنیم؛ فقط قایق‌های دشمن (Engine + Health و بدون صاحب بازیکن)
 				if b:IsA("Model") and b:FindFirstChild("Engine") and b:FindFirstChild("Health")
 					and not (owner and Players:FindFirstChild(tostring(owner.Value))) then
-					add(b, b.Name)
+					add(b, "boat")
 				end
 			end
 		end
-		table.sort(out, function(a, b) return a.d < b.d end)
+		-- ماب‌های دریا (کوسه، پیرانا، خدمه‌ها): هر دشمنی دور از جزیره‌ها، چون روی آب ماب جزیره نیست
+		local enemies = workspace:FindFirstChild("Enemies")
+		if S.SeaHitSmall and enemies then
+			local _, islandD = nearestIsland(root.Position)
+			if islandD and islandD > 1500 then
+				for _, m in ipairs(enemies:GetChildren()) do
+					if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude <= 800 then add(m, "small", mobBaseName(m.Name)) end
+				end
+			end
+		end
+		table.sort(out, function(a, b)
+			if RANK[a.kind] ~= RANK[b.kind] then return RANK[a.kind] < RANK[b.kind] end
+			return a.d < b.d
+		end)
 		return out
 	end
 	V3.seaTargets = seaTargets
+
+	-- جای ایستادن برای هر نوع هدف (اعداد از Banana). lift = جاخالی
+	-- Sea Beast: روی آب 200 بالاتر و 50 کنار؛ زیر آب بالای سرش روی ارتفاع -60 + 200
+	function V3.seaStand(t, lift)
+		local p = t.part.Position
+		lift = lift or 0
+		if t.kind == "beast" then
+			local h = S.SeaBeastHover
+			if math.abs(p.Y + 60) <= 175 then return Vector3.new(p.X, p.Y + h + lift, p.Z + 50) end
+			return Vector3.new(p.X, -60 + h + lift, p.Z)
+		elseif t.kind == "shark" then
+			return p + Vector3.new(0, 60 + lift, 0)
+		elseif t.kind == "small" then
+			return p + Vector3.new(0, 20 + lift, 0)
+		end
+		return p + Vector3.new(0, S.SeaHover + lift, 0)
+	end
+
+	-- جاخالی Sea Beast: انیمیشن 8708222556 (از Banana) بعد از 0.7 ثانیه ضربه می‌زنه؛ بقیه رو مغز یاد می‌گیره
+	local seaLiftUntil = 0
+	local KNOWN_BEAST_ATTACK = { ["rbxassetid://8708222556"] = 0.7 }
+	local watchedSea = setmetatable({}, { __mode = "k" })
+	local function watchSea(t)
+		local hum = t.obj:FindFirstChildOfClass("Humanoid")
+		if not hum or watchedSea[hum] then return end
+		watchedSea[hum] = true
+		if Hub.WatchMob then Hub.WatchMob(t.obj, hum) end
+		pcall(function()
+			hum.AnimationPlayed:Connect(function(track)
+				local id = track.Animation and track.Animation.AnimationId
+				local delay = id and KNOWN_BEAST_ATTACK[id]
+				if not delay or not Hub.Running then return end
+				task.delay(delay, function()
+					seaLiftUntil = tick() + math.clamp(track.Length > 0 and track.Length or 3, 1.5, 10)
+				end)
+			end)
+		end)
+	end
+	local function seaLift()
+		if tick() < seaLiftUntil or (Hub.DodgeY or 0) > 0 then return 600 end
+		return 0
+	end
+
+	-- همه‌ی سلاح‌ها به نوبت با همه‌ی اسکیل‌ها (Z X C V) تا هیچ cooldownی هدر نره
+	local ROTATION = { "Melee", "Blox Fruit", "Sword", "Gun" }
+	local rot, rotAt, keysAt = 0, 0, 0
+	local function rotateAttack(t)
+		if tick() - rotAt >= 1.4 then
+			rotAt = tick()
+			for _ = 1, #ROTATION do
+				rot = rot % #ROTATION + 1
+				if V3.toolByTip(ROTATION[rot]) then break end
+			end
+			local tool, h = V3.toolByTip(ROTATION[rot]), getHum()
+			if tool and h and tool.Parent ~= getChar() then pcall(function() h:EquipTool(tool) end) end
+		end
+		V3.aimClick(t.part.Position)
+		if tick() - keysAt >= 0.5 then
+			keysAt = tick()
+			for _, k in ipairs({ "Z", "X", "C", "V" }) do V3.key(Enum.KeyCode[k], 0.03) end
+		end
+	end
 
 	local function attackSea(t)
 		local w = S.SeaWeapon
@@ -317,16 +434,17 @@ local okSea, errSea = pcall(function()
 				task.wait(0.4)
 			end
 			V3.equip(w)
+		elseif S.SeaRotate then
+			return rotateAttack(t)
 		else
 			equipWeapon(w)
 		end
 		V3.aimClick(t.part.Position)
-		local savedSkills = S.UseSkills
-		S.UseSkills = true
-		useSkills()
-		S.UseSkills = savedSkills
+		if tick() - keysAt >= 0.5 then
+			keysAt = tick()
+			for _, k in ipairs({ "Z", "X", "C", "V" }) do V3.key(Enum.KeyCode[k], 0.03) end
+		end
 	end
-
 	V3.attackSea = attackSea
 
 	-- تعمیر قایق با چکش وقتی از قایق دور نیستیم؛ true یعنی مشغول تعمیر بود
@@ -365,11 +483,82 @@ local okSea, errSea = pcall(function()
 		return true
 	end
 
-	local seenKinds = {}
+	-- گشت توی دریای عمیق: تا Danger Level هدف دور میشیم، بعد دور یه مربع 500 استادی می‌چرخیم
+	local hunt = { i = 0 }
+	V3.seaHunt = hunt
+	-- کجا بریم وقتی هدفی نیست (تابع خالص): "back" = خیلی دور شدیم، "patrol" = گشت، "out" = برو دریای عمیق
+	-- بدون عدد Danger، بیشتر از 3000 استاد دور از جزیره رو عمیق حساب می‌کنیم
+	function V3.huntGoal(pos, lvl, island, islandD, center, i)
+		if newMap() and V3.flatDist(pos, HOME) > 12000 then return "back", HOME, nil, i end
+		if center and V3.flatDist(pos, center) > 3000 then center = nil end
+		local deep = (lvl ~= nil and lvl >= S.SeaDanger) or (lvl == nil and islandD ~= nil and islandD > 3000)
+		if deep or center then
+			center = center or pos
+			i = i % 4 + 1
+			local a = i * math.pi / 2
+			return "patrol", center + Vector3.new(math.cos(a) * 500, 0, math.sin(a) * 500), center, i
+		end
+		local dir = island and Vector3.new(pos.X - island.X, 0, pos.Z - island.Z) or Vector3.new(0, 0, 1)
+		dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(0, 0, 1)
+		return "out", pos + dir * 1500, nil, i
+	end
+
+	local function huntStep(boat, keep)
+		local seat = boat.VehicleSeat
+		local lvl = dangerLevel()
+		local island, islandD = nearestIsland(seat.Position)
+		local mode, goal
+		mode, goal, hunt.center, hunt.i = V3.huntGoal(seat.Position, lvl, island, islandD, hunt.center, hunt.i)
+		local function found() return #seaTargets() > 0 end
+		if mode == "back" then
+			S.Status = "Sea Event: too far, sailing back"
+			sail(boat, goal, keep, function() return found() or V3.flatDist(seat.Position, HOME) < 9000 end)
+		elseif mode == "patrol" then
+			S.Status = ("Sea Event: patrolling (danger %s)"):format(tostring(lvl or "?"))
+			sail(boat, goal, keep, found)
+		else
+			S.Status = ("Sea Event: sailing to deep sea (danger %s/%d)"):format(tostring(lvl or "?"), S.SeaDanger)
+			sail(boat, goal, keep, function()
+				local l = dangerLevel()
+				return found() or (l ~= nil and l >= S.SeaDanger)
+			end)
+		end
+	end
+
+	-- آمار جلسه: چی کشتیم
+	local kills, current = {}, nil
+	V3.seaKills = kills
+	local function countKill()
+		if current and not aliveSea(current.obj) then
+			kills[current.label] = (kills[current.label] or 0) + 1
+			if current.kind == "shark" or current.kind == "beast" then V3.webhook("Sea Event", current.label .. " killed ✔") end
+		end
+	end
+
+	local seenKinds = setmetatable({}, { __mode = "k" })
 	local function stepSeaEvent(keep)
 		local list = seaTargets()
 		local root = getRoot()
-		if #list == 0 then
+		local hum = getHum()
+		if S.SeaRetreat and hum and hum.MaxHealth > 0 and hum.Health / hum.MaxHealth * 100 < S.RetreatHP then
+			S.Status = "Sea Event: low HP, healing up high"
+			V3.aimRelease()
+			tweenTo(CFrame.new(root.Position + Vector3.new(0, 300, 0)), keep)
+			local t0 = tick()
+			while keep() and alive() and tick() - t0 < 20 do
+				local h = getHum()
+				if not h or h.Health / h.MaxHealth >= 0.8 then break end
+				setFloat(true)
+				task.wait(0.5)
+			end
+			return
+		end
+		local t = list[1]
+		if not current or not t or current.obj ~= t.obj then
+			countKill()
+			current = t
+		end
+		if not t then
 			local boat = ensureBoat(S.EventBoat, keep)
 			if not boat then return end
 			V3.aimRelease()
@@ -382,30 +571,53 @@ local okSea, errSea = pcall(function()
 				local spot = Vector3.new(S.SeaSpotX, 0, S.SeaSpotZ)
 				if V3.flatDist(seat.Position, spot) > 200 then
 					S.Status = "Sea Event: sailing to your spot"
-					sail(boat, spot, keep)
+					sail(boat, spot, keep, function() return #seaTargets() > 0 end)
 					return
 				end
+				S.Status = "Sea Event: waiting at your spot"
+				task.wait(1)
+				return
 			end
+			if S.SeaHunt then return huntStep(boat, keep) end
 			S.Status = "Sea Event: waiting for an event"
 			task.wait(1)
 			return
 		end
-		local t = list[1]
 		if not seenKinds[t.obj] then
 			seenKinds[t.obj] = true
-			V3.webhook("Sea Event: " .. t.kind, "Fighting it now")
+			V3.webhook("Sea Event: " .. t.label, "Fighting it now")
 		end
-		S.Status = "Sea Event: " .. t.kind
-		local pos = t.part.Position
-		local stand = CFrame.new(pos + Vector3.new(0, S.SeaHover, 0))
-		if (root.Position - stand.Position).Magnitude > 90 then
-			tweenTo(stand, keep)
+		watchSea(t)
+		local stand = V3.seaStand(t, seaLift())
+		S.Status = ("Sea Event: %s%s"):format(t.label, seaLift() > 0 and " (dodging)" or "")
+		if (root.Position - stand).Magnitude > 120 then
+			tweenTo(CFrame.new(stand), keep)
 		else
 			setFloat(true)
-			root.CFrame = CFrame.lookAt(stand.Position, pos)
+			root.CFrame = CFrame.lookAt(stand, t.part.Position)
 		end
 		attackSea(t)
 		task.wait(0.15)
+	end
+
+	-- اسکن دریا: اسم و جای همه‌ی هدف‌های ممکن توی فایل، برای وقتی که اسمی رو نمی‌شناسیم
+	function V3.seaScan()
+		local root = getRoot()
+		local lines = { os.date("%H:%M:%S") .. "  danger " .. tostring(dangerLevel()) .. "  island " .. tostring(math.floor(select(2, nearestIsland(root.Position)) or -1)) }
+		local function dump(folder)
+			for _, o in ipairs(folder and folder:GetChildren() or {}) do
+				local part = o:FindFirstChild("HumanoidRootPart") or o:FindFirstChild("Engine") or o.PrimaryPart
+				if part and (part.Position - root.Position).Magnitude < 5000 then
+					local hv = o:FindFirstChild("Health")
+					local h = o:FindFirstChildWhichIsA("Humanoid")
+					local owner = o:FindFirstChild("Owner")
+					table.insert(lines, ("%s | %s | d=%d y=%d | hp=%s | owner=%s"):format(folder.Name, o.Name, (part.Position - root.Position).Magnitude,
+						part.Position.Y, tostring(hv and hv.Value or (h and math.floor(h.Health))), tostring(owner and owner.Value)))
+				end
+			end
+		end
+		for _, n in ipairs({ "SeaBeasts", "Boats", "Enemies" }) do dump(workspace:FindFirstChild(n)) end
+		return pcall(function() writefile("bmscan/sea_scan.txt", table.concat(lines, "\n")) end), #lines - 1
 	end
 
 	local sea3 = function() return Sea == 3 end
@@ -447,10 +659,25 @@ if Sea >= 2 then
 		end)
 	end
 	T:Section("Sea Event")
+	T:Toggle("Auto Sea Event", "AutoSeaEvent", stopOff)
 	T:Dropdown("Event Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
-	T:Dropdown("Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee", "Dragonstorm", "Skull Guitar" } end, "SeaWeapon")
-	T:Slider("Hover Height Above Target", 20, 120, "SeaHover")
-	T:Toggle("Auto Sea Event (sea beasts, Terrorshark, enemy boats)", "AutoSeaEvent", stopOff)
+	T:Toggle("Hunt In Deep Sea When Nothing Is Around", "SeaHunt")
+	T:Slider("Danger Level To Hunt At", 1, 6, "SeaDanger")
+	T:Label(function()
+		local V = Hub.V3
+		local lvl = V.dangerLevel and V.dangerLevel()
+		local _, d = V.nearestIsland and getRoot() and V.nearestIsland(getRoot().Position)
+		return ("Danger now: %s  •  Nearest island: %s"):format(tostring(lvl or "?"), d and (math.floor(d) .. " studs") or "?")
+	end)
+	T:Toggle("Fight Sea Beasts", "SeaHitBeasts")
+	T:Toggle("Fight Terrorshark (first)", "SeaHitShark")
+	T:Toggle("Fight Enemy Boats", "SeaHitBoats")
+	T:Toggle("Fight Sea Mobs (sharks, piranhas, crews)", "SeaHitSmall")
+	T:Toggle("Rotate All Weapons + All Skills", "SeaRotate")
+	T:Dropdown("Weapon (when not rotating)", function() return { "Blox Fruit", "Sword", "Gun", "Melee", "Dragonstorm", "Skull Guitar" } end, "SeaWeapon")
+	T:Slider("Height Above Sea Beast", 60, 250, "SeaBeastHover")
+	T:Slider("Height Above Boats", 20, 120, "SeaHover")
+	T:Toggle("Heal Up High When Low HP", "SeaRetreat")
 	T:Toggle("Auto Repair Boat (hammer)", "RepairBoat")
 	T:Button("Set Waiting Spot = My Boat's Position", function()
 		local b = Hub.V3.myBoat and Hub.V3.myBoat()
@@ -462,6 +689,16 @@ if Sea >= 2 then
 	T:Button("Clear Waiting Spot", function() S.SeaSpotSet = false end)
 	T:Label(function()
 		local list = Hub.V3.seaTargets and Hub.V3.seaTargets() or {}
-		return "Targets now: " .. (#list > 0 and (list[1].kind .. " (" .. #list .. ")") or "none")
+		return "Targets now: " .. (#list > 0 and (list[1].label .. " (" .. #list .. ")") or "none")
+	end)
+	T:Label(function()
+		local parts = {}
+		for k, n in pairs(Hub.V3.seaKills or {}) do table.insert(parts, k .. " " .. n) end
+		table.sort(parts)
+		return "Killed this session: " .. (#parts > 0 and table.concat(parts, ", ") or "nothing yet")
+	end)
+	T:Button("Scan The Sea Around Me (bmscan/sea_scan.txt)", function()
+		local ok, n = Hub.V3.seaScan()
+		notify("Sea Scan", ok and ("Saved " .. n .. " things ✔ - tell Claude") or "Could not write the file", 5)
 	end)
 end

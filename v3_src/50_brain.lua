@@ -220,7 +220,7 @@ local okBrain, errBrain = pcall(function()
 
 	-- بعضی کارها چند مرحله‌ای‌ان (CDK، Tushita و...): اگه خودت روشنشون کردی مغز وسطشون نمی‌پره
 	local LONG_JOBS = { "AutoPumpkin", "AutoRengoku", "AutoTrident", "AutoRaid", "AutoBartilo", "AutoSaber", "AutoYama", "AutoTushita", "AutoCDK",
-		"AutoRaceV2", "AutoRaceV3", "AutoSoulGuitar", "AutoStyles", "AutoSeaBeast", "AutoMaterial" }
+		"AutoRaceV2", "AutoRaceV3", "AutoSoulGuitar", "AutoStyles", "AutoSeaBeast", "AutoMaterial", "AutoStylePlan" }
 	local function longJobRunning()
 		for _, f in ipairs(LONG_JOBS) do
 			if S[f] and not managed[f] then return f end
@@ -410,6 +410,8 @@ local okBrain, errBrain = pcall(function()
 	local bossSet, bossSetAt = {}, 0
 	function Brain.isBoss(mob)
 		if mob.Name:find("[Boss]", 1, true) then return true end
+		-- هیولاهای دریا هم مثل باس: ضربه‌ی سنگین دارن و ارزش یاد گرفتن
+		if mob.Name == "Terrorshark" or (mob.Parent and mob.Parent.Name == "SeaBeasts") then return true end
 		if tick() - bossSetAt > 30 then
 			bossSetAt = tick()
 			table.clear(bossSet)

@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "3.9"
+VERSION = "4.1"
 
 
 def patch(src, old, new, count=1):
@@ -101,6 +101,9 @@ src = patch(
     "math.floor(best.Humanoid.Health), math.floor(bestD), a.click, a.tool,",
     "math.floor(best.Humanoid.Health), math.floor(bestD), math.floor(Hub.DamageRate and Hub.DamageRate() or 0), a.fruit or 0, a.click, a.tool,",
 )
+
+# مکان معلم‌های فایتینگ استایل برای 70_styles
+src = patch(src, "\tlocal styleTried = {}\n", "\tlocal styleTried = {}\n\tHub.StyleChain = STYLE_CHAIN\n")
 
 # صندوق‌ها: Safe Carry و شمارش برای Chest Hop
 src = patch(
