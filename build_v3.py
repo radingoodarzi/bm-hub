@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "4.3"
+VERSION = "4.4"
 
 
 def patch(src, old, new, count=1):
@@ -115,6 +115,39 @@ src = patch(
 )
 # ایستادن روی آب برای نصب تازه هم پیش‌فرض روشن
 src = patch(src, "WalkOnWater = false,", "WalkOnWater = true,")
+
+# سرعت و پرش از Settings به Combat (منطق واقعی‌شون توی 80_move)
+src = patch(
+    src,
+    '\tT:Toggle("WalkSpeed", "SpeedOn", function(on)\n'
+    "\t\tif not on then local h = getHum() if h then h.WalkSpeed = 16 end end\n"
+    "\tend)\n"
+    '\tT:Slider("Speed", 16, 300, "WalkSpeed")\n'
+    '\tT:Toggle("JumpPower", "JumpOn", function(on)\n'
+    "\t\tif not on then local h = getHum() if h then h.JumpPower = 50 end end\n"
+    "\tend)\n"
+    '\tT:Slider("Jump", 50, 300, "JumpPower")\n',
+    "",
+)
+src = patch(
+    src,
+    '\tT:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")\nend\n',
+    '\tT:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")\n'
+    '\tT:Section("Speed & Jump (real)")\n'
+    '\tT:Toggle("Walk Speed", "SpeedOn", function(on)\n'
+    "\t\tif not on then local h = getHum() if h then h.WalkSpeed = 16 end end\n"
+    "\tend)\n"
+    '\tT:Slider("Speed", 16, 300, "WalkSpeed")\n'
+    '\tT:Label(function() return ("Real speed now: %d studs/s"):format(Hub.Move and math.floor(Hub.Move.speed) or 0) end)\n'
+    '\tT:Toggle("Jump Power", "JumpOn", function(on)\n'
+    "\t\tif not on then local h = getHum() if h then h.JumpPower = 50 end end\n"
+    "\tend)\n"
+    '\tT:Slider("Jump", 50, 300, "JumpPower")\n'
+    '\tT:Label(function() return ("Jump height: about %d studs"):format(Hub.Move and Hub.Move.jumpHeight() or 0) end)\n'
+    '\tT:Toggle("Infinite Jump", "InfJump")\n'
+    "end\n",
+)
+src = patch(src, '\tT:Toggle("Infinite Jump", "InfJump")\n\tT:Toggle("Noclip", "Noclip")\n', '\tT:Toggle("Noclip", "Noclip")\n')
 
 # صندوق‌ها: Safe Carry و شمارش برای Chest Hop
 src = patch(

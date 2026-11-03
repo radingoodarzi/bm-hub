@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "4.3" }
+local Hub = { Connections = {}, Running = true, Version = "4.4" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -7149,6 +7149,59 @@ end)
 if not okStyles then logError("v3 styles", errStyles) end
 end
 
+-- ===== 80_move.lua =====
+---------------------------------------------------------------------
+-- v3 · Move: سرعت و پرش واقعی
+-- بازی WalkSpeed / JumpPower رو هر لحظه برمی‌گردونه؛ پس عدد Humanoid تنها کافی نیست.
+-- سرعت: سرعت واقعی کاراکتر اندازه گرفته میشه و هر چقدر کمتر از عدد تو بود، همون‌قدر به حرکت اضافه میشه.
+-- پرش: لحظه‌ی پرش سرعت عمودی مستقیم تنظیم میشه (ارتفاع ≈ JumpPower² / 392)
+---------------------------------------------------------------------
+do
+local okMove, errMove = pcall(function()
+	local Move = { speed = 0 }
+	Hub.Move = Move
+
+	-- چقدر باید اضافه کنیم (تابع خالص): هدف منهای سرعت واقعی، فقط وقتی کاربر داره راه میره
+	function Move.extra(target, measured, moving)
+		if not moving then return 0 end
+		return math.max(0, target - measured)
+	end
+
+	connect(RunService.Heartbeat, function(dt)
+		local root, hum = getRoot(), getHum()
+		if not root or not hum then return end
+		local v = root.AssemblyLinearVelocity
+		Move.speed = Vector3.new(v.X, 0, v.Z).Magnitude
+		-- موقع پرواز خود هاب، نشستن روی قایق یا فارم کاری نداریم
+		if not S.SpeedOn or hum.SeatPart or activeTween or anyFarm() then return end
+		local dir = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+		local add = Move.extra(S.WalkSpeed, Move.speed, dir.Magnitude > 0.1)
+		if add > 0 then
+			root.CFrame = root.CFrame + dir.Unit * add * math.min(dt, 0.1)
+		end
+	end)
+
+	-- لحظه‌ی پرش: فقط روی زمین (یا با Infinite Jump)
+	function Move.jump()
+		if not S.JumpOn then return false end
+		local root, hum = getRoot(), getHum()
+		if not root or not hum or hum.SeatPart then return false end
+		if hum.FloorMaterial == Enum.Material.Air and not S.InfJump then return false end
+		task.defer(function()
+			local r = getRoot()
+			if not r then return end
+			local vel = r.AssemblyLinearVelocity
+			r.AssemblyLinearVelocity = Vector3.new(vel.X, S.JumpPower, vel.Z)
+		end)
+		return true
+	end
+	connect(UserInputService.JumpRequest, Move.jump)
+
+	function Move.jumpHeight() return math.floor(S.JumpPower ^ 2 / (2 * workspace.Gravity)) end
+end)
+if not okMove then logError("v3 move", errMove) end
+end
+
 ---------------------------------------------------------------------
 -- UI
 ---------------------------------------------------------------------
@@ -8400,6 +8453,18 @@ do
 	T:Section("Movement")
 	T:Slider("Farm Height (above mobs)", 0, 40, "FarmHeight")
 	T:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
+	T:Section("Speed & Jump (real)")
+	T:Toggle("Walk Speed", "SpeedOn", function(on)
+		if not on then local h = getHum() if h then h.WalkSpeed = 16 end end
+	end)
+	T:Slider("Speed", 16, 300, "WalkSpeed")
+	T:Label(function() return ("Real speed now: %d studs/s"):format(Hub.Move and math.floor(Hub.Move.speed) or 0) end)
+	T:Toggle("Jump Power", "JumpOn", function(on)
+		if not on then local h = getHum() if h then h.JumpPower = 50 end end
+	end)
+	T:Slider("Jump", 50, 300, "JumpPower")
+	T:Label(function() return ("Jump height: about %d studs"):format(Hub.Move and Hub.Move.jumpHeight() or 0) end)
+	T:Toggle("Infinite Jump", "InfJump")
 end
 
 -- Shop
@@ -8593,15 +8658,6 @@ do
 	T:Dropdown("Team", function() return { "Pirates", "Marines" } end, "TeamChoice")
 	T:Toggle("Auto Pick Team", "AutoTeam")
 	T:Section("Player")
-	T:Toggle("WalkSpeed", "SpeedOn", function(on)
-		if not on then local h = getHum() if h then h.WalkSpeed = 16 end end
-	end)
-	T:Slider("Speed", 16, 300, "WalkSpeed")
-	T:Toggle("JumpPower", "JumpOn", function(on)
-		if not on then local h = getHum() if h then h.JumpPower = 50 end end
-	end)
-	T:Slider("Jump", 50, 300, "JumpPower")
-	T:Toggle("Infinite Jump", "InfJump")
 	T:Toggle("Noclip", "Noclip")
 	T:Toggle("Walk on Water", "WalkOnWater")
 	T:Section("Visual")
