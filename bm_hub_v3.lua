@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "4.1" }
+local Hub = { Connections = {}, Running = true, Version = "4.3" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -150,7 +150,7 @@ local S = {
 	FruitESP = false, ChestESP = false, PlayerESP = false, MobESP = false, NPCESP = false, IslandESP = false, EventESP = false,
 	HuntHop = false, HuntTarget = nil, HuntWait = 12, HuntMaxHops = 40, HuntGoTo = true, MoonNotify = true,
 	SpeedOn = false, WalkSpeed = 60, JumpOn = false, JumpPower = 80,
-	Noclip = false, InfJump = false, AntiAFK = true, WalkOnWater = false, AutoBerries = false, Fullbright = false, NoFog = false,
+	Noclip = false, InfJump = false, AntiAFK = true, WalkOnWater = true, AutoBerries = false, Fullbright = false, NoFog = false,
 	SelectedIsland = nil, SelectedNPC = nil, SelectedPlayer = nil,
 	Status = "Idle",
 }
@@ -2527,7 +2527,7 @@ do
 				local step, flag
 				local sStep, sFlag = specialAction()
 				if sStep then step, flag = sStep, sFlag
-				elseif S.AutoSeaBeast then step, flag = stepSeaBeast, "AutoSeaBeast"
+				elseif S.AutoSeaBeast then step, flag = (Hub.V3 and Hub.V3.seaBeastStep) or stepSeaBeast, "AutoSeaBeast"
 				elseif S.AutoMaterial then step, flag = stepMaterial, "AutoMaterial"
 				elseif S.AutoPirateRaid and Sea == 3 then step, flag = stepPirateRaid, "AutoPirateRaid"
 				elseif S.AutoElite and Sea == 3 then step, flag = stepElite, "AutoElite"
@@ -4306,12 +4306,18 @@ local okSea, errSea = pcall(function()
 		ResetForBoat = true, AutoBuyBoat = false, RepairBoat = true,
 		SeaSpotSet = false, SeaSpotX = 0, SeaSpotZ = 0, SeaWeapon = "Blox Fruit", SeaHover = 60,
 		BoatMaxSpeedOn = false, BoatMaxSpeed = 200,
-		SeaHunt = true, SeaDanger = 5, SeaRotate = true, SeaBeastHover = 200, SeaRetreat = true,
+		SeaHunt = true, SeaDanger = 5, SeaRotate = true, SeaBeastHover = 200, SeaRetreat = true, SeaAttack = "All Fast",
+		WaterDefault = false,
 		SeaHitBeasts = true, SeaHitShark = true, SeaHitBoats = true, SeaHitSmall = true,
 	}) do
 		if S[k] == nil then S[k] = v end
 	end
 	Hub.V3SkipSave.AutoBuyBoat = true -- پول خرج می‌کنه؛ هر بار باید دستی روشن بشه
+
+	-- ایستادن روی آب پیش‌فرض روشن (فقط یک بار؛ اگه بعداً خاموشش کنی خاموش می‌مونه). بعد از لود تنظیمات اجرا میشه
+	task.delay(3, function()
+		if not S.WaterDefault then S.WaterDefault, S.WalkOnWater = true, true end
+	end)
 
 	-- Tiki Outpost = دریای 3 نقشه‌ی جدید (فقط اونجا Leviathan و Prehistoric Island هست)
 	local TIKI_NPC = Vector3.new(-16204.08, 9.09, 479.23)
@@ -4393,13 +4399,20 @@ local okSea, errSea = pcall(function()
 		end
 		boatNoclip(boat, true)
 		local y = seat.Position.Y
-		local speed = math.clamp(S.BoatSpeed, 50, 300)
+		local speed = math.clamp(S.BoatSpeed, 50, 400)
 		local reached, lastNoclip = false, tick()
+		local expected, snaps = seat.Position, 0
 		while keep() and Hub.Running and boat.Parent and seat.Parent and alive() do
 			if not seatedOn(boat) then break end
 			if stop and stop() then break end
 			local dt = math.min(task.wait(), 0.1)
 			local p = seat.Position
+			-- مثل پرواز: اگه سرور قایق رو عقب کشید کندتر میشیم و از همونجا ادامه میدیم
+			if V3.flatDist(p, expected) > 25 then
+				snaps += 1
+				speed = math.max(80, speed * 0.75)
+				S.Status = ("Boat: server pulled the boat back (%d), now %d speed"):format(snaps, math.floor(speed))
+			end
 			local flat = Vector3.new(goal.X - p.X, 0, goal.Z - p.Z)
 			local step = speed * dt
 			if flat.Magnitude <= step + 3 then
@@ -4408,6 +4421,7 @@ local okSea, errSea = pcall(function()
 			end
 			local np = Vector3.new(p.X, y, p.Z) + flat.Unit * step
 			seat.CFrame = CFrame.new(np) * seat.CFrame.Rotation
+			expected = np
 			if tick() - lastNoclip > 1 then
 				lastNoclip = tick()
 				boatNoclip(boat, true)
@@ -4424,10 +4438,21 @@ local okSea, errSea = pcall(function()
 		local root = getRoot()
 		if not root then return nil end
 		local boat = myBoat(needPart)
-		local far = boat == nil or (root.Position - boat.VehicleSeat.Position).Magnitude >= 4000
+		local dist = boat and (root.Position - boat.VehicleSeat.Position).Magnitude
+		if boat and dist >= 4000 and dist < 15000 then
+			-- قایق خودت هنوز هست ولی دوره: به جای خریدن دوباره، می‌ریم سراغش
+			S.Status = "Boat: flying to your boat"
+			tweenTo(boat.VehicleSeat.CFrame, keep)
+			return nil
+		end
+		local far = boat == nil or dist >= 4000
 		if far then
 			if not S.AutoBuyBoat then
+				-- Auto Buy Boat پول خرج می‌کنه و ذخیره نمیشه؛ پس بعد از هر ری‌استارت یه پیام واضح میدیم
 				S.Status = "Boat: no boat nearby (turn on Auto Buy Boat)"
+				V3.once("needBoat", function()
+					V3.notify("Boat needed", "No boat of yours here. Turn on Auto Buy Boat in the Sea tab (spends Beli)", 10)
+				end)
 				task.wait(2)
 				return nil
 			end
@@ -4462,6 +4487,7 @@ local okSea, errSea = pcall(function()
 			task.wait(0.6)
 			return nil
 		end
+		V3.resetOnce("needBoat")
 		return boat
 	end
 
@@ -4608,6 +4634,9 @@ local okSea, errSea = pcall(function()
 	local RANK = { shark = 1, beast = 2, boat = 3, small = 4 }
 	local SEA_RANGE = 3000
 
+	-- focus = "beast": فقط Sea Beast (برای Auto Sea Beast)؛ nil = همه‌ی هدف‌های روشن
+	local focus
+
 	local function seaTargets()
 		local out, root = {}, getRoot()
 		if not root then return out end
@@ -4623,16 +4652,16 @@ local okSea, errSea = pcall(function()
 				end
 			end
 		end
-		if S.SeaHitShark then
+		if S.SeaHitShark and not focus then
 			local ts = findMobAnywhere("Terrorshark")
 			if ts then add(ts, "shark", "Terrorshark") end
 		end
 		local sb = workspace:FindFirstChild("SeaBeasts")
-		if S.SeaHitBeasts and sb then
+		if (S.SeaHitBeasts or focus == "beast") and sb then
 			for _, o in ipairs(sb:GetChildren()) do add(o, "beast", "Sea Beast") end
 		end
 		local boats = workspace:FindFirstChild("Boats")
-		if S.SeaHitBoats and boats then
+		if S.SeaHitBoats and boats and not focus then
 			for _, b in ipairs(boats:GetChildren()) do
 				local owner = b:FindFirstChild("Owner")
 				-- قایق بازیکن‌ها رو نمی‌زنیم؛ فقط قایق‌های دشمن (Engine + Health و بدون صاحب بازیکن)
@@ -4644,7 +4673,7 @@ local okSea, errSea = pcall(function()
 		end
 		-- ماب‌های دریا (کوسه، پیرانا، خدمه‌ها): هر دشمنی دور از جزیره‌ها، چون روی آب ماب جزیره نیست
 		local enemies = workspace:FindFirstChild("Enemies")
-		if S.SeaHitSmall and enemies then
+		if S.SeaHitSmall and enemies and not focus then
 			local _, islandD = nearestIsland(root.Position)
 			if islandD and islandD > 1500 then
 				for _, m in ipairs(enemies:GetChildren()) do
@@ -4666,7 +4695,8 @@ local okSea, errSea = pcall(function()
 		local p = t.part.Position
 		lift = lift or 0
 		if t.kind == "beast" then
-			local h = S.SeaBeastHover
+			-- M1 از نزدیک می‌زنه (Banana برای M1 میوه 30 می‌ذاره)
+			local h = S.SeaAttack == "M1 Spam" and 30 or S.SeaBeastHover
 			if math.abs(p.Y + 60) <= 175 then return Vector3.new(p.X, p.Y + h + lift, p.Z + 50) end
 			return Vector3.new(p.X, -60 + h + lift, p.Z)
 		elseif t.kind == "shark" then
@@ -4702,11 +4732,11 @@ local okSea, errSea = pcall(function()
 		return 0
 	end
 
-	-- همه‌ی سلاح‌ها به نوبت با همه‌ی اسکیل‌ها (Z X C V) تا هیچ cooldownی هدر نره
+	-- همه چیز سریع: همه‌ی سلاح‌ها به نوبت (هر کدوم 0.8 ثانیه) با همه‌ی اسکیل‌ها (Z X C V هر 0.3 ثانیه)
 	local ROTATION = { "Melee", "Blox Fruit", "Sword", "Gun" }
 	local rot, rotAt, keysAt = 0, 0, 0
 	local function rotateAttack(t)
-		if tick() - rotAt >= 1.4 then
+		if tick() - rotAt >= 0.8 then
 			rotAt = tick()
 			for _ = 1, #ROTATION do
 				rot = rot % #ROTATION + 1
@@ -4716,13 +4746,41 @@ local okSea, errSea = pcall(function()
 			if tool and h and tool.Parent ~= getChar() then pcall(function() h:EquipTool(tool) end) end
 		end
 		V3.aimClick(t.part.Position)
-		if tick() - keysAt >= 0.5 then
+		if tick() - keysAt >= 0.3 then
 			keysAt = tick()
 			for _, k in ipairs({ "Z", "X", "C", "V" }) do V3.key(Enum.KeyCode[k], 0.03) end
 		end
 	end
 
+	local function equipSeaWeapon(w)
+		if w == "Dragonstorm" or w == "Skull Guitar" then
+			if not backpackTool(w) then
+				invoke("LoadItem", w)
+				task.wait(0.4)
+			end
+			V3.equip(w)
+		else
+			equipWeapon(w)
+		end
+	end
+
+	-- M1 پشت سر هم: با سلاح انتخابی سمت هدف کلیک می‌کنه؛ میوه‌ی M1 دار مستقیم هم M1 می‌فرسته
+	local m1Combo, m1At = 0, 0
+	local function m1Attack(t)
+		equipSeaWeapon(S.SeaWeapon)
+		V3.aimClick(t.part.Position)
+		local char, root = getChar(), getRoot()
+		local tool = char and char:FindFirstChildOfClass("Tool")
+		local remote = tool and tool:FindFirstChild("LeftClickRemote")
+		if remote and root and tick() - m1At >= 0.2 then
+			m1At = tick()
+			m1Combo = m1Combo % 4 + 1
+			pcall(function() remote:FireServer((t.part.Position - root.Position).Unit, m1Combo) end)
+		end
+	end
+
 	local function attackSea(t)
+		if S.SeaAttack == "M1 Spam" then return m1Attack(t) end
 		local w = S.SeaWeapon
 		if w == "Dragonstorm" or w == "Skull Guitar" then
 			if not backpackTool(w) then
@@ -4736,7 +4794,7 @@ local okSea, errSea = pcall(function()
 			equipWeapon(w)
 		end
 		V3.aimClick(t.part.Position)
-		if tick() - keysAt >= 0.5 then
+		if tick() - keysAt >= 0.3 then
 			keysAt = tick()
 			for _, k in ipairs({ "Z", "X", "C", "V" }) do V3.key(Enum.KeyCode[k], 0.03) end
 		end
@@ -4893,7 +4951,7 @@ local okSea, errSea = pcall(function()
 			root.CFrame = CFrame.lookAt(stand, t.part.Position)
 		end
 		attackSea(t)
-		task.wait(0.15)
+		task.wait(S.SeaAttack == "M1 Spam" and 0.07 or 0.15)
 	end
 
 	-- اسکن دریا: اسم و جای همه‌ی هدف‌های ممکن توی فایل، برای وقتی که اسمی رو نمی‌شناسیم
@@ -4921,6 +4979,13 @@ local okSea, errSea = pcall(function()
 	V3.findPrehistoric = findPrehistoric -- ماژول Volcano وقتی جزیره نیست ازش برای گشت استفاده می‌کنه
 	V3.register("AutoFireHeart", stepHeart, sea3)
 	V3.register("AutoSeaEvent", stepSeaEvent, function() return Sea == 2 or Sea == 3 end)
+	-- Auto Sea Beast (کلید قدیمی v2) حالا با همین موتور: شکار + فقط Sea Beast
+	function V3.seaBeastStep(keep)
+		focus = "beast"
+		local ok, err = pcall(stepSeaEvent, keep)
+		focus = nil
+		if not ok then error(err, 0) end
+	end
 	V3.register("AutoFindLeviathan", stepFind("AutoFindLeviathan", "Leviathan", "BoatChoice", leviathanUp), sea3)
 	V3.register("AutoFindPrehistoric", findPrehistoric, sea3)
 end)
@@ -6422,7 +6487,8 @@ end
 -- v3 · Planner: برنامه‌ی حساب و یادگیری درآمد
 -- Account Plan: قدم بعدی آیتم‌ها رو از اینونتوری خود بازی پیدا می‌کنه و همون رو اجرا می‌کنه
 -- Best Income: درآمد واقعی هر کار رو می‌سنجه و پردرآمدترین رو نگه می‌داره
--- Smart Mastery (از Banana: فیلدهای Mastery/Rarity توی getInventoryWeapons و LoadItem)
+-- Smart Mastery (از Banana: Rarity توی getInventoryWeapons و LoadItem). Mastery واقعی فقط Level ابزارهای توی کوله‌ست
+-- (inventory.txt بازی: getInventoryWeapons فیلد Mastery نداره)
 -- به‌علاوه‌ی ردیاب آیتم، گزارش ساعتی، برگشت هاب بعد از تلپورت و PK Guard
 ---------------------------------------------------------------------
 do
@@ -6437,7 +6503,7 @@ local okPlan, errPlan = pcall(function()
 		if S[k] == nil then S[k] = v end
 	end
 
-	local Planner = { have = {}, mastery = {}, weapons = {}, skip = {}, seen = {}, needMastery = {}, scanned = false }
+	local Planner = { have = {}, mastery = {}, weapons = {}, skip = {}, seen = {}, needMastery = {}, loadTries = {}, scanned = false }
 	Hub.Planner = Planner
 
 	-----------------------------------------------------------------
@@ -6466,7 +6532,9 @@ local okPlan, errPlan = pcall(function()
 		if (Planner.skip[s.id] or 0) > tick() then return "resting, it took too long" end
 		for name, need in pairs(s.mastery or {}) do
 			if not Planner.have[name] then return "needs " .. name end
-			if (Planner.mastery[name] or 0) < need then return ("needs %d mastery on %s"):format(need, name) end
+			local m = Planner.mastery[name]
+			if m == nil then return "checking the mastery of " .. name .. " (Smart Mastery loads it)" end
+			if m < need then return ("needs %d mastery on %s"):format(need, name) end
 		end
 	end
 
@@ -6484,7 +6552,7 @@ local okPlan, errPlan = pcall(function()
 				else
 					-- قدم فقط منتظر Mastery ـه: Smart Mastery باید همون شمشیرها رو بالا ببره
 					for name, need in pairs(s.mastery or {}) do
-						if Planner.have[name] and (Planner.mastery[name] or 0) < need then Planner.needMastery[name] = need end
+						if Planner.have[name] and (Planner.mastery[name] or -1) < need then Planner.needMastery[name] = need end
 					end
 				end
 			end
@@ -6617,7 +6685,10 @@ local okPlan, errPlan = pcall(function()
 		local best, bestScore
 		for _, w in ipairs(Planner.weapons) do
 			local need = Planner.needMastery[w.Name]
-			if w.Type == "Sword" and (tonumber(w.Mastery) or 0) < (need or S.MasteryTarget) then
+			local m = Planner.mastery[w.Name]
+			-- نامعلوم = هنوز لود نشده؛ لودش می‌کنیم تا Level خونده بشه (بعد از 3 بار بی‌نتیجه ول می‌کنیم)
+			local usable = m ~= nil or (Planner.loadTries[w.Name] or 0) < 3
+			if w.Type == "Sword" and usable and (m == nil or m < (need or S.MasteryTarget)) then
 				local score = (need and 1000 or 0) + (tonumber(w.Rarity) or 0)
 				if not bestScore or score > bestScore then best, bestScore = w, score end
 			end
@@ -6643,7 +6714,10 @@ local okPlan, errPlan = pcall(function()
 			Planner.masteryName = w.Name
 			Brain.note("Mastery: training " .. w.Name)
 		end
-		if not backpackTool(w.Name) then invoke("LoadItem", w.Name) end
+		if not backpackTool(w.Name) then
+			Planner.loadTries[w.Name] = (Planner.loadTries[w.Name] or 0) + 1
+			invoke("LoadItem", w.Name)
+		end
 		S.MasteryFarm, S.MasteryWeapon = true, "Sword"
 	end
 
@@ -6677,10 +6751,17 @@ local okPlan, errPlan = pcall(function()
 		for _, w in pairs(r) do
 			if type(w) == "table" and w.Name then
 				table.insert(weapons, w)
-				Planner.mastery[w.Name] = tonumber(w.Mastery) or 0
+				if tonumber(w.Mastery) then Planner.mastery[w.Name] = tonumber(w.Mastery) end
 			end
 		end
 		Planner.weapons = weapons
+		-- دو تا جدا: اگه کاراکتر nil باشه ipairs روی { nil, کوله } اصلاً به کوله نمی‌رسه
+		for _, cont in pairs({ char = getChar(), bp = player:FindFirstChild("Backpack") }) do
+			for _, t in ipairs(cont:GetChildren()) do
+				local lv = t:IsA("Tool") and t:FindFirstChild("Level")
+				if lv and type(lv.Value) == "number" then Planner.mastery[t.Name] = lv.Value end
+			end
+		end
 		for _, s in ipairs(seaSteps()) do
 			Planner.have[s.id] = hasItem(s.have)
 			for name in pairs(s.mastery or {}) do Planner.have[name] = hasItem(name) end
@@ -7907,8 +7988,8 @@ end
 if Sea == 2 or Sea == 3 then
 	local T = createTab("Sea", "⚓")
 	T:Section("Sea Beasts")
-	T:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", stopOff)
-	T:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")
+	T:Toggle("Auto Sea Beast (hunts + fights, uses the Sea Event settings)", "AutoSeaBeast", stopOff)
+	T:Label(function() return "Attack mode, weapon and heights: Sea Event section" end)
 	T:Label(function()
 		local f = workspace:FindFirstChild("SeaBeasts")
 		return "Sea Beasts in server: " .. (f and #f:GetChildren() or 0)
@@ -8019,7 +8100,7 @@ if Sea >= 2 then
 	T:Section("Boat")
 	T:Toggle("Auto Buy Boat (spends beli!)", "AutoBuyBoat")
 	T:Toggle("Respawn Near Dealer When Far (saves flight time)", "ResetForBoat")
-	T:Slider("Boat Speed (150 safe, higher = risk)", 50, 300, "BoatSpeed")
+	T:Slider("Boat Speed (150 safe, 250+ may get pulled back)", 50, 400, "BoatSpeed")
 	T:Toggle("Set Boat Max Speed (manual driving)", "BoatMaxSpeedOn")
 	T:Slider("Boat Max Speed", 50, 400, "BoatMaxSpeed")
 	T:Label(function()
@@ -8042,6 +8123,8 @@ if Sea >= 2 then
 	end
 	T:Section("Sea Event")
 	T:Toggle("Auto Sea Event", "AutoSeaEvent", stopOff)
+	T:Dropdown("Attack Mode", function() return { "All Fast", "M1 Spam" } end, "SeaAttack")
+	T:Label(function() return S.SeaAttack == "M1 Spam" and "M1 Spam: clicks nonstop with the Weapon below, 30 above sea beasts" or "All Fast: every weapon + Z X C V, very quick" end)
 	T:Dropdown("Event Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
 	T:Toggle("Hunt In Deep Sea When Nothing Is Around", "SeaHunt")
 	T:Slider("Danger Level To Hunt At", 1, 6, "SeaDanger")
@@ -8055,8 +8138,8 @@ if Sea >= 2 then
 	T:Toggle("Fight Terrorshark (first)", "SeaHitShark")
 	T:Toggle("Fight Enemy Boats", "SeaHitBoats")
 	T:Toggle("Fight Sea Mobs (sharks, piranhas, crews)", "SeaHitSmall")
-	T:Toggle("Rotate All Weapons + All Skills", "SeaRotate")
-	T:Dropdown("Weapon (when not rotating)", function() return { "Blox Fruit", "Sword", "Gun", "Melee", "Dragonstorm", "Skull Guitar" } end, "SeaWeapon")
+	T:Toggle("All Fast: Rotate All Weapons", "SeaRotate")
+	T:Dropdown("Weapon (M1 Spam / no rotation)", function() return { "Blox Fruit", "Sword", "Gun", "Melee", "Dragonstorm", "Skull Guitar" } end, "SeaWeapon")
 	T:Slider("Height Above Sea Beast", 60, 250, "SeaBeastHover")
 	T:Slider("Height Above Boats", 20, 120, "SeaHover")
 	T:Toggle("Heal Up High When Low HP", "SeaRetreat")
@@ -8092,6 +8175,7 @@ if Sea == 3 then
 	local T = createTab("Sea", "⚓")
 	T:Section("Prehistoric Island (full event)")
 	T:Toggle("Auto Prehistoric Event (craft magnet → find → run event)", "AutoVolcano", stopOff)
+	T:Toggle("Auto Buy Boat (needed if you have no boat here, spends beli!)", "AutoBuyBoat")
 	T:Toggle("I Already Have The Magnet (skip crafting)", "IgnoreMagnet")
 	T:Toggle("Remove Lava Damage (local only)", "RemoveLava")
 	T:Dropdown("Golem Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "GolemWeapon")
@@ -8648,7 +8732,7 @@ if Planner and Planner.ready then
 	T:Slider("Target Mastery", 50, 600, "MasteryTarget")
 	T:Label(function()
 		if not Planner.masteryName then return "Training: nothing" end
-		return ("Training: %s  (%d)"):format(Planner.masteryName, Planner.mastery[Planner.masteryName] or 0)
+		return ("Training: %s  (%s)"):format(Planner.masteryName, tostring(Planner.mastery[Planner.masteryName] or "?"))
 	end)
 	T = createTab("Settings", "✦")
 	T:Section("Alerts")

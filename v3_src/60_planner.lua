@@ -2,7 +2,8 @@
 -- v3 · Planner: برنامه‌ی حساب و یادگیری درآمد
 -- Account Plan: قدم بعدی آیتم‌ها رو از اینونتوری خود بازی پیدا می‌کنه و همون رو اجرا می‌کنه
 -- Best Income: درآمد واقعی هر کار رو می‌سنجه و پردرآمدترین رو نگه می‌داره
--- Smart Mastery (از Banana: فیلدهای Mastery/Rarity توی getInventoryWeapons و LoadItem)
+-- Smart Mastery (از Banana: Rarity توی getInventoryWeapons و LoadItem). Mastery واقعی فقط Level ابزارهای توی کوله‌ست
+-- (inventory.txt بازی: getInventoryWeapons فیلد Mastery نداره)
 -- به‌علاوه‌ی ردیاب آیتم، گزارش ساعتی، برگشت هاب بعد از تلپورت و PK Guard
 ---------------------------------------------------------------------
 do
@@ -17,7 +18,7 @@ local okPlan, errPlan = pcall(function()
 		if S[k] == nil then S[k] = v end
 	end
 
-	local Planner = { have = {}, mastery = {}, weapons = {}, skip = {}, seen = {}, needMastery = {}, scanned = false }
+	local Planner = { have = {}, mastery = {}, weapons = {}, skip = {}, seen = {}, needMastery = {}, loadTries = {}, scanned = false }
 	Hub.Planner = Planner
 
 	-----------------------------------------------------------------
@@ -46,7 +47,9 @@ local okPlan, errPlan = pcall(function()
 		if (Planner.skip[s.id] or 0) > tick() then return "resting, it took too long" end
 		for name, need in pairs(s.mastery or {}) do
 			if not Planner.have[name] then return "needs " .. name end
-			if (Planner.mastery[name] or 0) < need then return ("needs %d mastery on %s"):format(need, name) end
+			local m = Planner.mastery[name]
+			if m == nil then return "checking the mastery of " .. name .. " (Smart Mastery loads it)" end
+			if m < need then return ("needs %d mastery on %s"):format(need, name) end
 		end
 	end
 
@@ -64,7 +67,7 @@ local okPlan, errPlan = pcall(function()
 				else
 					-- قدم فقط منتظر Mastery ـه: Smart Mastery باید همون شمشیرها رو بالا ببره
 					for name, need in pairs(s.mastery or {}) do
-						if Planner.have[name] and (Planner.mastery[name] or 0) < need then Planner.needMastery[name] = need end
+						if Planner.have[name] and (Planner.mastery[name] or -1) < need then Planner.needMastery[name] = need end
 					end
 				end
 			end
@@ -197,7 +200,10 @@ local okPlan, errPlan = pcall(function()
 		local best, bestScore
 		for _, w in ipairs(Planner.weapons) do
 			local need = Planner.needMastery[w.Name]
-			if w.Type == "Sword" and (tonumber(w.Mastery) or 0) < (need or S.MasteryTarget) then
+			local m = Planner.mastery[w.Name]
+			-- نامعلوم = هنوز لود نشده؛ لودش می‌کنیم تا Level خونده بشه (بعد از 3 بار بی‌نتیجه ول می‌کنیم)
+			local usable = m ~= nil or (Planner.loadTries[w.Name] or 0) < 3
+			if w.Type == "Sword" and usable and (m == nil or m < (need or S.MasteryTarget)) then
 				local score = (need and 1000 or 0) + (tonumber(w.Rarity) or 0)
 				if not bestScore or score > bestScore then best, bestScore = w, score end
 			end
@@ -223,7 +229,10 @@ local okPlan, errPlan = pcall(function()
 			Planner.masteryName = w.Name
 			Brain.note("Mastery: training " .. w.Name)
 		end
-		if not backpackTool(w.Name) then invoke("LoadItem", w.Name) end
+		if not backpackTool(w.Name) then
+			Planner.loadTries[w.Name] = (Planner.loadTries[w.Name] or 0) + 1
+			invoke("LoadItem", w.Name)
+		end
 		S.MasteryFarm, S.MasteryWeapon = true, "Sword"
 	end
 
@@ -257,10 +266,17 @@ local okPlan, errPlan = pcall(function()
 		for _, w in pairs(r) do
 			if type(w) == "table" and w.Name then
 				table.insert(weapons, w)
-				Planner.mastery[w.Name] = tonumber(w.Mastery) or 0
+				if tonumber(w.Mastery) then Planner.mastery[w.Name] = tonumber(w.Mastery) end
 			end
 		end
 		Planner.weapons = weapons
+		-- دو تا جدا: اگه کاراکتر nil باشه ipairs روی { nil, کوله } اصلاً به کوله نمی‌رسه
+		for _, cont in pairs({ char = getChar(), bp = player:FindFirstChild("Backpack") }) do
+			for _, t in ipairs(cont:GetChildren()) do
+				local lv = t:IsA("Tool") and t:FindFirstChild("Level")
+				if lv and type(lv.Value) == "number" then Planner.mastery[t.Name] = lv.Value end
+			end
+		end
 		for _, s in ipairs(seaSteps()) do
 			Planner.have[s.id] = hasItem(s.have)
 			for name in pairs(s.mastery or {}) do Planner.have[name] = hasItem(name) end
@@ -384,7 +400,7 @@ if Planner and Planner.ready then
 	T:Slider("Target Mastery", 50, 600, "MasteryTarget")
 	T:Label(function()
 		if not Planner.masteryName then return "Training: nothing" end
-		return ("Training: %s  (%d)"):format(Planner.masteryName, Planner.mastery[Planner.masteryName] or 0)
+		return ("Training: %s  (%s)"):format(Planner.masteryName, tostring(Planner.mastery[Planner.masteryName] or "?"))
 	end)
 	T = createTab("Settings", "✦")
 	T:Section("Alerts")

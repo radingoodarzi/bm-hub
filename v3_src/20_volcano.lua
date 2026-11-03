@@ -337,6 +337,7 @@ if Sea == 3 then
 	local T = createTab("Sea", "⚓")
 	T:Section("Prehistoric Island (full event)")
 	T:Toggle("Auto Prehistoric Event (craft magnet → find → run event)", "AutoVolcano", stopOff)
+	T:Toggle("Auto Buy Boat (needed if you have no boat here, spends beli!)", "AutoBuyBoat")
 	T:Toggle("I Already Have The Magnet (skip crafting)", "IgnoreMagnet")
 	T:Toggle("Remove Lava Damage (local only)", "RemoveLava")
 	T:Dropdown("Golem Weapon", function() return { "Melee", "Sword", "Blox Fruit", "Gun" } end, "GolemWeapon")

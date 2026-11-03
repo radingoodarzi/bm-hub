@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "4.1"
+VERSION = "4.3"
 
 
 def patch(src, old, new, count=1):
@@ -104,6 +104,17 @@ src = patch(
 
 # مکان معلم‌های فایتینگ استایل برای 70_styles
 src = patch(src, "\tlocal styleTried = {}\n", "\tlocal styleTried = {}\n\tHub.StyleChain = STYLE_CHAIN\n")
+
+# Auto Sea Beast با موتور Sea Event جدید (10_sea): شکار، جاخالی، دو حالت حمله
+src = patch(src, 'step, flag = stepSeaBeast, "AutoSeaBeast"', 'step, flag = (Hub.V3 and Hub.V3.seaBeastStep) or stepSeaBeast, "AutoSeaBeast"')
+src = patch(src, 'T:Toggle("Auto Sea Beast (fly over it + skills)", "AutoSeaBeast", stopOff)', 'T:Toggle("Auto Sea Beast (hunts + fights, uses the Sea Event settings)", "AutoSeaBeast", stopOff)')
+src = patch(
+    src,
+    'T:Dropdown("Sea Beast Weapon", function() return { "Blox Fruit", "Sword", "Gun", "Melee" } end, "SeaBeastWeapon")',
+    'T:Label(function() return "Attack mode, weapon and heights: Sea Event section" end)',
+)
+# ایستادن روی آب برای نصب تازه هم پیش‌فرض روشن
+src = patch(src, "WalkOnWater = false,", "WalkOnWater = true,")
 
 # صندوق‌ها: Safe Carry و شمارش برای Chest Hop
 src = patch(
