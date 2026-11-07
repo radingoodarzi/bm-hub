@@ -356,12 +356,12 @@ local okSea, errSea = pcall(function()
 				end
 			end
 		end
-		if S.SeaHitShark and not focus then
+		if (S.SeaHitShark and not focus) or focus == "shark" then
 			local ts = findMobAnywhere("Terrorshark")
 			if ts then add(ts, "shark", "Terrorshark") end
 		end
 		local sb = workspace:FindFirstChild("SeaBeasts")
-		if (S.SeaHitBeasts or focus == "beast") and sb then
+		if ((S.SeaHitBeasts and not focus) or focus == "beast") and sb then
 			for _, o in ipairs(sb:GetChildren()) do add(o, "beast", "Sea Beast") end
 		end
 		local boats = workspace:FindFirstChild("Boats")
@@ -395,9 +395,43 @@ local okSea, errSea = pcall(function()
 
 	-- جای ایستادن برای هر نوع هدف (اعداد از Banana). lift = جاخالی
 	-- Sea Beast: روی آب 200 بالاتر و 50 کنار؛ زیر آب بالای سرش روی ارتفاع -60 + 200
+	-- M1 میوه‌ی Banana برای سی ایونت: میوه‌ی M1 دار + M1 Spam. Kitsune روی قایق‌ها M1 نمی‌زنه
+	local NEAR_FRUITS = { "T-Rex", "Leopard", "Mammoth", "Dough" }
+	local function seaFruitM1(t)
+		if S.SeaAttack ~= "M1 Spam" or S.SeaWeapon ~= "Blox Fruit" then return nil end
+		local fruit = V3.toolByTip("Blox Fruit")
+		if not fruit or not fruit:FindFirstChild("LeftClickRemote") then return nil end
+		if t and t.kind == "boat" and fruit.Name == "Kitsune-Kitsune" then return nil end
+		return fruit
+	end
+	V3.seaFruitM1 = seaFruitM1
+
+	-- جای ایستادن و نشونه‌ی M1 میوه (اعداد از Banana):
+	-- قایق: 25 زیر Engine و شلیک به 35 زیرش (از زیر قایق، هر ضربه می‌خوره)
+	-- Sea Beast: درست بالای سرش، 30 برای میوه‌های نزدیک‌زن و 200 برای بقیه
+	-- کوسه و بقیه: 20 بالای سرش (Kitsune 18)
+	local function fruitStand(t, fruit, lift)
+		local p = t.part.Position
+		if t.kind == "boat" and t.part.Name == "Engine" then
+			return (t.part.CFrame * CFrame.new(0, -25, 0)).Position + Vector3.new(0, lift, 0), (t.part.CFrame * CFrame.new(0, -35, 0)).Position
+		elseif t.kind == "beast" then
+			local h = 200
+			for _, n in ipairs(NEAR_FRUITS) do
+				if fruit.Name:find(n, 1, true) then h = 30 end
+			end
+			if math.abs(p.Y + 60) <= 175 then return Vector3.new(p.X, p.Y + h + lift, p.Z), p end
+			return Vector3.new(p.X, -60 + h + lift, p.Z), p
+		end
+		local h = fruit.Name == "Kitsune-Kitsune" and 18 or 20
+		return p + Vector3.new(0, h + lift, 0), p
+	end
+	V3.fruitStand = fruitStand
+
 	function V3.seaStand(t, lift)
 		local p = t.part.Position
 		lift = lift or 0
+		local fruit = seaFruitM1(t)
+		if fruit then return (fruitStand(t, fruit, lift)) end
 		if t.kind == "beast" then
 			-- M1 از نزدیک می‌زنه (Banana برای M1 میوه 30 می‌ذاره)
 			local h = S.SeaAttack == "M1 Spam" and 30 or S.SeaBeastHover
@@ -470,7 +504,46 @@ local okSea, errSea = pcall(function()
 
 	-- M1 پشت سر هم: با سلاح انتخابی سمت هدف کلیک می‌کنه؛ میوه‌ی M1 دار مستقیم هم M1 می‌فرسته
 	local m1Combo, m1At = 0, 0
+
+	-- M1 میوه توی یه حلقه‌ی جدا: به حلقه‌ی اصلی (پرواز، اسکن دریا) گره نخورده و کلیک صفحه نداره
+	-- فاصله‌ی ضربه همونیه که مغز برای این میوه یاد گرفته (سرور اسپم خیلی تند رو کم‌دمیج می‌کنه)
+	local fruitTarget, fruitUntil, fruitCombo = nil, 0, 0
+	V3.seaFruitShots = 0
+	local function fruitGap(fruit)
+		local ok, gap = pcall(function() return Hub.Brain.store.fruit[fruit.Name].gap end)
+		return ok and tonumber(gap) or 0.2
+	end
+	local function fireFruitM1()
+		local t = fruitTarget
+		if not t or tick() > fruitUntil or not t.obj.Parent then return 0.1 end
+		local fruit, root = seaFruitM1(t), getRoot()
+		if not fruit or not root or fruit.Parent ~= getChar() then return 0.1 end
+		local remote = fruit:FindFirstChild("LeftClickRemote")
+		local _, aim = fruitStand(t, fruit, 0)
+		local dir = aim - root.Position
+		if not remote or dir.Magnitude < 0.5 then return 0.1 end
+		fruitCombo = fruitCombo % 4 + 1
+		if pcall(function() remote:FireServer(dir.Unit, fruitCombo) end) then
+			V3.seaFruitShots += 1
+		end
+		return fruitGap(fruit)
+	end
+	V3.fireFruitM1 = fireFruitM1
+	function V3.setFruitTarget(t, untilT) fruitTarget, fruitUntil = t, untilT end
+	task.spawn(function()
+		while Hub.Running do
+			local ok, gap = pcall(fireFruitM1)
+			task.wait(ok and gap or 0.2)
+		end
+	end)
+
 	local function m1Attack(t)
+		if seaFruitM1(t) then
+			equipWeapon("Blox Fruit")
+			V3.aimRelease()
+			fruitTarget, fruitUntil = t, tick() + 1
+			return
+		end
 		equipSeaWeapon(S.SeaWeapon)
 		V3.aimClick(t.part.Position)
 		local char, root = getChar(), getRoot()
@@ -589,6 +662,7 @@ local okSea, errSea = pcall(function()
 	local function countKill()
 		if current and not aliveSea(current.obj) then
 			kills[current.label] = (kills[current.label] or 0) + 1
+			if current.kind == "shark" then V3.sharkKills = (V3.sharkKills or 0) + 1 end
 			if current.kind == "shark" or current.kind == "beast" then V3.webhook("Sea Event", current.label .. " killed ✔") end
 		end
 	end
@@ -652,7 +726,8 @@ local okSea, errSea = pcall(function()
 			tweenTo(CFrame.new(stand), keep)
 		else
 			setFloat(true)
-			root.CFrame = CFrame.lookAt(stand, t.part.Position)
+			-- زیر قایق نگاه عمودی می‌شه و lookAt خراب می‌شه
+			root.CFrame = seaFruitM1(t) and CFrame.new(stand) or CFrame.lookAt(stand, t.part.Position)
 		end
 		attackSea(t)
 		task.wait(S.SeaAttack == "M1 Spam" and 0.07 or 0.15)
@@ -686,6 +761,13 @@ local okSea, errSea = pcall(function()
 	-- Auto Sea Beast (کلید قدیمی v2) حالا با همین موتور: شکار + فقط Sea Beast
 	function V3.seaBeastStep(keep)
 		focus = "beast"
+		local ok, err = pcall(stepSeaEvent, keep)
+		focus = nil
+		if not ok then error(err, 0) end
+	end
+	-- فقط Terrorshark (برای کوئست Draco V3): همون شکار با Danger Level
+	function V3.sharkStep(keep)
+		focus = "shark"
 		local ok, err = pcall(stepSeaEvent, keep)
 		focus = nil
 		if not ok then error(err, 0) end
@@ -726,7 +808,7 @@ if Sea >= 2 then
 	T:Section("Sea Event")
 	T:Toggle("Auto Sea Event", "AutoSeaEvent", stopOff)
 	T:Dropdown("Attack Mode", function() return { "All Fast", "M1 Spam" } end, "SeaAttack")
-	T:Label(function() return S.SeaAttack == "M1 Spam" and "M1 Spam: clicks nonstop with the Weapon below, 30 above sea beasts" or "All Fast: every weapon + Z X C V, very quick" end)
+	T:Label(function() return S.SeaAttack == "M1 Spam" and "M1 Spam: Blox Fruit with M1 = Banana fruit M1 (under boats, fast, no clicks); other weapons click nonstop" or "All Fast: every weapon + Z X C V, very quick" end)
 	T:Dropdown("Event Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
 	T:Toggle("Hunt In Deep Sea When Nothing Is Around", "SeaHunt")
 	T:Slider("Danger Level To Hunt At", 1, 6, "SeaDanger")

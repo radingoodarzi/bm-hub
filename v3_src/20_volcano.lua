@@ -90,6 +90,82 @@ local okVol, errVol = pcall(function()
 		end
 	end
 
+	-- همه‌ی اسکیل‌ها (Z X C V) رو خودش می‌زنه، حتی اگه سوییچ‌های اسکیل خاموش باشن (برای سنگ و درخت)
+	local skillAt = 0
+	local function pressAllSkills()
+		if tick() - skillAt < 0.5 then return end
+		skillAt = tick()
+		for _, k in ipairs({ "Z", "X", "C", "V" }) do V3.key(Enum.KeyCode[k]) end
+	end
+
+	-- درخت‌های کوئست Dragon Hunter (از Banana): درخت سالم یه مش «Meshes/plant1_Icosphere» داره و به وسطش
+	-- نشونه می‌گیریم؛ تنه‌ی بی‌برگ رو 20 پایین‌تر می‌زنیم. شکسته‌ها AlreadyDestroyedClient می‌گیرن.
+	-- اسم و جای خود مدل درخت تأیید نشده؛ هر مدلی که اون مش رو داره درخت حساب میشه (Scan Trees می‌نویسه کجان)
+	local TREE_MESH = "Meshes/plant1_Icosphere"
+	local trees = setmetatable({}, { __mode = "k" })
+	local ignoredTree = setmetatable({}, { __mode = "k" })
+	local treeScanAt = -100
+	local function scanTrees(force)
+		if not force and tick() - treeScanAt < 30 then return end
+		treeScanAt = tick()
+		for _, d in ipairs(workspace:GetDescendants()) do
+			if d.Name == TREE_MESH then
+				local m = d:FindFirstAncestorWhichIsA("Model")
+				if m and m ~= workspace then trees[m] = true end
+			end
+		end
+	end
+	local function treeAlive(m)
+		return m.Parent ~= nil and not m:GetAttribute("AlreadyDestroyedClient")
+	end
+	local function findTree()
+		scanTrees()
+		local root = getRoot()
+		local best, bd
+		for m in pairs(trees) do
+			if not ignoredTree[m] and treeAlive(m) then
+				local d = (m:GetPivot().Position - root.Position).Magnitude
+				if not bd or d < bd then best, bd = m, d end
+			end
+		end
+		return best
+	end
+	function V3.scanTrees()
+		scanTrees(true)
+		local root = getRoot()
+		local lines = { os.date("%H:%M:%S") .. "  quest: " .. tostring(V3.dragonQuestText) }
+		for m in pairs(trees) do
+			local p = m:GetPivot().Position
+			table.insert(lines, ("%s | d=%d | pos=%d,%d,%d | destroyed=%s"):format(m:GetFullName(),
+				root and (p - root.Position).Magnitude or -1, p.X, p.Y, p.Z, tostring(m:GetAttribute("AlreadyDestroyedClient"))))
+		end
+		pcall(function() writefile("bmscan/trees.txt", table.concat(lines, "\n")) end)
+		return #lines - 1
+	end
+
+	-- یه درخت رو تا 15 ثانیه با اسکیل می‌زنه (مثل Banana)
+	local function chopTree(tree, keep)
+		ignoredTree[tree] = true
+		local t0 = tick()
+		while keep() and alive() and treeAlive(tree) and tick() - t0 < 15 do
+			local pivot = tree:GetPivot()
+			local leafy = V3.findDesc(tree, TREE_MESH) ~= nil
+			local aim = leafy and pivot.Position or (pivot * CFrame.new(0, -20, 0)).Position
+			local stand = aim + Vector3.new(6, 8, 0)
+			local root = getRoot()
+			if (root.Position - stand).Magnitude > 10 then
+				tweenTo(CFrame.new(stand), keep)
+			else
+				setFloat(true)
+				equipWeapon(S.VolcanoWeapon)
+				V3.aimClick(aim)
+				pressAllSkills()
+			end
+			task.wait(0.15)
+		end
+		V3.aimRelease()
+	end
+
 	local function stepQuest(keep)
 		local npc = npcPart("Dragon Hunter")
 		local root = getRoot()
@@ -127,12 +203,23 @@ local okVol, errVol = pcall(function()
 		elseif questText:find("Venomous Assailants") then
 			S.Status = "Dragon Hunter: Venomous Assailants"
 			farmMobs({ "Venomous Assailant" }, keep)
+		elseif questText:lower():find("tree") then
+			local tree = findTree()
+			if tree then
+				S.Status = "Dragon Hunter: breaking a tree"
+				chopTree(tree, keep)
+			else
+				S.Status = "Dragon Hunter: no tree found (press Scan Trees)"
+				V3.log("TREE none found, quest=" .. tostring(questText))
+				task.wait(3)
+			end
 		else
-			-- نوع «trees» و بقیه فعلاً خودکار نیست؛ کوئست رو دوباره می‌گیریم
-			S.Status = "Dragon Hunter: unsupported quest, re-requesting"
+			S.Status = "Dragon Hunter: unknown quest, re-requesting"
+			V3.log("DRAGONHUNTER unknown quest: " .. tostring(questText))
 			questText = nil
 			task.wait(3)
 		end
+		V3.dragonQuestText = questText
 		-- کوئست تموم شد؟ از سرور دوباره بپرس
 		if tick() - (V3.lastQuestCheck or 0) > 20 then
 			V3.lastQuestCheck = tick()
@@ -282,10 +369,8 @@ local okVol, errVol = pcall(function()
 				setFloat(true)
 				equipWeapon(S.VolcanoWeapon)
 				V3.aimClick(pos)
-				local savedSkills = S.UseSkills
-				S.UseSkills = true
-				useSkills()
-				S.UseSkills = savedSkills
+				-- قبلاً useSkills بود که با سوییچ‌های اسکیل خاموش هیچی نمی‌زد
+				pressAllSkills()
 			end
 			return
 		end
@@ -328,6 +413,7 @@ local okVol, errVol = pcall(function()
 		end
 	end, sea3, true)
 	V3.register("AutoDragonHunter", stepQuest, sea3)
+	V3.npcPart, V3.farmMobs = npcPart, farmMobs -- برای ماژول Draco
 end)
 if not okVol then logError("v3 volcano", errVol) end
 end
@@ -348,7 +434,11 @@ if Sea == 3 then
 	end)
 	T:Section("Volcanic Magnet")
 	T:Toggle("Auto Craft Volcanic Magnet", "AutoCraftMagnet", stopOff)
-	T:Toggle("Auto Quest Dragon Hunter (Blaze Ember only)", "AutoDragonHunter", stopOff)
+	T:Toggle("Auto Quest Dragon Hunter (Blaze Ember: mobs + trees)", "AutoDragonHunter", stopOff)
+	T:Button("Scan Trees (writes bmscan/trees.txt)", function()
+		local n = Hub.V3.scanTrees and Hub.V3.scanTrees()
+		notify("Dragon Hunter", ("Saved %d trees"):format(n or 0), 5)
+	end)
 	T:Label(function()
 		local V = Hub.V3
 		if not V.volcanoCount then return "" end

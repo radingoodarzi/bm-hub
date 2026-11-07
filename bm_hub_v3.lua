@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "4.9" }
+local Hub = { Connections = {}, Running = true, Version = "5.3" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -315,6 +315,9 @@ tweenTo = function(cf, keepGoing, manual)
 		if not root then break end
 		local dt = math.min(task.wait(), 0.1)
 		local pos = root.Position
+		if (pos - expected).Magnitude > 1000 then
+			break -- بازی تلپورتمون کرد؛ مسیر قبلی دیگه معنی نداره
+		end
 		if (pos - expected).Magnitude > 25 then
 			-- سرور برگردوندمون: کندتر میشیم، یه مکث کوتاه میکنیم و از جای فعلی ادامه میدیم
 			snaps += 1
@@ -1078,6 +1081,9 @@ local function killMob(mob, keepGoing)
 		if hum.Health < lastHp - 1 then
 			lastHp, lastHit = hum.Health, tick()
 			Hub.LastProgress = lastHit
+		elseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120
+			and (root.Position.Y - hrp.Position.Y) > 11 and Hub.LowerHeight and Hub.LowerHeight() then
+			lastHit = tick()
 		elseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120 then
 			mobSkipUntil[mob] = tick() + 45
 			if Hub.LiveLog then Hub.LiveLog(("SKIP %s for 45s: no damage in 8s, hp=%d dist=%d"):format(name, hum.Health, (root.Position - hrp.Position).Magnitude)) end
@@ -1085,7 +1091,7 @@ local function killMob(mob, keepGoing)
 			break
 		end
 		-- بالای سر ماب‌ها می‌ایستیم (Farm Height) تا بهمون نرسن؛ کمی کنارشون که زاویه‌ی نگاه درست بمونه
-		local h = math.clamp(S.FarmHeight, 0, 100) + (Hub.DodgeY or 0)
+		local h = math.min(math.clamp(S.FarmHeight, 0, 100), Hub.HeightCap and Hub.HeightCap() or 100) + (Hub.DodgeY or 0)
 		local away = Vector3.new(root.Position.X - hrp.Position.X, 0, root.Position.Z - hrp.Position.Z)
 		away = away.Magnitude > 0.1 and away.Unit or Vector3.new(0, 0, 1)
 		local standAt = hrp.Position + away * 3 + Vector3.new(0, h, 0)
@@ -1707,6 +1713,14 @@ do
 		end
 	end
 
+	local raidClickedAt = 0
+	local function inRaid()
+		if raidIsland() then return true end
+		local ok, vis = pcall(function() return player.PlayerGui.Main.TopHUDList.RaidTimer.Visible end)
+		return ok and vis == true
+	end
+	Hub.InRaid = inRaid
+
 	local function raidChip()
 		for _, cont in ipairs({ getChar(), player:FindFirstChild("Backpack") }) do
 			if cont then
@@ -1740,8 +1754,14 @@ do
 			task.wait(0.3)
 			if S.AutoRaid and alive() then
 				local keep = function() return S.AutoRaid end
+				local keepOut = function() return S.AutoRaid and not inRaid() end
 				local ok, err = pcall(function()
 					local island, idx = raidIsland()
+					if not island and inRaid() then
+						S.Status = "Raid: waiting for the islands to load"
+						task.wait(1)
+						return
+					end
 					if island then
 						-- توی Raid: نزدیک‌ترین دشمن رو بزن، اگه نبود برو جزیره‌ی بعدی
 						local root = getRoot()
@@ -1759,24 +1779,41 @@ do
 							S.Status = ("Raid island %d: %s"):format(idx, mobBaseName(target.Name))
 							killMob(target, keep)
 						else
-							S.Status = "Raid: going to island " .. idx
-							tweenTo(island.CFrame * CFrame.new(0, 60, 0), keep)
+							local spot = island.CFrame * CFrame.new(0, 60, 0)
+							if (root.Position - spot.Position).Magnitude > 30 then
+								S.Status = "Raid: going to island " .. idx
+								tweenTo(spot, keep)
+							else
+								S.Status = "Raid: waiting for mobs on island " .. idx
+								setFloat(true)
+								task.wait(0.5)
+							end
 						end
 						return
 					end
 					local chip = raidChip()
+					if not chip and tick() - raidClickedAt < 30 then
+						S.Status = "Raid: waiting for the raid to start"
+						task.wait(1)
+						return
+					end
 					if chip then
 						local btn = raidButton()
 						if not btn then
 							S.Status = "Going to raid lab"
-							tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 20, 0)), keep)
+							tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 20, 0)), keepOut)
 							return
 						end
 						S.Status = "Starting raid"
-						tweenTo(btn.CFrame * CFrame.new(0, 3, 0), keep)
+						tweenTo(btn.CFrame * CFrame.new(0, 3, 0), keepOut)
 						task.wait(0.3)
 						if fireclickdetector then pcall(fireclickdetector, btn:FindFirstChildOfClass("ClickDetector")) end
-						task.wait(5)
+						raidClickedAt = tick()
+						local t0 = tick()
+						while keep() and not inRaid() and tick() - t0 < 20 do
+							S.Status = "Raid: waiting for the raid to start"
+							task.wait(0.5)
+						end
 						return
 					end
 					if not S.AutoBuyChip then
@@ -1790,7 +1827,7 @@ do
 						return
 					end
 					S.Status = "Buying " .. S.RaidType .. " chip"
-					tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 3, 4)), keep)
+					tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 3, 4)), keepOut)
 					task.wait(0.3)
 					local r = invoke("RaidsNpc", "Select", S.RaidType)
 					task.wait(1.5)
@@ -2200,8 +2237,8 @@ do
 		end
 		local prog = tonumber(invoke("EliteHunter", "Progress")) or 0
 		if prog < 30 then
-			S.Status = ("Yama: elites %d/30 (turn on Auto Elite)"):format(prog)
-			task.wait(5)
+			S.Status = ("Yama: elites %d/30"):format(prog)
+			stepElite(keep)
 			return
 		end
 		local hit
@@ -2209,6 +2246,12 @@ do
 		if not hit then
 			S.Status = "Yama: going to waterfall"
 			tweenTo(CFrame.new(5241, 23, 1055), keep)
+			return
+		end
+		local ghost = findMob("Ghost")
+		if ghost and (ghost.HumanoidRootPart.Position - hit.Position).Magnitude < 300 then
+			S.Status = "Yama: killing the Ghosts"
+			killMob(ghost, keep)
 			return
 		end
 		S.Status = "Yama: pulling the sword"
@@ -3005,8 +3048,8 @@ do
 			task.wait(0.5)
 			if alive() then
 				local step, flag
-				if S.AutoTushita and Sea == 3 then step, flag = stepTushita, "AutoTushita"
-				elseif S.AutoCDK and Sea == 3 then step, flag = stepCDK, "AutoCDK"
+				if S.AutoTushita and Sea == 3 then step, flag = Hub.V3.tushitaStep or stepTushita, "AutoTushita"
+				elseif S.AutoCDK and Sea == 3 then step, flag = Hub.V3.cdkStep or stepCDK, "AutoCDK"
 				elseif S.AutoRaceV2 and Sea == 2 then step, flag = stepRaceV2, "AutoRaceV2"
 				elseif S.AutoRaceV3 and Sea == 2 then step, flag = stepRaceV3, "AutoRaceV3"
 				elseif S.AutoSoulGuitar and Sea == 3 then step, flag = stepSoulGuitar, "AutoSoulGuitar"
@@ -4659,12 +4702,12 @@ local okSea, errSea = pcall(function()
 				end
 			end
 		end
-		if S.SeaHitShark and not focus then
+		if (S.SeaHitShark and not focus) or focus == "shark" then
 			local ts = findMobAnywhere("Terrorshark")
 			if ts then add(ts, "shark", "Terrorshark") end
 		end
 		local sb = workspace:FindFirstChild("SeaBeasts")
-		if (S.SeaHitBeasts or focus == "beast") and sb then
+		if ((S.SeaHitBeasts and not focus) or focus == "beast") and sb then
 			for _, o in ipairs(sb:GetChildren()) do add(o, "beast", "Sea Beast") end
 		end
 		local boats = workspace:FindFirstChild("Boats")
@@ -4698,9 +4741,43 @@ local okSea, errSea = pcall(function()
 
 	-- جای ایستادن برای هر نوع هدف (اعداد از Banana). lift = جاخالی
 	-- Sea Beast: روی آب 200 بالاتر و 50 کنار؛ زیر آب بالای سرش روی ارتفاع -60 + 200
+	-- M1 میوه‌ی Banana برای سی ایونت: میوه‌ی M1 دار + M1 Spam. Kitsune روی قایق‌ها M1 نمی‌زنه
+	local NEAR_FRUITS = { "T-Rex", "Leopard", "Mammoth", "Dough" }
+	local function seaFruitM1(t)
+		if S.SeaAttack ~= "M1 Spam" or S.SeaWeapon ~= "Blox Fruit" then return nil end
+		local fruit = V3.toolByTip("Blox Fruit")
+		if not fruit or not fruit:FindFirstChild("LeftClickRemote") then return nil end
+		if t and t.kind == "boat" and fruit.Name == "Kitsune-Kitsune" then return nil end
+		return fruit
+	end
+	V3.seaFruitM1 = seaFruitM1
+
+	-- جای ایستادن و نشونه‌ی M1 میوه (اعداد از Banana):
+	-- قایق: 25 زیر Engine و شلیک به 35 زیرش (از زیر قایق، هر ضربه می‌خوره)
+	-- Sea Beast: درست بالای سرش، 30 برای میوه‌های نزدیک‌زن و 200 برای بقیه
+	-- کوسه و بقیه: 20 بالای سرش (Kitsune 18)
+	local function fruitStand(t, fruit, lift)
+		local p = t.part.Position
+		if t.kind == "boat" and t.part.Name == "Engine" then
+			return (t.part.CFrame * CFrame.new(0, -25, 0)).Position + Vector3.new(0, lift, 0), (t.part.CFrame * CFrame.new(0, -35, 0)).Position
+		elseif t.kind == "beast" then
+			local h = 200
+			for _, n in ipairs(NEAR_FRUITS) do
+				if fruit.Name:find(n, 1, true) then h = 30 end
+			end
+			if math.abs(p.Y + 60) <= 175 then return Vector3.new(p.X, p.Y + h + lift, p.Z), p end
+			return Vector3.new(p.X, -60 + h + lift, p.Z), p
+		end
+		local h = fruit.Name == "Kitsune-Kitsune" and 18 or 20
+		return p + Vector3.new(0, h + lift, 0), p
+	end
+	V3.fruitStand = fruitStand
+
 	function V3.seaStand(t, lift)
 		local p = t.part.Position
 		lift = lift or 0
+		local fruit = seaFruitM1(t)
+		if fruit then return (fruitStand(t, fruit, lift)) end
 		if t.kind == "beast" then
 			-- M1 از نزدیک می‌زنه (Banana برای M1 میوه 30 می‌ذاره)
 			local h = S.SeaAttack == "M1 Spam" and 30 or S.SeaBeastHover
@@ -4773,7 +4850,46 @@ local okSea, errSea = pcall(function()
 
 	-- M1 پشت سر هم: با سلاح انتخابی سمت هدف کلیک می‌کنه؛ میوه‌ی M1 دار مستقیم هم M1 می‌فرسته
 	local m1Combo, m1At = 0, 0
+
+	-- M1 میوه توی یه حلقه‌ی جدا: به حلقه‌ی اصلی (پرواز، اسکن دریا) گره نخورده و کلیک صفحه نداره
+	-- فاصله‌ی ضربه همونیه که مغز برای این میوه یاد گرفته (سرور اسپم خیلی تند رو کم‌دمیج می‌کنه)
+	local fruitTarget, fruitUntil, fruitCombo = nil, 0, 0
+	V3.seaFruitShots = 0
+	local function fruitGap(fruit)
+		local ok, gap = pcall(function() return Hub.Brain.store.fruit[fruit.Name].gap end)
+		return ok and tonumber(gap) or 0.2
+	end
+	local function fireFruitM1()
+		local t = fruitTarget
+		if not t or tick() > fruitUntil or not t.obj.Parent then return 0.1 end
+		local fruit, root = seaFruitM1(t), getRoot()
+		if not fruit or not root or fruit.Parent ~= getChar() then return 0.1 end
+		local remote = fruit:FindFirstChild("LeftClickRemote")
+		local _, aim = fruitStand(t, fruit, 0)
+		local dir = aim - root.Position
+		if not remote or dir.Magnitude < 0.5 then return 0.1 end
+		fruitCombo = fruitCombo % 4 + 1
+		if pcall(function() remote:FireServer(dir.Unit, fruitCombo) end) then
+			V3.seaFruitShots += 1
+		end
+		return fruitGap(fruit)
+	end
+	V3.fireFruitM1 = fireFruitM1
+	function V3.setFruitTarget(t, untilT) fruitTarget, fruitUntil = t, untilT end
+	task.spawn(function()
+		while Hub.Running do
+			local ok, gap = pcall(fireFruitM1)
+			task.wait(ok and gap or 0.2)
+		end
+	end)
+
 	local function m1Attack(t)
+		if seaFruitM1(t) then
+			equipWeapon("Blox Fruit")
+			V3.aimRelease()
+			fruitTarget, fruitUntil = t, tick() + 1
+			return
+		end
 		equipSeaWeapon(S.SeaWeapon)
 		V3.aimClick(t.part.Position)
 		local char, root = getChar(), getRoot()
@@ -4892,6 +5008,7 @@ local okSea, errSea = pcall(function()
 	local function countKill()
 		if current and not aliveSea(current.obj) then
 			kills[current.label] = (kills[current.label] or 0) + 1
+			if current.kind == "shark" then V3.sharkKills = (V3.sharkKills or 0) + 1 end
 			if current.kind == "shark" or current.kind == "beast" then V3.webhook("Sea Event", current.label .. " killed ✔") end
 		end
 	end
@@ -4955,7 +5072,8 @@ local okSea, errSea = pcall(function()
 			tweenTo(CFrame.new(stand), keep)
 		else
 			setFloat(true)
-			root.CFrame = CFrame.lookAt(stand, t.part.Position)
+			-- زیر قایق نگاه عمودی می‌شه و lookAt خراب می‌شه
+			root.CFrame = seaFruitM1(t) and CFrame.new(stand) or CFrame.lookAt(stand, t.part.Position)
 		end
 		attackSea(t)
 		task.wait(S.SeaAttack == "M1 Spam" and 0.07 or 0.15)
@@ -4989,6 +5107,13 @@ local okSea, errSea = pcall(function()
 	-- Auto Sea Beast (کلید قدیمی v2) حالا با همین موتور: شکار + فقط Sea Beast
 	function V3.seaBeastStep(keep)
 		focus = "beast"
+		local ok, err = pcall(stepSeaEvent, keep)
+		focus = nil
+		if not ok then error(err, 0) end
+	end
+	-- فقط Terrorshark (برای کوئست Draco V3): همون شکار با Danger Level
+	function V3.sharkStep(keep)
+		focus = "shark"
 		local ok, err = pcall(stepSeaEvent, keep)
 		focus = nil
 		if not ok then error(err, 0) end
@@ -5092,6 +5217,82 @@ local okVol, errVol = pcall(function()
 		end
 	end
 
+	-- همه‌ی اسکیل‌ها (Z X C V) رو خودش می‌زنه، حتی اگه سوییچ‌های اسکیل خاموش باشن (برای سنگ و درخت)
+	local skillAt = 0
+	local function pressAllSkills()
+		if tick() - skillAt < 0.5 then return end
+		skillAt = tick()
+		for _, k in ipairs({ "Z", "X", "C", "V" }) do V3.key(Enum.KeyCode[k]) end
+	end
+
+	-- درخت‌های کوئست Dragon Hunter (از Banana): درخت سالم یه مش «Meshes/plant1_Icosphere» داره و به وسطش
+	-- نشونه می‌گیریم؛ تنه‌ی بی‌برگ رو 20 پایین‌تر می‌زنیم. شکسته‌ها AlreadyDestroyedClient می‌گیرن.
+	-- اسم و جای خود مدل درخت تأیید نشده؛ هر مدلی که اون مش رو داره درخت حساب میشه (Scan Trees می‌نویسه کجان)
+	local TREE_MESH = "Meshes/plant1_Icosphere"
+	local trees = setmetatable({}, { __mode = "k" })
+	local ignoredTree = setmetatable({}, { __mode = "k" })
+	local treeScanAt = -100
+	local function scanTrees(force)
+		if not force and tick() - treeScanAt < 30 then return end
+		treeScanAt = tick()
+		for _, d in ipairs(workspace:GetDescendants()) do
+			if d.Name == TREE_MESH then
+				local m = d:FindFirstAncestorWhichIsA("Model")
+				if m and m ~= workspace then trees[m] = true end
+			end
+		end
+	end
+	local function treeAlive(m)
+		return m.Parent ~= nil and not m:GetAttribute("AlreadyDestroyedClient")
+	end
+	local function findTree()
+		scanTrees()
+		local root = getRoot()
+		local best, bd
+		for m in pairs(trees) do
+			if not ignoredTree[m] and treeAlive(m) then
+				local d = (m:GetPivot().Position - root.Position).Magnitude
+				if not bd or d < bd then best, bd = m, d end
+			end
+		end
+		return best
+	end
+	function V3.scanTrees()
+		scanTrees(true)
+		local root = getRoot()
+		local lines = { os.date("%H:%M:%S") .. "  quest: " .. tostring(V3.dragonQuestText) }
+		for m in pairs(trees) do
+			local p = m:GetPivot().Position
+			table.insert(lines, ("%s | d=%d | pos=%d,%d,%d | destroyed=%s"):format(m:GetFullName(),
+				root and (p - root.Position).Magnitude or -1, p.X, p.Y, p.Z, tostring(m:GetAttribute("AlreadyDestroyedClient"))))
+		end
+		pcall(function() writefile("bmscan/trees.txt", table.concat(lines, "\n")) end)
+		return #lines - 1
+	end
+
+	-- یه درخت رو تا 15 ثانیه با اسکیل می‌زنه (مثل Banana)
+	local function chopTree(tree, keep)
+		ignoredTree[tree] = true
+		local t0 = tick()
+		while keep() and alive() and treeAlive(tree) and tick() - t0 < 15 do
+			local pivot = tree:GetPivot()
+			local leafy = V3.findDesc(tree, TREE_MESH) ~= nil
+			local aim = leafy and pivot.Position or (pivot * CFrame.new(0, -20, 0)).Position
+			local stand = aim + Vector3.new(6, 8, 0)
+			local root = getRoot()
+			if (root.Position - stand).Magnitude > 10 then
+				tweenTo(CFrame.new(stand), keep)
+			else
+				setFloat(true)
+				equipWeapon(S.VolcanoWeapon)
+				V3.aimClick(aim)
+				pressAllSkills()
+			end
+			task.wait(0.15)
+		end
+		V3.aimRelease()
+	end
+
 	local function stepQuest(keep)
 		local npc = npcPart("Dragon Hunter")
 		local root = getRoot()
@@ -5129,12 +5330,23 @@ local okVol, errVol = pcall(function()
 		elseif questText:find("Venomous Assailants") then
 			S.Status = "Dragon Hunter: Venomous Assailants"
 			farmMobs({ "Venomous Assailant" }, keep)
+		elseif questText:lower():find("tree") then
+			local tree = findTree()
+			if tree then
+				S.Status = "Dragon Hunter: breaking a tree"
+				chopTree(tree, keep)
+			else
+				S.Status = "Dragon Hunter: no tree found (press Scan Trees)"
+				V3.log("TREE none found, quest=" .. tostring(questText))
+				task.wait(3)
+			end
 		else
-			-- نوع «trees» و بقیه فعلاً خودکار نیست؛ کوئست رو دوباره می‌گیریم
-			S.Status = "Dragon Hunter: unsupported quest, re-requesting"
+			S.Status = "Dragon Hunter: unknown quest, re-requesting"
+			V3.log("DRAGONHUNTER unknown quest: " .. tostring(questText))
 			questText = nil
 			task.wait(3)
 		end
+		V3.dragonQuestText = questText
 		-- کوئست تموم شد؟ از سرور دوباره بپرس
 		if tick() - (V3.lastQuestCheck or 0) > 20 then
 			V3.lastQuestCheck = tick()
@@ -5284,10 +5496,8 @@ local okVol, errVol = pcall(function()
 				setFloat(true)
 				equipWeapon(S.VolcanoWeapon)
 				V3.aimClick(pos)
-				local savedSkills = S.UseSkills
-				S.UseSkills = true
-				useSkills()
-				S.UseSkills = savedSkills
+				-- قبلاً useSkills بود که با سوییچ‌های اسکیل خاموش هیچی نمی‌زد
+				pressAllSkills()
 			end
 			return
 		end
@@ -5330,6 +5540,7 @@ local okVol, errVol = pcall(function()
 		end
 	end, sea3, true)
 	V3.register("AutoDragonHunter", stepQuest, sea3)
+	V3.npcPart, V3.farmMobs = npcPart, farmMobs -- برای ماژول Draco
 end)
 if not okVol then logError("v3 volcano", errVol) end
 end
@@ -5492,6 +5703,93 @@ local okTr, errTr = pcall(function()
 	end
 
 	-----------------------------------------------------------------
+	-- Pull Lever (از Banana): با Valkyrie Helm + Mirror Fractal، اهرم معبد Temple of Time رو می‌کشه.
+	-- در بسته باشه: اول قدم‌های Race V4، بعد Mirage (شب Blue Gear، روز بلندترین نقطه برای ماه).
+	-- Banana جای «کشیده‌نشده»ی اهرم رو از قبل می‌دونه؛ ما بعد از زدن Prompt نگاه می‌کنیم اهرم جابه‌جا شد یا نه.
+	-----------------------------------------------------------------
+	local leverTries = 0
+	local function findLever()
+		local t = temple()
+		local lv = t and V3.findDesc(t, "Lever")
+		if lv and not lv:FindFirstChildWhichIsA("ProximityPrompt", true) and lv.Parent and lv.Parent.Name == "Lever" then lv = lv.Parent end
+		return lv
+	end
+	local function pivotOf(o)
+		if not o then return nil end
+		if o:IsA("BasePart") then return o.CFrame end
+		if o:IsA("Model") then return o:GetPivot() end
+	end
+	local function leverDone(msg)
+		V3.notify("Pull Lever", msg .. " (switch turned off)", 8)
+		V3.log("LEVER " .. msg)
+		S.AutoPullLever = false
+		leverTries = 0
+	end
+	V3.leverDone = leverDone
+
+	local function stepLever(keep)
+		if not hasItem("Valkyrie Helm") then
+			V3.notify("Pull Lever", "Needs Valkyrie Helm (Rip Indra) + Mirror Fractal (Dough King)", 8)
+			S.AutoPullLever = false
+			return
+		end
+		if invoke("CheckTempleDoor") then
+			local lv = findLever()
+			if not lv then
+				S.Status = "Pull Lever: flying to the Temple of Time"
+				tweenTo(CFrame.new(TEMPLE_POS), keep)
+				task.wait(1)
+				return
+			end
+			local prompt = lv:FindFirstChildWhichIsA("ProximityPrompt", true)
+			local part = lv:FindFirstChild("Part") or (prompt and prompt.Parent:IsA("BasePart") and prompt.Parent) or lv:FindFirstChildWhichIsA("BasePart", true)
+			if not prompt or not prompt.Enabled then return leverDone("Lever already pulled ✔") end
+			if (getRoot().Position - part.Position).Magnitude > 10 then
+				S.Status = "Pull Lever: going to the lever"
+				tweenTo(part.CFrame, keep)
+				return
+			end
+			local handle = lv:FindFirstChild("Lever") or part
+			local before = pivotOf(handle)
+			S.Status = "Pull Lever: pulling"
+			V3.activate(prompt)
+			task.wait(2)
+			leverTries += 1
+			local after = pivotOf(handle)
+			local moved = before and after and ((after.Position - before.Position).Magnitude > 0.3
+				or (after.LookVector - before.LookVector).Magnitude > 0.05)
+			if moved or not prompt.Parent or not prompt.Enabled then
+				leverDone("Lever pulled ✔")
+			elseif leverTries >= 3 then
+				leverDone("Pressed the lever 3 times but it didn't move; check it in the game")
+			end
+			return
+		end
+		-- در معبد بسته‌ست
+		local r = invoke("RaceV4Progress", "Check")
+		if r == 1 or r == 2 or r == 3 then return stepV4(keep) end
+		if Hub.MirageModel and Hub.MirageModel() then
+			local gear = Hub.FindGear and Hub.FindGear()
+			if gear then
+				S.Status = "Pull Lever: taking the Blue Gear"
+				tweenTo(gear.CFrame * CFrame.new(0, 4, 0), keep)
+				task.wait(1)
+				return
+			end
+			local top = Hub.MirageTop and Hub.MirageTop()
+			if top then
+				S.Status = "Pull Lever: on top of Mirage (look at the moon at night)"
+				tweenTo(CFrame.new(top + Vector3.new(0, 5, 0)), keep)
+				setFloat(true)
+				task.wait(2)
+				return
+			end
+		end
+		S.Status = "Pull Lever: temple door closed, waiting for Mirage Island (Teleport → Find Mirage)"
+		task.wait(5)
+	end
+
+	-----------------------------------------------------------------
 	-- Observation V2: کوئست Citizen (Forest Pirate → Captain Elephant → Ken → میوه‌ها)
 	-----------------------------------------------------------------
 	local KEN_NPC = Vector3.new(-12441.59, 331.49, -7676.20)
@@ -5651,6 +5949,7 @@ local okTr, errTr = pcall(function()
 	local sea3 = function() return Sea == 3 end
 	V3.register("AutoTrial", stepTrial, sea3)
 	V3.register("AutoRaceV4", stepV4, sea3)
+	V3.register("AutoPullLever", stepLever, sea3, true)
 	-- بلی/آیتم خرج می‌کنن؛ ذخیره نمیشن تا خودکار روشن نشن
 	V3.register("AutoKenQuest", stepKenQuest, sea3, true)
 	V3.register("AutoRainbowHaki", stepRainbow, sea3, true)
@@ -5778,8 +6077,42 @@ local okBrain, errBrain = pcall(function()
 		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3, FruitM1 = true,
 		ChestHop = false, ChestHopAt = 20, SafeCarry = true,
 		HeightDefault = false, -- یک بار Farm Height قدیمی (12) رو 25 می‌کنه؛ build_v3 بعد از لود تنظیمات
+		-- ارتفاع یادگرفته برای هر نوع سلاح (100 = هنوز محدودیتی ندیدیم)
+		HeightCapMelee = 100, HeightCapSword = 100, HeightCapFruit = 100, HeightCapGun = 100,
 	}) do
 		if S[k] == nil then S[k] = v end
+	end
+
+	-----------------------------------------------------------------
+	-- ارتفاع هوشمند: لاگ بازی نشون داد از 25 استاد بالاتر سرور ضربه‌ی Melee رو قبول نمی‌کنه (dmg/s=0)،
+	-- ولی از 12 استاد ضربه می‌خوره. اگه 8 ثانیه از Farm Height ضربه نخورد، برای همون نوع سلاح
+	-- 6 استاد پایین میاد (تا حداقل 10) و یادش می‌مونه؛ تازه اگه از 10 هم نخورد ماب رد میشه
+	-----------------------------------------------------------------
+	local CAP_KEY = { Melee = "HeightCapMelee", Sword = "HeightCapSword", ["Blox Fruit"] = "HeightCapFruit", Gun = "HeightCapGun" }
+	local MIN_HEIGHT, HEIGHT_STEP = 10, 6
+	local function capKey()
+		local c = getChar()
+		local t = c and c:FindFirstChildOfClass("Tool")
+		return t and CAP_KEY[t.ToolTip], t and t.Name
+	end
+	function Hub.HeightCap()
+		local k = capKey()
+		return k and S[k] or 100
+	end
+	function Hub.LowerHeight()
+		local k, tool = capKey()
+		if not k then return false end
+		local cur = math.min(S.FarmHeight, S[k])
+		if cur <= MIN_HEIGHT then return false end
+		local new = math.max(MIN_HEIGHT, cur - HEIGHT_STEP)
+		S[k] = new
+		if Hub.LiveLog then Hub.LiveLog(("HEIGHT no damage from %d studs with %s, trying %d"):format(cur, tostring(tool), new)) end
+		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
+		return true
+	end
+	-- وقتی خودت Farm Height رو عوض کنی، یادگرفته‌ها پاک میشن تا دوباره امتحان کنه
+	function Hub.ResetHeightCaps()
+		for _, k in pairs(CAP_KEY) do S[k] = 100 end
 	end
 
 	local Brain = { since = 0, why = "Off", log = {}, ban = {}, deaths = {}, deathTotal = 0, dodges = 0, rescues = 0 }
@@ -7222,6 +7555,820 @@ end)
 if not okMove then logError("v3 move", errMove) end
 end
 
+-- ===== 90_draco.lua =====
+---------------------------------------------------------------------
+-- v3 · Draco: ارتقای نژاد Draco به V2 و V3 از Dragon Wizard (منطق از Banana Cat)
+-- V2 = 5 تا Fire Flower (گل‌ها رو جمع می‌کنه؛ گل نبود Forest Pirate می‌کشه)
+-- V3 = کشتن یه Terrorshark (با موتور Sea Event). Trial Draco (V4) عمداً نیست: نصفش توی VM بنانا‌ست.
+---------------------------------------------------------------------
+do
+local okDr, errDr = pcall(function()
+	local V3 = Hub.V3
+	local Draco = {}
+	V3.Draco = Draco
+
+	-- وضعیت‌هایی که سرور برمی‌گردونه (AvailableVQuest)
+	local ACTIVE = { V2InProgress = true, V3InProgress = true, V2TurnInReady = true, V3TurnInReady = true }
+	Draco.FLOWERS_NEEDED = 5
+
+	-- تصمیم خالص (بدون بازی، برای تست): چی کار کنیم با این وضعیت
+	-- ctx = { race, done, quest, flowers, sharkKills, sharkBase }
+	function Draco.decide(ctx)
+		if ctx.race ~= "Draco" then return "notDraco" end
+		if ctx.done then return "done" end
+		local q = ctx.quest
+		if not q or not ACTIVE[q] then
+			if q == "V2" or q == "V3" then return "begin" end
+			return "speak"
+		end
+		if q == "V2TurnInReady" or q == "V3TurnInReady" then return "complete" end
+		if q == "V2InProgress" then
+			return (ctx.flowers or 0) >= Draco.FLOWERS_NEEDED and "complete" or "flowers"
+		end
+		-- V3InProgress
+		return (ctx.sharkKills or 0) > (ctx.sharkBase or 0) and "complete" or "shark"
+	end
+
+	local function rf()
+		return Net and Net:FindFirstChild("RF/InteractDragonQuest")
+	end
+	local function talk(args)
+		local r = rf()
+		if not r then return nil end
+		local ok, res = pcall(function() return r:InvokeServer(args) end)
+		if ok then return res end
+	end
+
+	local state = { quest = nil, flowers = 0, sharkBase = nil, unknown = 0, lastSpeak = 0, lastTry = 0 }
+	Draco.state = state
+
+	local function speak()
+		local res = talk({ NPC = "Dragon Wizard", Command = "Speak" })
+		state.lastSpeak = tick()
+		state.quest = type(res) == "table" and res.AvailableVQuest or nil
+		V3.log("DRACO speak -> " .. tostring(state.quest))
+		return state.quest
+	end
+
+	local function wizard() return V3.npcPart and V3.npcPart("Dragon Wizard") end
+	-- کنار NPC؟ نه = داره میره (true یعنی رسیدیم)
+	local function atWizard(keep)
+		local npc = wizard()
+		if not npc then
+			S.Status = "Draco: Dragon Wizard not found (go near Tiki Outpost / Hydra)"
+			task.wait(3)
+			return false
+		end
+		if (getRoot().Position - npc.Position).Magnitude > 8 then
+			S.Status = "Draco: going to the Dragon Wizard"
+			tweenTo(npc.CFrame * CFrame.new(0, 4, 4), keep)
+			return false
+		end
+		return true
+	end
+
+	-- گل‌های آتش: هر ProximityPrompt که پدرش اسمش flower داره (اسم دقیق مدل تأیید نشده)
+	local flowers = setmetatable({}, { __mode = "k" })
+	local listener
+	local function watchFlowers(on)
+		if on and not listener then
+			for _, d in ipairs(workspace:GetDescendants()) do
+				if d:IsA("ProximityPrompt") and d.Parent and d.Parent.Name:lower():find("flower", 1, true) then flowers[d] = true end
+			end
+			listener = workspace.DescendantAdded:Connect(function(d)
+				if d:IsA("ProximityPrompt") then
+					task.defer(function()
+						if d.Parent and d.Parent.Name:lower():find("flower", 1, true) then flowers[d] = true end
+					end)
+				end
+			end)
+		elseif not on and listener then
+			listener:Disconnect()
+			listener = nil
+		end
+	end
+	local function nearestFlower()
+		local root, best, bd = getRoot(), nil, nil
+		for p in pairs(flowers) do
+			local holder = p.Parent
+			local part = holder and (holder:IsA("BasePart") and holder or holder.PrimaryPart or holder:FindFirstChildWhichIsA("BasePart", true))
+			if part and p.Enabled then
+				local d = (part.Position - root.Position).Magnitude
+				if not bd or d < bd then best, bd = { prompt = p, part = part }, d end
+			else
+				flowers[p] = nil
+			end
+		end
+		return best
+	end
+
+	local function pickFlower(f, keep)
+		if (getRoot().Position - f.part.Position).Magnitude > 8 then
+			S.Status = "Draco V2: going to a Fire Flower"
+			tweenTo(f.part.CFrame, keep)
+			return
+		end
+		S.Status = "Draco V2: picking a Fire Flower"
+		V3.activate(f.prompt)
+		task.wait(1)
+		if not f.prompt.Parent or not f.prompt.Enabled then
+			state.flowers += 1
+			flowers[f.prompt] = nil
+			V3.log("DRACO flower picked " .. state.flowers)
+		end
+	end
+
+	local function stepDraco(keep)
+		local action = Draco.decide({
+			race = dataValue("Race"),
+			done = hasItem("Primordial Reign"),
+			quest = state.quest,
+			flowers = state.flowers,
+			sharkKills = V3.sharkKills,
+			sharkBase = state.sharkBase,
+		})
+		watchFlowers(action == "flowers")
+		if action == "notDraco" then
+			V3.notify("Draco", "Your race isn't Draco (switch turned off)", 6)
+			S.AutoDraco = false
+		elseif action == "done" then
+			V3.notify("Draco", "You already have Draco V3 (Primordial Reign) ✔", 6)
+			S.AutoDraco = false
+		elseif action == "speak" or action == "begin" then
+			if not atWizard(keep) then return end
+			if action == "begin" then
+				S.Status = "Draco: starting the " .. state.quest .. " quest"
+				talk({ NPC = "Dragon Wizard", Command = "Ascension", Action = "Begin" })
+				state.flowers, state.sharkBase = 0, nil
+				task.wait(1)
+			end
+			local q = speak()
+			if not q or (not ACTIVE[q] and q ~= "V2" and q ~= "V3") then
+				state.unknown += 1
+				S.Status = "Draco: Wizard says " .. tostring(q)
+				if state.unknown >= 3 then
+					V3.notify("Draco", "Nothing to do now (Wizard: " .. tostring(q) .. "). Switch turned off", 8)
+					S.AutoDraco = false
+					state.unknown = 0
+				end
+				task.wait(3)
+			else
+				state.unknown = 0
+			end
+		elseif action == "complete" then
+			if not atWizard(keep) then return end
+			S.Status = "Draco: turning in"
+			talk({ NPC = "Dragon Wizard", Command = "Ascension", Action = "Complete" })
+			task.wait(1)
+			local before = state.quest
+			speak()
+			V3.log("DRACO complete " .. tostring(before) .. " -> " .. tostring(state.quest))
+			if state.quest == before then
+				-- هنوز کافی نیست (مثلاً گلی که شمردیم واقعاً نرفته بود توی کیف)
+				state.flowers = math.max(0, Draco.FLOWERS_NEEDED - 1)
+				if before == "V3InProgress" then state.sharkBase = V3.sharkKills or 0 end
+			else
+				V3.notify("Draco", tostring(before) .. " done ✔", 6)
+				V3.webhook("Draco", tostring(before) .. " done")
+				state.flowers, state.sharkBase = 0, nil
+				if before == "V3InProgress" or before == "V3TurnInReady" then
+					V3.notify("Draco", "Draco V3 finished ✔ (switch turned off)", 8)
+					S.AutoDraco = false
+				end
+			end
+		elseif action == "flowers" then
+			local f = nearestFlower()
+			if f then return pickFlower(f, keep) end
+			S.Status = ("Draco V2: Forest Pirates for Fire Flowers (%d/%d)"):format(state.flowers, Draco.FLOWERS_NEEDED)
+			if not (V3.farmMobs and V3.farmMobs({ "Forest Pirate" }, keep)) then
+				S.Status = "Draco V2: Forest Pirates not found"
+				task.wait(3)
+			end
+			-- هر 3 دقیقه یه بار از سرور می‌پرسیم شاید تموم شده (شمارش گل‌ها از بیرون قابل‌خوندن نیست)
+			if tick() - state.lastSpeak > 180 then state.flowers = Draco.FLOWERS_NEEDED end
+		elseif action == "shark" then
+			if state.sharkBase == nil then state.sharkBase = V3.sharkKills or 0 end
+			if not V3.sharkStep then
+				S.Status = "Draco V3: Sea module not loaded"
+				task.wait(3)
+				return
+			end
+			V3.sharkStep(keep)
+			if S.Status:find("^Sea Event") then S.Status = "Draco V3 · " .. S.Status end
+		end
+	end
+
+	V3.register("AutoDraco", function(keep)
+		local ok, err = pcall(stepDraco, keep)
+		if not ok then
+			watchFlowers(false)
+			error(err, 0)
+		end
+	end, function() return Sea == 3 end, true)
+
+	-- وقتی خاموش شد شنونده‌ی گل‌ها رو قطع کن
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(2)
+			if not S.AutoDraco then watchFlowers(false) end
+		end
+		watchFlowers(false)
+	end)
+end)
+if not okDr then logError("v3 draco", errDr) end
+end
+
+-- ===== 95_swords.lua =====
+---------------------------------------------------------------------
+-- v3 · Swords: Tushita، CDK (Cursed Dual Katana) و TTK (True Triple Katana) با مراحل دقیق
+-- منطق از Banana Cat (بخش‌های خوانا):
+--   Tushita: ریموت TushitaProgress (OpenedDoor، Torch 1..5)، بعد Longma
+--   CDK: ریموت CDKQuest Progress "Good" → Good/Evil؛ -3/-4/-5 = تریال 3/5، 4/5، 5/5؛ 4 = اون طرف تموم
+--        Pedestal1/2 بین دو طرف، Pedestal3 + Cursed Skeleton Boss آخرش
+--        Good 5 (Cake Queen → Heavenly Dimension) و Evil 5 (Soul Reaper → Hell Dimension) کامل از Banana
+--   Good 3/4 و Evil 3/4 توی بخش قفل‌شده‌ی Banana بود؛ از تحقیق (TheGamer، RobloxDen، Alphr) ساخته شدن:
+--   Tushita: Dock Legend (3 فروشنده‌ی قایق) → Sense of Duty (Pirate Raid) → Soulless (Cake Queen، Heaven)
+--   Yama: Pain and Suffering (با Yama کتک بخور) → Haze of Misery (ماب‌های بنفش) → Fear the Reaper (Hell)
+--   TTK: Saddi + Shisui + Wando (Legendary Sword Dealer) → Mysterious Man (دانش بازی، تأیید نشده)
+---------------------------------------------------------------------
+do
+local okSw, errSw = pcall(function()
+	local V3 = Hub.V3
+	for k, v in pairs({ CDKHop = false, AutoTTK = false }) do
+		if S[k] == nil then S[k] = v end
+	end
+	local CDK = {}
+	V3.CDK = CDK
+
+	-----------------------------------------------------------------
+	-- مرحله‌ی CDK از روی دو عدد سرور (خالص، برای تست)
+	-----------------------------------------------------------------
+	function CDK.stage(good, evil)
+		if good == nil or evil == nil then return "noProgress" end
+		if good == 4 and evil == 4 then return "final" end
+		if good == 4 and evil == 3 then return "pedestal2" end
+		if good == 3 and evil == 4 then return "pedestal1" end
+		if good ~= 4 and good ~= -2 then
+			if good == -3 then return "good3" end
+			if good == -4 then return "good4" end
+			if good == -5 then return "good5" end
+			return "goodStart"
+		end
+		if evil == -3 then return "evil3" end
+		if evil == -4 then return "evil4" end
+		if evil == -5 then return "evil5" end
+		return "evilStart"
+	end
+	CDK.LABEL = {
+		noProgress = "can't read progress (need Yama + Tushita)", final = "final: Pedestal3 + Cursed Skeleton Boss",
+		pedestal1 = "placing the sword at Pedestal1", pedestal2 = "placing the sword at Pedestal2",
+		goodStart = "starting the Tushita scroll", good3 = "Tushita 1: Dock Legend (3 boat dealers)",
+		good4 = "Tushita 2: Sense of Duty (Pirate Raid, Castle on the Sea)", good5 = "Tushita 3: Soulless (Cake Queen → Heaven)",
+		evilStart = "starting the Yama scroll", evil3 = "Yama 1: Pain and Suffering (take damage with Yama)",
+		evil4 = "Yama 2: Haze of Misery (purple-marked mobs)", evil5 = "Yama 3: Fear the Reaper (Soul Reaper → Hell)",
+	}
+
+	-----------------------------------------------------------------
+	-- ابزارها
+	-----------------------------------------------------------------
+	local function ownTool(name)
+		local c, bp = getChar(), player:FindFirstChild("Backpack")
+		return (c and c:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
+	end
+	local function equip(name)
+		local t, h = ownTool(name), getHum()
+		if t and h and t.Parent ~= getChar() then pcall(function() h:EquipTool(t) end) end
+		return t
+	end
+	local function swordLevel(name)
+		local t = ownTool(name)
+		local lv = t and t:FindFirstChild("Level")
+		return lv and tonumber(lv.Value)
+	end
+	-- دعوا با شمشیر (مثل Banana: Cake Queen، ماب‌های Dimension، باس آخر) و برگردوندن سلاح خودت
+	local function withSword(fn, ...)
+		local saved = S.Weapon
+		S.Weapon = "Sword"
+		local ok, err = pcall(fn, ...)
+		S.Weapon = saved
+		if not ok then error(err, 0) end
+	end
+	local function go(cf, keep)
+		if typeof(cf) == "Vector3" then cf = CFrame.new(cf) end
+		tweenTo(cf, keep)
+	end
+	local function near(pos, d)
+		local r = getRoot()
+		return r and (r.Position - pos).Magnitude <= d
+	end
+	local function location(name)
+		local wo = workspace:FindFirstChild("_WorldOrigin")
+		local l = wo and wo:FindFirstChild("Locations")
+		return l and l:FindFirstChild(name)
+	end
+	local function skipDialogue()
+		pcall(function()
+			if player.PlayerGui.Main.Dialogue.Visible then
+				local vu = game:GetService("VirtualUser")
+				vu:Button1Down(Vector2.new(0, 0))
+				vu:Button1Up(Vector2.new(0, 0))
+			end
+		end)
+	end
+	local function hopFor(what)
+		if S.CDKHop and Hub.Brain and Hub.Brain.hop then
+			S.Status = "CDK: hopping to find " .. what
+			V3.log("CDK hop for " .. what)
+			pcall(Hub.Brain.hop)
+			task.wait(10)
+		else
+			S.Status = "CDK: waiting for " .. what .. " (turn on Hop to look in other servers)"
+			task.wait(4)
+		end
+	end
+	-- نزدیک‌ترین ماب زنده دور یه نقطه
+	local function mobNear(center, radius)
+		local enemies = workspace:FindFirstChild("Enemies")
+		local root, best, bd = getRoot(), nil, nil
+		for _, m in ipairs(enemies and enemies:GetChildren() or {}) do
+			if isAliveMob(m) and (m.HumanoidRootPart.Position - center).Magnitude <= radius then
+				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+				if not bd or d < bd then best, bd = m, d end
+			end
+		end
+		return best
+	end
+	local function promptOf(o) return o and o:FindFirstChildWhichIsA("ProximityPrompt", true) end
+
+	-----------------------------------------------------------------
+	-- Dimension (Hell / Heavenly): خروجی رنگی = تموم؛ ماب = بکش؛ مشعل روشن‌نشده = روشن کن
+	-----------------------------------------------------------------
+	local function stepDimension(mapName, locName, doneColor, keep)
+		local dim = workspace.Map:FindFirstChild(mapName)
+		local loc = location(locName)
+		local center = loc and loc.Position
+		if not center and dim then
+			local ok, pv = pcall(function() return dim:GetPivot().Position end)
+			center = ok and pv or nil
+		end
+		if not dim or not center then
+			S.Status = "CDK: waiting for the " .. locName .. " to load"
+			task.wait(1)
+			return
+		end
+		local exit = dim:FindFirstChild("Exit")
+		if exit and exit:IsA("BasePart") and exit.BrickColor == BrickColor.new(doneColor) then
+			S.Status = "CDK: " .. locName .. " cleared, leaving"
+			go(exit.CFrame, keep)
+			touchPart(exit)
+			task.wait(1)
+			return
+		end
+		local mob = mobNear(center, 1000)
+		if mob then
+			S.Status = "CDK: clearing the " .. locName .. " (" .. mobBaseName(mob.Name) .. ")"
+			withSword(killMob, mob, keep)
+			return
+		end
+		for i = 1, 3 do
+			local t = dim:FindFirstChild("Torch" .. i)
+			local pp = promptOf(t)
+			if t and pp and pp.Enabled then
+				S.Status = ("CDK: lighting torch %d in the %s"):format(i, locName)
+				local pos = t:IsA("BasePart") and t.Position or t:GetPivot().Position
+				if not near(pos, 5) then
+					go(CFrame.new(pos), keep)
+				end
+				V3.activate(pp)
+				local t0 = tick()
+				while keep() and tick() - t0 < 5 and not mobNear(center, 1000) do task.wait(0.3) end
+				local r = getRoot()
+				if r then r.CFrame = r.CFrame * CFrame.new(0, 50, 0) end
+				return
+			end
+		end
+		S.Status = "CDK: waiting for mobs / torches in the " .. locName
+		task.wait(1)
+	end
+
+	-----------------------------------------------------------------
+	-- مرحله‌ها
+	-----------------------------------------------------------------
+	-- Tushita 1 «Dock Legend» (تحقیق): با 3 تا Boat Dealer / Luxury Boat Dealer روی 3 جزیره‌ی مختلف حرف بزنی
+	-- (گزینه‌ی "Pardon me"). Banana اینجا ریموت CDKQuest BoatQuest رو با خود NPC صدا می‌زنه.
+	-- همه‌ی فروشنده‌های قایق رو از لیست NPCهای بازی پیدا می‌کنیم و یکی‌یکی سر می‌زنیم
+	local FALLBACK_DOCKS = { Vector3.new(-9550, 21, 4690), Vector3.new(-6120, 16, -2250), Vector3.new(-9530, 7, -8370) }
+	local visitedDock = {}
+	local function dockKey(p) return math.floor(p.X / 200) .. "," .. math.floor(p.Z / 200) end
+	local function boatDealers()
+		local out, seen = {}, {}
+		for _, f in ipairs({ workspace:FindFirstChild("NPCs"), ReplicatedStorage:FindFirstChild("NPCs") }) do
+			for _, n in ipairs(f and f:GetChildren() or {}) do
+				if n.Name:find("Boat Dealer", 1, true) then
+					local ok, pv = pcall(function() return n:GetPivot().Position end)
+					if ok and pv.Y > -500 and not seen[dockKey(pv)] then
+						seen[dockKey(pv)] = true
+						table.insert(out, { npc = n, pos = pv })
+					end
+				end
+			end
+		end
+		if #out == 0 then
+			for _, p in ipairs(FALLBACK_DOCKS) do table.insert(out, { pos = p }) end
+		end
+		return out
+	end
+	local function good3(keep)
+		local list = boatDealers()
+		local target
+		for _, d in ipairs(list) do
+			if not visitedDock[dockKey(d.pos)] then target = d break end
+		end
+		if not target then
+			-- همه رو دیدیم ولی سرور هنوز Good -3 میگه: از اول
+			visitedDock = {}
+			target = list[1]
+		end
+		local count = 0
+		for _ in pairs(visitedDock) do count += 1 end
+		if not near(target.pos, 25) then
+			S.Status = ("CDK Good 3/5 (Dock Legend): boat dealer %d/3"):format(math.min(count + 1, 3))
+			go(CFrame.new(target.pos + Vector3.new(0, 5, 4)), keep)
+			return
+		end
+		local npc = target.npc
+		if not npc then
+			for _, d in ipairs(boatDealers()) do
+				if d.npc and (d.pos - target.pos).Magnitude < 50 then npc = d.npc end
+			end
+		end
+		if npc then
+			invoke("CDKQuest", "BoatQuest", npc)
+			V3.log("CDK BoatQuest " .. npc.Name .. " at " .. dockKey(target.pos))
+		end
+		skipDialogue()
+		visitedDock[dockKey(target.pos)] = true
+		task.wait(1)
+	end
+
+	local CASTLE = Vector3.new(-5100, 315, -3000)
+	local function good4(keep)
+		local mob = mobNear(CASTLE, 900)
+		if mob then
+			S.Status = "CDK Good 4/5: Pirate Raid – " .. mobBaseName(mob.Name)
+			killMob(mob, keep)
+		else
+			S.Status = "CDK Good 4/5: waiting for the raid at Castle on the Sea"
+			go(CFrame.new(CASTLE + Vector3.new(0, 60, 0)), keep)
+			task.wait(2)
+		end
+	end
+
+	local function good5(keep)
+		local loc = location("Heavenly Dimension")
+		if loc and near(loc.Position, 1000) then
+			return stepDimension("HeavenlyDimension", "Heavenly Dimension", "Cloudy grey", keep)
+		end
+		local queen = findMobAnywhere("Cake Queen")
+		if queen then
+			S.Status = "CDK Good 5/5: fighting Cake Queen"
+			withSword(fightBoss, "Cake Queen", keep)
+			return
+		end
+		hopFor("Cake Queen")
+	end
+
+	-- Yama 1 «Pain and Suffering» (تحقیق: TheGamer، RobloxDen، Alphr): با Yama توی دست حدود 10,000 دمیج
+	-- بخوری (یا تقریباً بمیری). حمله نمی‌کنیم؛ کنار یه ماب قوی وایمیستیم تا بزنتمون.
+	-- Banana اینجا Marine Commodore (جزیره‌ی Great Tree) رو استفاده می‌کنه
+	local COMMODORE_SPOT = Vector3.new(2180.54, 27.82, -6741.55)
+	local function evil3(keep)
+		equip("Yama")
+		local mob = findMob("Marine Commodore")
+		if not mob then
+			local root = getRoot()
+			local enemies = workspace:FindFirstChild("Enemies")
+			for _, m in ipairs(enemies and enemies:GetChildren() or {}) do
+				if isAliveMob(m) and (m.HumanoidRootPart.Position - root.Position).Magnitude < 300 then mob = m break end
+			end
+		end
+		if not mob then
+			S.Status = "CDK Evil 3/5 (Pain and Suffering): going to the Marine Commodores"
+			go(CFrame.new(COMMODORE_SPOT + Vector3.new(0, 10, 0)), keep)
+			task.wait(1)
+			return
+		end
+		S.Status = "CDK Evil 3/5 (Pain and Suffering): letting " .. mobBaseName(mob.Name) .. " hit you (Yama in hand)"
+		local t0 = tick()
+		while keep() and alive() and mob.Parent and isAliveMob(mob) and tick() - t0 < 10 do
+			local hrp = mob:FindFirstChild("HumanoidRootPart")
+			if not hrp then break end
+			setFloat(false)
+			local root = getRoot()
+			if root then root.CFrame = hrp.CFrame * CFrame.new(0, 0, 3) end
+			equip("Yama")
+			task.wait(0.3)
+		end
+	end
+
+	local function evil4(keep)
+		local haze = player:FindFirstChild("QuestHaze")
+		local pick
+		for _, v in ipairs(haze and haze:GetChildren() or {}) do
+			if v:IsA("ValueBase") and (tonumber(v.Value) or 0) > 0 then pick = v.Name break end
+		end
+		if not pick then
+			S.Status = "CDK Evil 4/5: waiting for the haze list"
+			task.wait(1.5)
+			return
+		end
+		local m = findMob(pick)
+		if m then
+			S.Status = ("CDK Evil 4/5: haze %s (%s left)"):format(pick, tostring(haze[pick].Value))
+			killMob(m, keep)
+			return
+		end
+		local sp
+		pcall(function() sp = ReplicatedStorage.FortBuilderReplicatedSpawnPositionsFolder[pick].Position end)
+		sp = sp or (spawnCentroid and spawnCentroid(pick))
+		S.Status = "CDK Evil 4/5: going to " .. pick
+		if sp then go(CFrame.new(sp + Vector3.new(0, 30, 0)), keep) else task.wait(2) end
+	end
+
+	local BONE_MOBS = { "Reborn Skeleton", "Living Zombie", "Demonic Soul", "Posessed Mummy" }
+	local gambleAt = 0
+	local function evil5(keep)
+		local loc = location("Hell Dimension")
+		if loc and near(loc.Position, 1000) then
+			return stepDimension("HellDimension", "Hell Dimension", "Olivine", keep)
+		end
+		local reaper = findMobAnywhere("Soul Reaper")
+		if reaper then
+			-- با Soul Reaper دعوا نمی‌کنیم: کنارش می‌مونیم تا ما رو ببره توی Hell Dimension (مثل Banana)
+			S.Status = "CDK Evil 5/5: letting Soul Reaper take you to Hell"
+			local t0 = tick()
+			while keep() and alive() and tick() - t0 < 60 do
+				local hrp = reaper:FindFirstChild("HumanoidRootPart")
+				if not hrp or not reaper.Parent then break end
+				tweenTo(hrp.CFrame * CFrame.new(0, 0, 3), keep)
+				local l = location("Hell Dimension")
+				if l and near(l.Position, 1000) then break end
+				task.wait(0.2)
+			end
+			return
+		end
+		if ownTool("Hallow Essence") then
+			local det
+			pcall(function() det = workspace.Map["Haunted Castle"].Summoner.Detection end)
+			if det then
+				S.Status = "CDK Evil 5/5: summoning Soul Reaper (Hallow Essence)"
+				if not near(det.Position, 8) then go(det.CFrame, keep) end
+				equip("Hallow Essence")
+				touchPart(det)
+			else
+				S.Status = "CDK Evil 5/5: going to Haunted Castle"
+				go(CFrame.new(-9515, 194, 5786), keep)
+			end
+			task.wait(1)
+			return
+		end
+		-- Hallow Essence: از ماب‌های Bone یا قمار Death King (50 بون)، مثل Banana
+		if tick() - gambleAt > 5 then
+			gambleAt = tick()
+			task.spawn(function() invoke("Bones", "Buy", 1, 1) end)
+		end
+		local m
+		for _, n in ipairs(BONE_MOBS) do m = m or findMob(n) end
+		if m then
+			S.Status = "CDK Evil 5/5: bones for Hallow Essence (" .. mobBaseName(m.Name) .. ")"
+			killMob(m, keep)
+		else
+			S.Status = "CDK Evil 5/5: going to Haunted Castle for bones"
+			go(CFrame.new(-9515, 194, 5786), keep)
+		end
+	end
+
+	local BOSS_WAIT = Vector3.new(-12341.67, 603.35, -6550.61)
+	local function cursed() local t = workspace.Map:FindFirstChild("Turtle"); return t and t:FindFirstChild("Cursed") end
+	local function pedestal(name, keep)
+		local c = cursed()
+		local p = c and c:FindFirstChild(name)
+		if not p then
+			S.Status = "CDK: going to the Cursed room (Floating Turtle)"
+			go(CFrame.new(BOSS_WAIT), keep)
+			return false
+		end
+		if not near(p.Position, 10) then
+			go(p.CFrame, keep)
+			return false
+		end
+		V3.activate(promptOf(p))
+		skipDialogue()
+		task.wait(1)
+		return true
+	end
+	local function final(keep)
+		local c = cursed()
+		local p3 = c and c:FindFirstChild("Pedestal3")
+		if not p3 then return pedestal("Pedestal3", keep) end
+		if not near(p3.Position, 10) and not findMob("Cursed Skeleton Boss") then
+			S.Status = "CDK final: going to Pedestal3"
+			go(p3.CFrame, keep)
+			return
+		end
+		local gem = c:FindFirstChild("PlacedGem")
+		if gem and gem.Transparency == 0 then
+			local boss = findMob("Cursed Skeleton Boss")
+			if boss then
+				S.Status = "CDK final: fighting Cursed Skeleton Boss"
+				withSword(killMob, boss, keep)
+			else
+				S.Status = "CDK final: waiting for Cursed Skeleton Boss"
+				go(CFrame.new(BOSS_WAIT), keep)
+				task.wait(1)
+			end
+		else
+			S.Status = "CDK final: placing the gem at Pedestal3"
+			V3.activate(promptOf(p3))
+			skipDialogue()
+			task.wait(1)
+		end
+	end
+
+	local function readProgress()
+		local r = invoke("CDKQuest", "Progress", "Good")
+		if type(r) ~= "table" then r = invoke("CDKQuest", "Progress") end
+		if type(r) == "table" then return tonumber(r.Good), tonumber(r.Evil) end
+	end
+
+	local lastStage
+	function V3.cdkStep(keep)
+		if hasItem("Cursed Dual Katana") then
+			S.AutoCDK = false
+			V3.notify("CDK", "You have Cursed Dual Katana ✔", 8)
+			return
+		end
+		if not (hasItem("Yama") and hasItem("Tushita")) then
+			V3.notify("CDK", "Needs both Yama and Tushita first (switch turned off)", 8)
+			S.AutoCDK = false
+			return
+		end
+		for _, sw in ipairs({ "Yama", "Tushita" }) do
+			local lv = swordLevel(sw)
+			if lv and lv < 350 then
+				V3.notify("CDK", ("%s mastery is %d/350 (use Smart Mastery). Switch turned off"):format(sw, lv), 8)
+				S.AutoCDK = false
+				return
+			end
+		end
+		-- یکی از دو شمشیر باید دستت باشه (Banana: اگه هیچ‌کدوم نبود Tushita رو لود کن)
+		if not ownTool("Tushita") and not ownTool("Yama") then
+			S.Status = "CDK: loading Tushita"
+			invoke("LoadItem", "Tushita")
+			task.wait(1)
+			return
+		end
+		skipDialogue()
+		local good, evil = readProgress()
+		local stage = CDK.stage(good, evil)
+		if stage ~= lastStage then
+			V3.log(("CDK stage %s (Good=%s Evil=%s)"):format(stage, tostring(good), tostring(evil)))
+			lastStage = stage
+		end
+		CDK.last = { good = good, evil = evil, stage = stage }
+		S.Status = "CDK: " .. (CDK.LABEL[stage] or stage)
+		if stage == "noProgress" then
+			if invoke("CDKQuest", "OpenDoor") == "can" then invoke("CDKQuest", "OpenDoor", true) end
+			task.wait(4)
+			return
+		end
+		-- هر طرف با شمشیر خودش (تحقیق: Alphr/RobloxDen): Good = Tushita، Evil = Yama؛ باس آخر با هر کدوم
+		local want = (stage:find("^good") or stage == "pedestal1") and "Tushita"
+			or ((stage:find("^evil") or stage == "pedestal2") and "Yama") or nil
+		if want and not ownTool(want) then
+			S.Status = "CDK: loading " .. want .. " for this trial"
+			invoke("LoadItem", want)
+			task.wait(1)
+			return
+		end
+		if want then equip(want) end
+		if stage == "final" then return final(keep) end
+		if stage == "pedestal1" then
+			if not pedestal("Pedestal1", keep) then return end
+		elseif stage == "pedestal2" then
+			if not pedestal("Pedestal2", keep) then return end
+		end
+		-- مثل Banana هر دور StartTrial همون طرف رو صدا می‌زنیم، بعد کار مرحله
+		local side = (good ~= 4 and good ~= -2) and "Good" or "Evil"
+		invoke("CDKQuest", "StartTrial", side)
+		if stage == "good3" then good3(keep)
+		elseif stage == "good4" then good4(keep)
+		elseif stage == "good5" then good5(keep)
+		elseif stage == "evil3" then evil3(keep)
+		elseif stage == "evil4" then evil4(keep)
+		elseif stage == "evil5" then evil5(keep)
+		else task.wait(1.5) end
+	end
+
+	-----------------------------------------------------------------
+	-- Tushita (از Banana): TushitaProgress → اگه در باز شده Longma، وگرنه مشعل مقدس + 5 مشعل
+	-----------------------------------------------------------------
+	local TUSHITA_DOOR = Vector3.new(5677.54, 28.53, 357.95)
+	local function doorHitbox()
+		local h
+		pcall(function() h = workspace.Map.Waterfall.SecretRoom.Room.Door.Door.Hitbox end)
+		return h
+	end
+	function V3.tushitaStep(keep)
+		if hasItem("Tushita") then
+			S.AutoTushita = false
+			V3.notify("Tushita", "You have Tushita ✔", 6)
+			return
+		end
+		local p = invoke("TushitaProgress")
+		if type(p) == "table" and p.OpenedDoor then
+			if findMobAnywhere("Longma") then
+				S.Status = "Tushita: fighting Longma"
+				fightBoss("Longma", keep)
+			else
+				S.Status = "Tushita: door open, waiting for Longma"
+				task.wait(3)
+			end
+			return
+		end
+		local hit = doorHitbox()
+		if not hit then
+			S.Status = "Tushita: going to the secret room"
+			go(CFrame.new(TUSHITA_DOOR), keep)
+			return
+		end
+		if not hit:FindFirstChild("TouchInterest") then
+			S.Status = "Tushita: rip_indra must be spawned in this server"
+			task.wait(5)
+			return
+		end
+		if not ownTool("Holy Torch") then
+			S.Status = "Tushita: taking the Holy Torch"
+			go(hit.CFrame, keep)
+			touchPart(hit)
+			task.wait(1)
+			return
+		end
+		S.Status = "Tushita: lighting the 5 torches"
+		equip("Holy Torch")
+		for i = 1, 5 do invoke("TushitaProgress", "Torch", i) end
+		task.wait(2)
+	end
+
+	-----------------------------------------------------------------
+	-- TTK (دریای 2): سه شمشیر Legendary (خریدش با Auto Buy Legendary) → Mysterious Man
+	-----------------------------------------------------------------
+	local MYSTERIOUS_MAN = Vector3.new(-2573.5, 1620.7, -3745.2)
+	local ttkTries = 0
+	local function stepTTK(keep)
+		if hasItem("True Triple Katana") then
+			S.AutoTTK = false
+			V3.notify("TTK", "You have True Triple Katana ✔", 8)
+			return
+		end
+		local missing = {}
+		for _, sw in ipairs({ "Saddi", "Shisui", "Wando" }) do
+			if not hasItem(sw) then table.insert(missing, sw) end
+		end
+		if #missing > 0 then
+			if not S.AutoLegendary then S.AutoLegendary = true end
+			S.Status = "TTK: buying " .. table.concat(missing, ", ") .. " from the Legendary Sword Dealer"
+			task.wait(5)
+			return
+		end
+		if (dataValue("Beli") or 0) < 2000000 then
+			S.Status = "TTK: needs $2,000,000"
+			task.wait(5)
+			return
+		end
+		if not near(MYSTERIOUS_MAN, 10) then
+			S.Status = "TTK: going to the Mysterious Man (Cafe roof)"
+			go(CFrame.new(MYSTERIOUS_MAN + Vector3.new(0, 3, 4)), keep)
+			return
+		end
+		S.Status = "TTK: buying from the Mysterious Man"
+		local check = invoke("MysteriousMan", "1")
+		local buy = invoke("MysteriousMan", "2")
+		V3.log("TTK MysteriousMan 1=" .. tostring(check) .. " 2=" .. tostring(buy))
+		skipDialogue()
+		task.wait(2)
+		ttkTries += 1
+		if ttkTries >= 3 and not hasItem("True Triple Katana") then
+			V3.notify("TTK", "Mysterious Man didn't sell it (needs 300 mastery on all 3 swords?). Switch turned off", 10)
+			S.AutoTTK = false
+			ttkTries = 0
+		end
+	end
+	V3.register("AutoTTK", stepTTK, function() return Sea == 2 end, true)
+end)
+if not okSw then logError("v3 swords", errSw) end
+end
+
 ---------------------------------------------------------------------
 -- UI
 ---------------------------------------------------------------------
@@ -8201,7 +9348,7 @@ if Sea >= 2 then
 	T:Section("Sea Event")
 	T:Toggle("Auto Sea Event", "AutoSeaEvent", stopOff)
 	T:Dropdown("Attack Mode", function() return { "All Fast", "M1 Spam" } end, "SeaAttack")
-	T:Label(function() return S.SeaAttack == "M1 Spam" and "M1 Spam: clicks nonstop with the Weapon below, 30 above sea beasts" or "All Fast: every weapon + Z X C V, very quick" end)
+	T:Label(function() return S.SeaAttack == "M1 Spam" and "M1 Spam: Blox Fruit with M1 = Banana fruit M1 (under boats, fast, no clicks); other weapons click nonstop" or "All Fast: every weapon + Z X C V, very quick" end)
 	T:Dropdown("Event Boat", function() return { "PirateBrigade", "PirateGrandBrigade", "Beast Hunter" } end, "EventBoat")
 	T:Toggle("Hunt In Deep Sea When Nothing Is Around", "SeaHunt")
 	T:Slider("Danger Level To Hunt At", 1, 6, "SeaDanger")
@@ -8263,7 +9410,11 @@ if Sea == 3 then
 	end)
 	T:Section("Volcanic Magnet")
 	T:Toggle("Auto Craft Volcanic Magnet", "AutoCraftMagnet", stopOff)
-	T:Toggle("Auto Quest Dragon Hunter (Blaze Ember only)", "AutoDragonHunter", stopOff)
+	T:Toggle("Auto Quest Dragon Hunter (Blaze Ember: mobs + trees)", "AutoDragonHunter", stopOff)
+	T:Button("Scan Trees (writes bmscan/trees.txt)", function()
+		local n = Hub.V3.scanTrees and Hub.V3.scanTrees()
+		notify("Dragon Hunter", ("Saved %d trees"):format(n or 0), 5)
+	end)
 	T:Label(function()
 		local V = Hub.V3
 		if not V.volcanoCount then return "" end
@@ -8282,6 +9433,7 @@ if Sea >= 2 then
 		T:Toggle("Auto Trial (go to the door, fight your race trial)", "AutoTrial", stopOff)
 		T:Toggle("Press T At The Door (race ability)", "TrialPressT")
 		T:Toggle("Auto Race V4 Quest (Begin / Teleport / Continue)", "AutoRaceV4", stopOff)
+		T:Toggle("Auto Pull Lever (Valkyrie Helm + Mirror Fractal)", "AutoPullLever", stopOff)
 		T:Label(function()
 			local V = Hub.V3
 			return "Race: " .. tostring(dataValue("Race") or "?") .. "  •  Trial running: " .. (V.raidTimer and V.raidTimer() and "YES" or "no")
@@ -8339,6 +9491,41 @@ if Styles and Styles.ready then
 	end
 	T:Button("Save Inventory Report (bmscan/inventory.txt)", function()
 		notify("Styles", Styles.report() and "Saved ✔ - tell Claude" or "Could not write the file", 4)
+	end)
+end
+end
+
+-- ===== 90_draco.lua (UI) =====
+do
+if Sea == 3 then
+	local T = createTab("Quests", "≋")
+	T:Section("Draco Race (Dragon Wizard)")
+	T:Toggle("Auto Draco V2 → V3 (Fire Flowers, then a Terrorshark)", "AutoDraco", stopOff)
+	T:Label(function()
+		local D = Hub.V3.Draco
+		if not D then return "" end
+		return ("Race: %s  •  Wizard: %s  •  Flowers: %d/%d  •  Sharks killed: %d"):format(
+			tostring(dataValue("Race") or "?"), tostring(D.state.quest or "?"), D.state.flowers, D.FLOWERS_NEEDED, Hub.V3.sharkKills or 0)
+	end)
+end
+end
+
+-- ===== 95_swords.lua (UI) =====
+do
+if Sea == 2 then
+	local T = createTab("Items", "◆")
+	T:Section("True Triple Katana (auto)")
+	T:Toggle("Auto TTK (buys the 3 Legendary swords, then the Mysterious Man)", "AutoTTK", stopOff)
+	T:Label(function() return "TTK spends $2M per Legendary sword + $2M for TTK" end)
+elseif Sea == 3 then
+	local T = createTab("Items", "◆")
+	T:Section("CDK (Cursed Dual Katana)")
+	T:Toggle("Hop Servers For Cake Queen / Soul Reaper", "CDKHop")
+	T:Label(function()
+		local C = Hub.V3.CDK
+		local l = C and C.last
+		if not l then return "CDK progress: turn on Auto CDK to read it" end
+		return ("Good %s • Evil %s • %s"):format(tostring(l.good), tostring(l.evil), C.LABEL[l.stage] or l.stage)
 	end)
 end
 end
@@ -8798,6 +9985,15 @@ if Brain and Brain.ready then
 	T:Section("Stuck Guard")
 	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
 	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
+	T:Label(function()
+		local function v(k) return S[k] >= 100 and "-" or tostring(S[k]) end
+		return ("Learned max height  Melee %s • Sword %s • Fruit %s • Gun %s"):format(v("HeightCapMelee"), v("HeightCapSword"), v("HeightCapFruit"), v("HeightCapGun"))
+	end)
+	T:Button("Forget Learned Heights (try Farm Height again)", function()
+		if Hub.ResetHeightCaps then Hub.ResetHeightCaps() end
+		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
+		notify("Farm Height", "Learned heights cleared", 4)
+	end)
 	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
 end
 end

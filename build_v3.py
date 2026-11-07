@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "4.9"
+VERSION = "5.3"
 
 
 def patch(src, old, new, count=1):
@@ -29,6 +29,123 @@ src = BASE.read_text(encoding="utf-8")  # \r\n -> \n
 
 src = patch(src, 'Version = "1.75"', f'Version = "{VERSION}"')
 src = patch(src, "loader_v2.lua", "loader_v3.lua", 2)
+
+# v5.2 شمشیرها: Tushita و CDK با موتور جدید ماژول 95_swords (مراحل از Banana)
+src = patch(
+    src,
+    'if S.AutoTushita and Sea == 3 then step, flag = stepTushita, "AutoTushita"\n'
+    '\t\t\t\telseif S.AutoCDK and Sea == 3 then step, flag = stepCDK, "AutoCDK"\n',
+    'if S.AutoTushita and Sea == 3 then step, flag = Hub.V3.tushitaStep or stepTushita, "AutoTushita"\n'
+    '\t\t\t\telseif S.AutoCDK and Sea == 3 then step, flag = Hub.V3.cdkStep or stepCDK, "AutoCDK"\n',
+)
+# Yama (از Banana): زیر 30 خودش Elite می‌زنه؛ کنار شمشیر اگه Ghost اومد اول اونا رو می‌کشه
+src = patch(
+    src,
+    '\t\t\tS.Status = ("Yama: elites %d/30 (turn on Auto Elite)"):format(prog)\n'
+    '\t\t\ttask.wait(5)\n'
+    '\t\t\treturn\n',
+    '\t\t\tS.Status = ("Yama: elites %d/30"):format(prog)\n'
+    '\t\t\tstepElite(keep)\n'
+    '\t\t\treturn\n',
+)
+src = patch(
+    src,
+    '\t\tS.Status = "Yama: pulling the sword"\n'
+    '\t\ttweenTo(hit.CFrame * CFrame.new(0, 3, 0), keep)\n',
+    '\t\tlocal ghost = findMob("Ghost")\n'
+    '\t\tif ghost and (ghost.HumanoidRootPart.Position - hit.Position).Magnitude < 300 then\n'
+    '\t\t\tS.Status = "Yama: killing the Ghosts"\n'
+    '\t\t\tkillMob(ghost, keep)\n'
+    '\t\t\treturn\n'
+    '\t\tend\n'
+    '\t\tS.Status = "Yama: pulling the sword"\n'
+    '\t\ttweenTo(hit.CFrame * CFrame.new(0, 3, 0), keep)\n',
+)
+
+# v5.1 تویین: اگه بازی خودش تلپورتمون کرد (ورود به Raid، Trial، پورتال) مسیر قبلی رو ادامه نده.
+# قبلاً این پرش رو «پس زدن سرور» حساب می‌کرد و از توی Raid دوباره سمت مقصد قدیمی پرواز می‌کرد
+src = patch(
+    src,
+    "\t\tif (pos - expected).Magnitude > 25 then\n",
+    "\t\tif (pos - expected).Magnitude > 1000 then\n"
+    "\t\t\tbreak -- بازی تلپورتمون کرد؛ مسیر قبلی دیگه معنی نداره\n"
+    "\t\tend\n"
+    "\t\tif (pos - expected).Magnitude > 25 then\n",
+)
+
+# v5.1 Raid: بعد از زدن دکمه چیپ مصرف میشه ولی هنوز توی Raid نیستیم؛ قبلاً میرفت چیپ بخره (سمت Scientist)
+# و بعد از تلپورت به Raid همون مسیر رو ادامه می‌داد. حالا تا Raid شروع بشه صبر می‌کنه و هر حرکت بیرونی
+# به محض شروع Raid قطع میشه. روی جزیره‌ی خالی هم «منتظر ماب» می‌مونه (Watchdog ریستت نمی‌کنه)
+src = patch(
+    src,
+    "\tlocal function raidChip()\n",
+    "\tlocal raidClickedAt = 0\n"
+    "\tlocal function inRaid()\n"
+    "\t\tif raidIsland() then return true end\n"
+    "\t\tlocal ok, vis = pcall(function() return player.PlayerGui.Main.TopHUDList.RaidTimer.Visible end)\n"
+    "\t\treturn ok and vis == true\n"
+    "\tend\n"
+    "\tHub.InRaid = inRaid\n\n"
+    "\tlocal function raidChip()\n",
+)
+src = patch(
+    src,
+    "\t\t\t\tlocal keep = function() return S.AutoRaid end\n"
+    "\t\t\t\tlocal ok, err = pcall(function()\n"
+    "\t\t\t\t\tlocal island, idx = raidIsland()\n"
+    "\t\t\t\t\tif island then\n",
+    "\t\t\t\tlocal keep = function() return S.AutoRaid end\n"
+    "\t\t\t\tlocal keepOut = function() return S.AutoRaid and not inRaid() end\n"
+    "\t\t\t\tlocal ok, err = pcall(function()\n"
+    "\t\t\t\t\tlocal island, idx = raidIsland()\n"
+    "\t\t\t\t\tif not island and inRaid() then\n"
+    "\t\t\t\t\t\tS.Status = \"Raid: waiting for the islands to load\"\n"
+    "\t\t\t\t\t\ttask.wait(1)\n"
+    "\t\t\t\t\t\treturn\n"
+    "\t\t\t\t\tend\n"
+    "\t\t\t\t\tif island then\n",
+)
+src = patch(
+    src,
+    "\t\t\t\t\t\t\tS.Status = \"Raid: going to island \" .. idx\n"
+    "\t\t\t\t\t\t\ttweenTo(island.CFrame * CFrame.new(0, 60, 0), keep)\n",
+    "\t\t\t\t\t\t\tlocal spot = island.CFrame * CFrame.new(0, 60, 0)\n"
+    "\t\t\t\t\t\t\tif (root.Position - spot.Position).Magnitude > 30 then\n"
+    "\t\t\t\t\t\t\t\tS.Status = \"Raid: going to island \" .. idx\n"
+    "\t\t\t\t\t\t\t\ttweenTo(spot, keep)\n"
+    "\t\t\t\t\t\t\telse\n"
+    "\t\t\t\t\t\t\t\tS.Status = \"Raid: waiting for mobs on island \" .. idx\n"
+    "\t\t\t\t\t\t\t\tsetFloat(true)\n"
+    "\t\t\t\t\t\t\t\ttask.wait(0.5)\n"
+    "\t\t\t\t\t\t\tend\n",
+)
+src = patch(
+    src,
+    "\t\t\t\t\tlocal chip = raidChip()\n"
+    "\t\t\t\t\tif chip then\n",
+    "\t\t\t\t\tlocal chip = raidChip()\n"
+    "\t\t\t\t\tif not chip and tick() - raidClickedAt < 30 then\n"
+    "\t\t\t\t\t\tS.Status = \"Raid: waiting for the raid to start\"\n"
+    "\t\t\t\t\t\ttask.wait(1)\n"
+    "\t\t\t\t\t\treturn\n"
+    "\t\t\t\t\tend\n"
+    "\t\t\t\t\tif chip then\n",
+)
+src = patch(src, "tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 20, 0)), keep)", "tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 20, 0)), keepOut)")
+src = patch(src, "tweenTo(btn.CFrame * CFrame.new(0, 3, 0), keep)", "tweenTo(btn.CFrame * CFrame.new(0, 3, 0), keepOut)")
+src = patch(src, "tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 3, 4)), keep)", "tweenTo(CFrame.new(SCIENTIST + Vector3.new(0, 3, 4)), keepOut)")
+src = patch(
+    src,
+    "\t\t\t\t\t\tif fireclickdetector then pcall(fireclickdetector, btn:FindFirstChildOfClass(\"ClickDetector\")) end\n"
+    "\t\t\t\t\t\ttask.wait(5)\n",
+    "\t\t\t\t\t\tif fireclickdetector then pcall(fireclickdetector, btn:FindFirstChildOfClass(\"ClickDetector\")) end\n"
+    "\t\t\t\t\t\traidClickedAt = tick()\n"
+    "\t\t\t\t\t\tlocal t0 = tick()\n"
+    "\t\t\t\t\t\twhile keep() and not inRaid() and tick() - t0 < 20 do\n"
+    "\t\t\t\t\t\t\tS.Status = \"Raid: waiting for the raid to start\"\n"
+    "\t\t\t\t\t\t\ttask.wait(0.5)\n"
+    "\t\t\t\t\t\tend\n",
+)
 
 # فارم‌های جدید جزو «کار اصلی» حساب بشن (صندوق/میوه صبر کنن)
 busy_old = "or (Hub.SpecialAny ~= nil and Hub.SpecialAny())"
@@ -55,7 +172,8 @@ src = patch(
 src = patch(
     src,
     "local h = math.clamp(S.FarmHeight, 0, 40)\n",
-    "local h = math.clamp(S.FarmHeight, 0, 100) + (Hub.DodgeY or 0)\n",
+    # v5.1: ارتفاع یادگرفته‌ی هر نوع سلاح (Hub.HeightCap) سقف Farm Height میشه
+    "local h = math.min(math.clamp(S.FarmHeight, 0, 100), Hub.HeightCap and Hub.HeightCap() or 100) + (Hub.DodgeY or 0)\n",
 )
 src = patch(
     src,
@@ -272,6 +390,17 @@ src = patch(
     src,
     "\tfor i = 1, math.min(#list, S.BringMax) do\n",
     "\tfor i = 1, math.min(#list, Hub.BringGroup and math.max(S.BringMax, 15) or S.BringMax) do\n",
+)
+# v5.1 ارتفاع هوشمند: قبل از رد کردن ماب بی‌آسیب، اول پایین‌تر امتحان می‌کنه
+src = patch(
+    src,
+    "\t\telseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120 then\n"
+    "\t\t\tmobSkipUntil[mob] = tick() + 45\n",
+    "\t\telseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120\n"
+    "\t\t\tand (root.Position.Y - hrp.Position.Y) > 11 and Hub.LowerHeight and Hub.LowerHeight() then\n"
+    "\t\t\tlastHit = tick()\n"
+    "\t\telseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120 then\n"
+    "\t\t\tmobSkipUntil[mob] = tick() + 45\n",
 )
 # لاگ: ببینیم ردشدن 45 ثانیه‌ای واقعاً رخ میده یا نه
 src = patch(

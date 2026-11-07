@@ -19,8 +19,42 @@ local okBrain, errBrain = pcall(function()
 		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3, FruitM1 = true,
 		ChestHop = false, ChestHopAt = 20, SafeCarry = true,
 		HeightDefault = false, -- یک بار Farm Height قدیمی (12) رو 25 می‌کنه؛ build_v3 بعد از لود تنظیمات
+		-- ارتفاع یادگرفته برای هر نوع سلاح (100 = هنوز محدودیتی ندیدیم)
+		HeightCapMelee = 100, HeightCapSword = 100, HeightCapFruit = 100, HeightCapGun = 100,
 	}) do
 		if S[k] == nil then S[k] = v end
+	end
+
+	-----------------------------------------------------------------
+	-- ارتفاع هوشمند: لاگ بازی نشون داد از 25 استاد بالاتر سرور ضربه‌ی Melee رو قبول نمی‌کنه (dmg/s=0)،
+	-- ولی از 12 استاد ضربه می‌خوره. اگه 8 ثانیه از Farm Height ضربه نخورد، برای همون نوع سلاح
+	-- 6 استاد پایین میاد (تا حداقل 10) و یادش می‌مونه؛ تازه اگه از 10 هم نخورد ماب رد میشه
+	-----------------------------------------------------------------
+	local CAP_KEY = { Melee = "HeightCapMelee", Sword = "HeightCapSword", ["Blox Fruit"] = "HeightCapFruit", Gun = "HeightCapGun" }
+	local MIN_HEIGHT, HEIGHT_STEP = 10, 6
+	local function capKey()
+		local c = getChar()
+		local t = c and c:FindFirstChildOfClass("Tool")
+		return t and CAP_KEY[t.ToolTip], t and t.Name
+	end
+	function Hub.HeightCap()
+		local k = capKey()
+		return k and S[k] or 100
+	end
+	function Hub.LowerHeight()
+		local k, tool = capKey()
+		if not k then return false end
+		local cur = math.min(S.FarmHeight, S[k])
+		if cur <= MIN_HEIGHT then return false end
+		local new = math.max(MIN_HEIGHT, cur - HEIGHT_STEP)
+		S[k] = new
+		if Hub.LiveLog then Hub.LiveLog(("HEIGHT no damage from %d studs with %s, trying %d"):format(cur, tostring(tool), new)) end
+		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
+		return true
+	end
+	-- وقتی خودت Farm Height رو عوض کنی، یادگرفته‌ها پاک میشن تا دوباره امتحان کنه
+	function Hub.ResetHeightCaps()
+		for _, k in pairs(CAP_KEY) do S[k] = 100 end
 	end
 
 	local Brain = { since = 0, why = "Off", log = {}, ban = {}, deaths = {}, deathTotal = 0, dodges = 0, rescues = 0 }
@@ -830,5 +864,14 @@ if Brain and Brain.ready then
 	T:Section("Stuck Guard")
 	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
 	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
+	T:Label(function()
+		local function v(k) return S[k] >= 100 and "-" or tostring(S[k]) end
+		return ("Learned max height  Melee %s • Sword %s • Fruit %s • Gun %s"):format(v("HeightCapMelee"), v("HeightCapSword"), v("HeightCapFruit"), v("HeightCapGun"))
+	end)
+	T:Button("Forget Learned Heights (try Farm Height again)", function()
+		if Hub.ResetHeightCaps then Hub.ResetHeightCaps() end
+		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
+		notify("Farm Height", "Learned heights cleared", 4)
+	end)
 	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
 end

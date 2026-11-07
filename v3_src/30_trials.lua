@@ -155,6 +155,93 @@ local okTr, errTr = pcall(function()
 	end
 
 	-----------------------------------------------------------------
+	-- Pull Lever (از Banana): با Valkyrie Helm + Mirror Fractal، اهرم معبد Temple of Time رو می‌کشه.
+	-- در بسته باشه: اول قدم‌های Race V4، بعد Mirage (شب Blue Gear، روز بلندترین نقطه برای ماه).
+	-- Banana جای «کشیده‌نشده»ی اهرم رو از قبل می‌دونه؛ ما بعد از زدن Prompt نگاه می‌کنیم اهرم جابه‌جا شد یا نه.
+	-----------------------------------------------------------------
+	local leverTries = 0
+	local function findLever()
+		local t = temple()
+		local lv = t and V3.findDesc(t, "Lever")
+		if lv and not lv:FindFirstChildWhichIsA("ProximityPrompt", true) and lv.Parent and lv.Parent.Name == "Lever" then lv = lv.Parent end
+		return lv
+	end
+	local function pivotOf(o)
+		if not o then return nil end
+		if o:IsA("BasePart") then return o.CFrame end
+		if o:IsA("Model") then return o:GetPivot() end
+	end
+	local function leverDone(msg)
+		V3.notify("Pull Lever", msg .. " (switch turned off)", 8)
+		V3.log("LEVER " .. msg)
+		S.AutoPullLever = false
+		leverTries = 0
+	end
+	V3.leverDone = leverDone
+
+	local function stepLever(keep)
+		if not hasItem("Valkyrie Helm") then
+			V3.notify("Pull Lever", "Needs Valkyrie Helm (Rip Indra) + Mirror Fractal (Dough King)", 8)
+			S.AutoPullLever = false
+			return
+		end
+		if invoke("CheckTempleDoor") then
+			local lv = findLever()
+			if not lv then
+				S.Status = "Pull Lever: flying to the Temple of Time"
+				tweenTo(CFrame.new(TEMPLE_POS), keep)
+				task.wait(1)
+				return
+			end
+			local prompt = lv:FindFirstChildWhichIsA("ProximityPrompt", true)
+			local part = lv:FindFirstChild("Part") or (prompt and prompt.Parent:IsA("BasePart") and prompt.Parent) or lv:FindFirstChildWhichIsA("BasePart", true)
+			if not prompt or not prompt.Enabled then return leverDone("Lever already pulled ✔") end
+			if (getRoot().Position - part.Position).Magnitude > 10 then
+				S.Status = "Pull Lever: going to the lever"
+				tweenTo(part.CFrame, keep)
+				return
+			end
+			local handle = lv:FindFirstChild("Lever") or part
+			local before = pivotOf(handle)
+			S.Status = "Pull Lever: pulling"
+			V3.activate(prompt)
+			task.wait(2)
+			leverTries += 1
+			local after = pivotOf(handle)
+			local moved = before and after and ((after.Position - before.Position).Magnitude > 0.3
+				or (after.LookVector - before.LookVector).Magnitude > 0.05)
+			if moved or not prompt.Parent or not prompt.Enabled then
+				leverDone("Lever pulled ✔")
+			elseif leverTries >= 3 then
+				leverDone("Pressed the lever 3 times but it didn't move; check it in the game")
+			end
+			return
+		end
+		-- در معبد بسته‌ست
+		local r = invoke("RaceV4Progress", "Check")
+		if r == 1 or r == 2 or r == 3 then return stepV4(keep) end
+		if Hub.MirageModel and Hub.MirageModel() then
+			local gear = Hub.FindGear and Hub.FindGear()
+			if gear then
+				S.Status = "Pull Lever: taking the Blue Gear"
+				tweenTo(gear.CFrame * CFrame.new(0, 4, 0), keep)
+				task.wait(1)
+				return
+			end
+			local top = Hub.MirageTop and Hub.MirageTop()
+			if top then
+				S.Status = "Pull Lever: on top of Mirage (look at the moon at night)"
+				tweenTo(CFrame.new(top + Vector3.new(0, 5, 0)), keep)
+				setFloat(true)
+				task.wait(2)
+				return
+			end
+		end
+		S.Status = "Pull Lever: temple door closed, waiting for Mirage Island (Teleport → Find Mirage)"
+		task.wait(5)
+	end
+
+	-----------------------------------------------------------------
 	-- Observation V2: کوئست Citizen (Forest Pirate → Captain Elephant → Ken → میوه‌ها)
 	-----------------------------------------------------------------
 	local KEN_NPC = Vector3.new(-12441.59, 331.49, -7676.20)
@@ -314,6 +401,7 @@ local okTr, errTr = pcall(function()
 	local sea3 = function() return Sea == 3 end
 	V3.register("AutoTrial", stepTrial, sea3)
 	V3.register("AutoRaceV4", stepV4, sea3)
+	V3.register("AutoPullLever", stepLever, sea3, true)
 	-- بلی/آیتم خرج می‌کنن؛ ذخیره نمیشن تا خودکار روشن نشن
 	V3.register("AutoKenQuest", stepKenQuest, sea3, true)
 	V3.register("AutoRainbowHaki", stepRainbow, sea3, true)
@@ -330,6 +418,7 @@ if Sea >= 2 then
 		T:Toggle("Auto Trial (go to the door, fight your race trial)", "AutoTrial", stopOff)
 		T:Toggle("Press T At The Door (race ability)", "TrialPressT")
 		T:Toggle("Auto Race V4 Quest (Begin / Teleport / Continue)", "AutoRaceV4", stopOff)
+		T:Toggle("Auto Pull Lever (Valkyrie Helm + Mirror Fractal)", "AutoPullLever", stopOff)
 		T:Label(function()
 			local V = Hub.V3
 			return "Race: " .. tostring(dataValue("Race") or "?") .. "  •  Trial running: " .. (V.raidTimer and V.raidTimer() and "YES" or "no")
