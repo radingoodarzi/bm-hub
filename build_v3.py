@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "5.4"
+VERSION = "5.5"
 
 
 def patch(src, old, new, count=1):
@@ -29,6 +29,34 @@ src = BASE.read_text(encoding="utf-8")  # \r\n -> \n
 
 src = patch(src, 'Version = "1.75"', f'Version = "{VERSION}"')
 src = patch(src, "loader_v2.lua", "loader_v3.lua", 2)
+
+# --- v5.5: ریموت‌های حمله توی دریای 3 ---
+# دریای 3 سنگین‌ترین نقشه‌ست و دیرتر لود میشه؛ اگه هاب زودتر اجرا بشه Modules/Net هنوز نیومده و
+# RegisterAttack/RegisterHit برای کل بازی nil می‌موند: هیچ ضربه‌ای زده نمی‌شد و خطایی هم نشون داده نمی‌شد
+src = patch(src, 'local Modules = ReplicatedStorage:FindFirstChild("Modules")\nlocal Net = Modules and Modules:FindFirstChild("Net")',
+	'local Modules = ReplicatedStorage:WaitForChild("Modules", 20)\nlocal Net = Modules and Modules:WaitForChild("Net", 20)')
+src = patch(src, 'local RegisterAttack = findRemote("RegisterAttack")\nlocal RegisterHit = findRemote("RegisterHit")\n',
+	'''local RegisterAttack = findRemote("RegisterAttack")
+local RegisterHit = findRemote("RegisterHit")
+-- اگه هنوز پیدا نشدن (یا بازی عوضشون کرد) هر 2 ثانیه دوباره گشته میشه
+local remotesCheckedAt = 0
+local function attackRemotes()
+	if RegisterAttack and RegisterAttack.Parent and RegisterHit and RegisterHit.Parent then return true end
+	Hub.AttackInfo.lastError = "attack remotes not found yet"
+	if tick() - remotesCheckedAt < 2 then return false end
+	remotesCheckedAt = tick()
+	if not Net then
+		Modules = ReplicatedStorage:FindFirstChild("Modules")
+		Net = Modules and Modules:FindFirstChild("Net")
+	end
+	RegisterAttack, RegisterHit = findRemote("RegisterAttack"), findRemote("RegisterHit")
+	if RegisterAttack and RegisterHit then return true end
+	Hub.AttackInfo.lastError = "attack remotes not found yet"
+	return false
+end
+''')
+src = patch(src, '\tif not (RegisterAttack and RegisterHit) then return end\n\tif tick() - cooldown.remote < 0.1 then return end',
+	'\tif not attackRemotes() then return end\n\tif tick() - cooldown.remote < 0.1 then return end')
 
 # v5.2 شمشیرها: Tushita و CDK با موتور جدید ماژول 95_swords (مراحل از Banana)
 src = patch(

@@ -545,20 +545,19 @@ local okBrain, errBrain = pcall(function()
 	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
 	-- melee: میوه‌هایی که M1 شمشیری دارن (Light، Ice ...) مثل ملی با ضربه‌ی چندهدفه‌ی RegisterHit، بدون کلیک
 	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 }, { melee = true } }
-	local SWORD_LIKE = { ["Light-Light"] = true, ["Ice-Ice"] = true }
+	-- Ice از اینجا دراومد: ضربه‌ی ملی (روش Light) توی بازی برای Ice دمیج نداد، پس Ice مثل بقیه
+	-- همه‌ی حالت‌ها رو با دمیج واقعی تست می‌کنه و بهترین رو نگه می‌داره
+	local SWORD_LIKE = { ["Light-Light"] = true }
+	local RETEST = { ["Ice-Ice"] = true } -- melee ذخیره‌شده‌ی قدیمی این‌ها تست نشده بود
 	local TUNE_SECONDS = 8
 	local tune
 	local fruitCombo, fruitAt = 0, 0
-	-- Ice مثل Light: حتی اگه ابزارش LeftClickRemote نداشته باشه، میوه‌ی شمشیری حساب میشه
-	-- (وگرنه مسیر عادی هر 0.12 ثانیه tool:Activate می‌زد و انیمیشن کند خود میوه پخش می‌شد)
-	local function swordLike(tool)
-		return tool and SWORD_LIKE[tool.Name] and tool.ToolTip == "Blox Fruit"
-	end
+	-- میوه‌ی بدون LeftClickRemote (مثل Ice الان) از مسیر عادی می‌زنه: ضربه‌ی ملی + کلیک ابزار.
+	-- 5.4 فقط ضربه‌ی ملی می‌زد و توی بازی M1 ایس اصلاً کار نکرد
 	function Brain.heldFruitM1()
 		local char = getChar()
 		local tool = char and char:FindFirstChildOfClass("Tool")
 		local remote = tool and tool:FindFirstChild("LeftClickRemote")
-		if not remote and swordLike(tool) then return tool, nil end
 		return remote and tool, remote
 	end
 
@@ -567,6 +566,10 @@ local okBrain, errBrain = pcall(function()
 		if not tool:FindFirstChild("LeftClickRemote") then return { melee = true } end
 		local saved = Brain.store.fruit[tool.Name]
 		-- نتیجه‌ی نسخه‌های قبل که کلیک داشتن دیگه معتبر نیست
+		if saved and saved.melee and RETEST[tool.Name] and not saved.tested then
+			Brain.store.fruit[tool.Name], saved = nil, nil
+			Brain.markDirty()
+		end
 		if saved and (saved.melee or (saved.gap and not saved.click and not saved.hit)) then return saved end
 		-- میوه‌های شمشیری از اول مثل ملی؛ با Test This Fruit Again همه‌ی حالت‌ها سنجیده میشن
 		if not saved and SWORD_LIKE[tool.Name] and not (tune and tune.tool == tool.Name) then
@@ -618,7 +621,9 @@ local okBrain, errBrain = pcall(function()
 		tune.i += 1
 		tune.time, tune.damage, tune.mobs = 0, 0, 0
 		if tune.i > #FRUIT_MODES then
-			Brain.store.fruit[tune.tool] = tune.best
+			local best = table.clone(tune.best)
+			best.tested = true
+			Brain.store.fruit[tune.tool] = best
 			Brain.markDirty()
 			Brain.note(("M1 test done for %s: %d dmg/s per mob"):format(tune.tool, math.floor(tune.bestRate)))
 			V3.notify("Fruit M1", "Best mode found for " .. tune.tool, 5)
