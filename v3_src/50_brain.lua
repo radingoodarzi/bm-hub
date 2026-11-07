@@ -16,6 +16,7 @@ local okBrain, errBrain = pcall(function()
 		SmartDodge = true, DodgeHeight = 70, DodgeLearn = 12, DodgeAfter = 2,
 		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3, FruitM1 = true,
 		ChestHop = false, ChestHopAt = 20, SafeCarry = true,
+		HeightDefault = false, -- یک بار Farm Height قدیمی (12) رو 25 می‌کنه؛ build_v3 بعد از لود تنظیمات
 	}) do
 		if S[k] == nil then S[k] = v end
 	end
@@ -506,7 +507,9 @@ local okBrain, errBrain = pcall(function()
 	-- جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) فرستاده میشه. سرور ضربه‌های زیادی رو رد می‌کنه
 	-- (لاگ Dragon-Dragon: فاصله‌ی 0.1 نصف فاصله‌ی 0.2 دمیج داد)، پس برای هر میوه یه بار چند فاصله
 	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
-	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 } }
+	-- melee: میوه‌هایی که M1 شمشیری دارن (Light، Ice ...) مثل ملی با ضربه‌ی چندهدفه‌ی RegisterHit، بدون کلیک
+	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 }, { melee = true } }
+	local SWORD_LIKE = { ["Light-Light"] = true, ["Ice-Ice"] = true }
 	local TUNE_SECONDS = 8
 	local tune
 	local fruitCombo, fruitAt = 0, 0
@@ -520,7 +523,13 @@ local okBrain, errBrain = pcall(function()
 	local function fruitMode(tool)
 		local saved = Brain.store.fruit[tool.Name]
 		-- نتیجه‌ی نسخه‌های قبل که کلیک داشتن دیگه معتبر نیست
-		if saved and saved.gap and not saved.click and not saved.hit then return saved end
+		if saved and (saved.melee or (saved.gap and not saved.click and not saved.hit)) then return saved end
+		-- میوه‌های شمشیری از اول مثل ملی؛ با Test This Fruit Again همه‌ی حالت‌ها سنجیده میشن
+		if not saved and SWORD_LIKE[tool.Name] and not (tune and tune.tool == tool.Name) then
+			Brain.store.fruit[tool.Name] = { melee = true }
+			Brain.markDirty()
+			return Brain.store.fruit[tool.Name]
+		end
 		if not tune or tune.tool ~= tool.Name then
 			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 			Brain.note("Testing the best M1 for " .. tool.Name)
@@ -534,6 +543,7 @@ local okBrain, errBrain = pcall(function()
 		local tool, remote = Brain.heldFruitM1()
 		if not tool then return nil end
 		local mode = fruitMode(tool)
+		if mode.melee then return mode end
 		local mob = nearestMobInRange()
 		if not mob or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
@@ -559,7 +569,7 @@ local okBrain, errBrain = pcall(function()
 		if tune.time < TUNE_SECONDS then return end
 		local mode = FRUIT_MODES[tune.i]
 		local rate = tune.damage / TUNE_SECONDS / (tune.mobs / (TUNE_SECONDS * 2))
-		V3.log(("FRUIT TEST %s %d/%d gap=%s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, tostring(mode.gap), math.floor(rate)))
+		V3.log(("FRUIT TEST %s %d/%d %s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, mode.melee and "melee hit" or ("gap=" .. tostring(mode.gap)), math.floor(rate)))
 		if rate > tune.bestRate then tune.best, tune.bestRate = mode, rate end
 		tune.i += 1
 		tune.time, tune.damage, tune.mobs = 0, 0, 0
@@ -575,6 +585,7 @@ local okBrain, errBrain = pcall(function()
 	function Brain.fruitStatus(tool)
 		if tune and tune.tool == tool.Name then return ("testing %d/%d, keep fighting"):format(tune.i, #FRUIT_MODES) end
 		local m = Brain.store.fruit[tool.Name]
+		if m and m.melee then return "melee hit like a sword, no screen clicks" end
 		if not m or not m.gap or m.click or m.hit then return "will test on the first fight" end
 		return ("every %.1fs, no screen clicks"):format(m.gap)
 	end
@@ -582,7 +593,7 @@ local okBrain, errBrain = pcall(function()
 	function Brain.retestFruit(tool)
 		Brain.store.fruit[tool.Name] = nil
 		Brain.markDirty()
-		tune = nil
+		tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 	end
 
 	-- دمیج واقعی برای لاگ: جمع کم شدن جون ماب‌های نزدیک، تا سلاح‌ها با عدد مقایسه بشن

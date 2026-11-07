@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "4.4"
+VERSION = "4.7"
 
 
 def patch(src, old, new, count=1):
@@ -55,7 +55,7 @@ src = patch(
 src = patch(
     src,
     "local h = math.clamp(S.FarmHeight, 0, 40)\n",
-    "local h = math.clamp(S.FarmHeight, 0, 40) + (Hub.DodgeY or 0)\n",
+    "local h = math.clamp(S.FarmHeight, 0, 100) + (Hub.DodgeY or 0)\n",
 )
 src = patch(
     src,
@@ -87,7 +87,12 @@ src = patch(
     src,
     'if m == "Auto" or m == "Remote" then remoteAttack(root) end\n',
     '-- میوه‌ی M1 دار: بدون کلیک روی صفحه و انیمیشن\n'
-    '\tif (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root) then return end\n'
+    '\tlocal fruit = (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root)\n'
+    '\tif fruit then\n'
+    '\t\t-- میوه‌ی شمشیری (melee) ضربه‌ی چندهدفه‌ی ملی می‌خوره، بقیه M1 خودشون؛ هیچ‌کدوم کلیک روی صفحه نداره\n'
+    '\t\tif fruit.melee then remoteAttack(root) end\n'
+    '\t\treturn\n'
+    '\tend\n'
     '\tif m == "Auto" or m == "Remote" then remoteAttack(root) end\n',
 )
 # لاگ حمله: دمیج واقعی در ثانیه و تعداد M1 میوه، برای مقایسه‌ی سلاح‌ها
@@ -148,6 +153,31 @@ src = patch(
     "end\n",
 )
 src = patch(src, '\tT:Toggle("Infinite Jump", "InfJump")\n\tT:Toggle("Noclip", "Noclip")\n', '\tT:Toggle("Noclip", "Noclip")\n')
+
+# ماب‌ها با ضربه عقب میرن و کل دسته رو با خودشون می‌کشن؛ پس دسته روی یه نقطه‌ی ثابت قفل میشه
+src = patch(src, "\tlocal name = mobBaseName(mob.Name)\n\tS.Status", "\tlocal name = mobBaseName(mob.Name)\n\tlocal stackAt = hrp and hrp.CFrame\n\tS.Status")
+src = patch(src, "if S.BringMobs then bringMobs(name, hrp.CFrame) end", "if S.BringMobs then bringMobs(name, stackAt or hrp.CFrame) end")
+
+# فاصله از ماب‌ها موقع فارم تا 100؛ برد ضربه همراهش بیشتر میشه وگرنه از بالا هیچ مابی توی برد نیست
+src = patch(src, 'T:Slider("Farm Height (above mobs)", 0, 40, "FarmHeight")', 'T:Slider("Farm Height (above mobs)", 0, 100, "FarmHeight")')
+src = patch(
+    src,
+    "\t\t\t\tif d <= S.AttackRange then\n\t\t\t\t\ttable.insert(found",
+    "\t\t\t\tif d <= math.max(S.AttackRange, S.FarmHeight + 20) then\n\t\t\t\t\ttable.insert(found",
+)
+
+# موقع زدن کمی بالاتر از ماب‌ها: پیش‌فرض 12 → 25؛ تنظیم ذخیره‌شده‌ی قدیمی یک بار بالا میره
+# (درست بعد از لود تنظیمات و قبل از ساخت UI، تا اسلایدر عدد درست رو نشون بده)
+src = patch(src, "FarmHeight = 12,", "FarmHeight = 25,")
+src = patch(
+    src,
+    "local settingsLoaded = loadSettings()\n",
+    "local settingsLoaded = loadSettings()\n"
+    "if not S.HeightDefault then\n"
+    "\tS.HeightDefault = true\n"
+    "\tif S.FarmHeight < 25 then S.FarmHeight = 25 end\n"
+    "end\n",
+)
 
 # صندوق‌ها: Safe Carry و شمارش برای Chest Hop
 src = patch(

@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "4.4" }
+local Hub = { Connections = {}, Running = true, Version = "4.7" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -128,7 +128,7 @@ end
 local S = {
 	AutoFarm = false, FarmMode = "Level", SelectedMob = nil, TakeQuest = true,
 	BringMobs = true, Weapon = "Melee", AttackMethod = "Auto",
-	FarmHeight = 12, TweenSpeed = 300, AutoClick = true, AttackRange = 60, BringRange = 300, BringMax = 15, AutoPumpkin = false, PumpkinPattern = "pumpkin",
+	FarmHeight = 25, TweenSpeed = 300, AutoClick = true, AttackRange = 60, BringRange = 300, BringMax = 15, AutoPumpkin = false, PumpkinPattern = "pumpkin",
 
 	MasteryFarm = false, MasteryWeapon = "Blox Fruit", MasteryHealth = 25,
 	UseSkills = true, SkillZ = true, SkillX = true, SkillC = false, SkillV = false,
@@ -895,7 +895,7 @@ local function remoteAttack(root)
 		for _, m in ipairs(enemies:GetChildren()) do
 			if isAliveMob(m) then
 				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-				if d <= S.AttackRange then
+				if d <= math.max(S.AttackRange, S.FarmHeight + 20) then
 					table.insert(found, { m = m, d = d })
 				end
 			end
@@ -923,7 +923,12 @@ local function attack()
 	if not root then return end
 	local m = S.AttackMethod
 	-- میوه‌ی M1 دار: بدون کلیک روی صفحه و انیمیشن
-	if (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root) then return end
+	local fruit = (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root)
+	if fruit then
+		-- میوه‌ی شمشیری (melee) ضربه‌ی چندهدفه‌ی ملی می‌خوره، بقیه M1 خودشون؛ هیچ‌کدوم کلیک روی صفحه نداره
+		if fruit.melee then remoteAttack(root) end
+		return
+	end
 	if m == "Auto" or m == "Remote" then remoteAttack(root) end
 	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
@@ -1046,6 +1051,7 @@ local function killMob(mob, keepGoing)
 	local hum = mob:FindFirstChildOfClass("Humanoid")
 	local hrp = mob:FindFirstChild("HumanoidRootPart")
 	local name = mobBaseName(mob.Name)
+	local stackAt = hrp and hrp.CFrame
 	S.Status = "Farming: " .. name
 	if Hub.WatchMob then Hub.WatchMob(mob, hum) end
 	local lastHp, lastHit = hum and hum.Health or 0, tick()
@@ -1079,7 +1085,7 @@ local function killMob(mob, keepGoing)
 			break
 		end
 		-- بالای سر ماب‌ها می‌ایستیم (Farm Height) تا بهمون نرسن؛ کمی کنارشون که زاویه‌ی نگاه درست بمونه
-		local h = math.clamp(S.FarmHeight, 0, 40) + (Hub.DodgeY or 0)
+		local h = math.clamp(S.FarmHeight, 0, 100) + (Hub.DodgeY or 0)
 		local away = Vector3.new(root.Position.X - hrp.Position.X, 0, root.Position.Z - hrp.Position.Z)
 		away = away.Magnitude > 0.1 and away.Unit or Vector3.new(0, 0, 1)
 		local standAt = hrp.Position + away * 3 + Vector3.new(0, h, 0)
@@ -1098,7 +1104,7 @@ local function killMob(mob, keepGoing)
 		else
 			equipWeapon()
 		end
-		if S.BringMobs then bringMobs(name, hrp.CFrame) end
+		if S.BringMobs then bringMobs(name, stackAt or hrp.CFrame) end
 		attack(mob)
 		if Hub.SmartSkill then Hub.SmartSkill(mob, hum) end
 		-- اسکیل‌ها وقتی ماب هنوز پرجونه (دمیج زیاد = زمان کمتر کنار ماب)
@@ -5768,6 +5774,7 @@ local okBrain, errBrain = pcall(function()
 		SmartDodge = true, DodgeHeight = 70, DodgeLearn = 12, DodgeAfter = 2,
 		SmartSkills = true, SmartRace = false, SmartRetreat = true, DeathTime = 3, FruitM1 = true,
 		ChestHop = false, ChestHopAt = 20, SafeCarry = true,
+		HeightDefault = false, -- یک بار Farm Height قدیمی (12) رو 25 می‌کنه؛ build_v3 بعد از لود تنظیمات
 	}) do
 		if S[k] == nil then S[k] = v end
 	end
@@ -6258,7 +6265,9 @@ local okBrain, errBrain = pcall(function()
 	-- جهت سمت ماب و شماره‌ی ضربه‌ی کمبو (1 تا 4) فرستاده میشه. سرور ضربه‌های زیادی رو رد می‌کنه
 	-- (لاگ Dragon-Dragon: فاصله‌ی 0.1 نصف فاصله‌ی 0.2 دمیج داد)، پس برای هر میوه یه بار چند فاصله
 	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
-	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 } }
+	-- melee: میوه‌هایی که M1 شمشیری دارن (Light، Ice ...) مثل ملی با ضربه‌ی چندهدفه‌ی RegisterHit، بدون کلیک
+	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 }, { melee = true } }
+	local SWORD_LIKE = { ["Light-Light"] = true, ["Ice-Ice"] = true }
 	local TUNE_SECONDS = 8
 	local tune
 	local fruitCombo, fruitAt = 0, 0
@@ -6272,7 +6281,13 @@ local okBrain, errBrain = pcall(function()
 	local function fruitMode(tool)
 		local saved = Brain.store.fruit[tool.Name]
 		-- نتیجه‌ی نسخه‌های قبل که کلیک داشتن دیگه معتبر نیست
-		if saved and saved.gap and not saved.click and not saved.hit then return saved end
+		if saved and (saved.melee or (saved.gap and not saved.click and not saved.hit)) then return saved end
+		-- میوه‌های شمشیری از اول مثل ملی؛ با Test This Fruit Again همه‌ی حالت‌ها سنجیده میشن
+		if not saved and SWORD_LIKE[tool.Name] and not (tune and tune.tool == tool.Name) then
+			Brain.store.fruit[tool.Name] = { melee = true }
+			Brain.markDirty()
+			return Brain.store.fruit[tool.Name]
+		end
 		if not tune or tune.tool ~= tool.Name then
 			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 			Brain.note("Testing the best M1 for " .. tool.Name)
@@ -6286,6 +6301,7 @@ local okBrain, errBrain = pcall(function()
 		local tool, remote = Brain.heldFruitM1()
 		if not tool then return nil end
 		local mode = fruitMode(tool)
+		if mode.melee then return mode end
 		local mob = nearestMobInRange()
 		if not mob or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
@@ -6311,7 +6327,7 @@ local okBrain, errBrain = pcall(function()
 		if tune.time < TUNE_SECONDS then return end
 		local mode = FRUIT_MODES[tune.i]
 		local rate = tune.damage / TUNE_SECONDS / (tune.mobs / (TUNE_SECONDS * 2))
-		V3.log(("FRUIT TEST %s %d/%d gap=%s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, tostring(mode.gap), math.floor(rate)))
+		V3.log(("FRUIT TEST %s %d/%d %s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, mode.melee and "melee hit" or ("gap=" .. tostring(mode.gap)), math.floor(rate)))
 		if rate > tune.bestRate then tune.best, tune.bestRate = mode, rate end
 		tune.i += 1
 		tune.time, tune.damage, tune.mobs = 0, 0, 0
@@ -6327,6 +6343,7 @@ local okBrain, errBrain = pcall(function()
 	function Brain.fruitStatus(tool)
 		if tune and tune.tool == tool.Name then return ("testing %d/%d, keep fighting"):format(tune.i, #FRUIT_MODES) end
 		local m = Brain.store.fruit[tool.Name]
+		if m and m.melee then return "melee hit like a sword, no screen clicks" end
 		if not m or not m.gap or m.click or m.hit then return "will test on the first fight" end
 		return ("every %.1fs, no screen clicks"):format(m.gap)
 	end
@@ -6334,7 +6351,7 @@ local okBrain, errBrain = pcall(function()
 	function Brain.retestFruit(tool)
 		Brain.store.fruit[tool.Name] = nil
 		Brain.markDirty()
-		tune = nil
+		tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 	end
 
 	-- دمیج واقعی برای لاگ: جمع کم شدن جون ماب‌های نزدیک، تا سلاح‌ها با عدد مقایسه بشن
@@ -7794,6 +7811,10 @@ end
 
 Hub.SaveSettings = saveSettings
 local settingsLoaded = loadSettings()
+if not S.HeightDefault then
+	S.HeightDefault = true
+	if S.FarmHeight < 25 then S.FarmHeight = 25 end
+end
 -- تنظیمات ذخیره‌شده‌ای که باید همون اول اعمال بشن
 if S.CPUSaver then pcall(function() RunService:Set3dRenderingEnabled(false) end) end
 if S.FPSCapOn and setfpscap then pcall(setfpscap, S.FPSCap) end
@@ -8451,7 +8472,7 @@ do
 	T:Toggle("Auto Observation (Ken)", "AutoKen")
 	T:Toggle("Auto Race Skill (T)", "AutoRace")
 	T:Section("Movement")
-	T:Slider("Farm Height (above mobs)", 0, 40, "FarmHeight")
+	T:Slider("Farm Height (above mobs)", 0, 100, "FarmHeight")
 	T:Slider("Tween Speed (max 300 safe)", 100, 300, "TweenSpeed")
 	T:Section("Speed & Jump (real)")
 	T:Toggle("Walk Speed", "SpeedOn", function(on)
