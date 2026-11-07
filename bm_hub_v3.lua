@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "4.7" }
+local Hub = { Connections = {}, Running = true, Version = "4.8" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -3561,7 +3561,8 @@ end)
 -- وضعیت (سرورهای دیده‌شده، تعداد هاپ) توی فایل می‌مونه چون بعد از تلپورت هاب از اول اجرا میشه
 do
 	local HUNT_FILE = "BMHub_hunt.json"
-	local LOADER = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
+		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
 	local queueTp = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 	Hub.CanQueue = queueTp ~= nil
 
@@ -5766,7 +5767,9 @@ do
 local okBrain, errBrain = pcall(function()
 	local V3 = Hub.V3
 	local BRAIN_FILE = "BMHub_brain.json"
-	local LOADER = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+	-- بعد از تلپورت: اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
+	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
+		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
 	for k, v in pairs({
 		BrainOn = false, BrainGoal = "Auto Farm", BrainBosses = true, BrainEvents = true, BrainElite = true, BrainFruits = true,
 		BrainSeas = false, BrainDeaths = 2,

@@ -1,0 +1,58 @@
+--[[
+	BM Hub - لانچر سریع (فایل محلی توی workspace خود Solara)
+	loadstring(readfile("bm.lua"))()
+
+	دانلود از GitHub توی Solara گاهی 20 ثانیه گیر می‌کنه (Curl: Connection was reset).
+	این لانچر نسخه‌ی ذخیره‌شده رو بدون اینترنت همون لحظه اجرا می‌کنه و همزمان نسخه‌ی جدید رو
+	بی‌صدا می‌گیره و برای دفعه‌ی بعد ذخیره می‌کنه (وسط بازی هاب رو عوض نمی‌کنه).
+]]
+
+local CACHE = "BMHub_cache.lua"
+local URL = "https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/bm_hub_v3.lua"
+
+local function note(text)
+	print("[BM Hub] " .. text)
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", { Title = "BM Hub", Text = text, Duration = 8 })
+	end)
+end
+
+local function version(src) return src and src:match('Version = "([%d%.]+)"') or "?" end
+local function valid(src) return type(src) == "string" and #src > 5000 and src:find("BM Hub", 1, true) ~= nil end
+
+local function download()
+	local ok, src = pcall(function() return game:HttpGet(URL .. "?t=" .. tostring(os.time())) end)
+	if ok and valid(src) then return src end
+end
+
+local function run(src, from)
+	local fn, err = loadstring(src)
+	if not fn then
+		note(from .. ": compile error " .. tostring(err):sub(1, 150))
+		return false
+	end
+	local ok, runErr = pcall(fn)
+	if not ok then note(from .. ": runtime error " .. tostring(runErr):sub(1, 150)) end
+	return true
+end
+
+local cached
+pcall(function() if isfile(CACHE) then cached = readfile(CACHE) end end)
+
+if valid(cached) then
+	-- آپدیت توی پس‌زمینه؛ نسخه‌ی جدید از اجرای بعدی استفاده میشه
+	task.spawn(function()
+		local fresh = download()
+		if fresh and fresh ~= cached then
+			pcall(writefile, CACHE, fresh)
+			note(("Update v%s downloaded - run again to use it"):format(version(fresh)))
+		end
+	end)
+	if run(cached, "saved v" .. version(cached)) then return end
+end
+
+note("Downloading BM Hub (first time can take a bit)...")
+local fresh = download()
+if not fresh then return note("Download failed - check your internet and run again") end
+pcall(writefile, CACHE, fresh)
+run(fresh, "v" .. version(fresh))

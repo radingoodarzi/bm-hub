@@ -31,6 +31,8 @@ local fn, err = loadstring(src)
 if not fn then
 	return note("Compile error: " .. tostring(err):sub(1, 200))
 end
+-- نسخه‌ی سالم برای لانچر سریع محلی: loadstring(readfile("bm.lua"))()
+pcall(writefile, "BMHub_cache.lua", src)
 
 local runOk, runErr = pcall(fn)
 if not runOk then

@@ -8,7 +8,9 @@ do
 local okBrain, errBrain = pcall(function()
 	local V3 = Hub.V3
 	local BRAIN_FILE = "BMHub_brain.json"
-	local LOADER = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+	-- بعد از تلپورت: اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
+	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
+		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
 	for k, v in pairs({
 		BrainOn = false, BrainGoal = "Auto Farm", BrainBosses = true, BrainEvents = true, BrainElite = true, BrainFruits = true,
 		BrainSeas = false, BrainDeaths = 2,

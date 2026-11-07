@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "4.7"
+VERSION = "4.8"
 
 
 def patch(src, old, new, count=1):
@@ -177,6 +177,14 @@ src = patch(
     "\tS.HeightDefault = true\n"
     "\tif S.FarmHeight < 25 then S.FarmHeight = 25 end\n"
     "end\n",
+)
+
+# Server Finder هم بعد از تلپورت اگه لانچر سریع محلی هست از همون استفاده کنه
+src = patch(
+    src,
+    "\tlocal LOADER = 'loadstring(game:HttpGet(\"https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua\"))()'\n",
+    "\tlocal LOADER = (isfile and select(2, pcall(isfile, \"bm.lua\")) == true) and 'loadstring(readfile(\"bm.lua\"))()'\n"
+    "\t\tor 'loadstring(game:HttpGet(\"https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua\"))()'\n",
 )
 
 # صندوق‌ها: Safe Carry و شمارش برای Chest Hop
