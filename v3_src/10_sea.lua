@@ -815,7 +815,9 @@ if Sea >= 2 then
 	T:Label(function()
 		local V = Hub.V3
 		local lvl = V.dangerLevel and V.dangerLevel()
-		local _, d = V.nearestIsland and getRoot() and V.nearestIsland(getRoot().Position)
+		-- با and فقط اولین جواب برمی‌گرده و فاصله همیشه nil می‌شد
+		local d
+		if V.nearestIsland and getRoot() then _, d = V.nearestIsland(getRoot().Position) end
 		return ("Danger now: %s  •  Nearest island: %s"):format(tostring(lvl or "?"), d and (math.floor(d) .. " studs") or "?")
 	end)
 	T:Toggle("Fight Sea Beasts", "SeaHitBeasts")
