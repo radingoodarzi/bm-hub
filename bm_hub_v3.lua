@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "5.3" }
+local Hub = { Connections = {}, Running = true, Version = "5.4" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -6607,14 +6607,22 @@ local okBrain, errBrain = pcall(function()
 	local TUNE_SECONDS = 8
 	local tune
 	local fruitCombo, fruitAt = 0, 0
+	-- Ice مثل Light: حتی اگه ابزارش LeftClickRemote نداشته باشه، میوه‌ی شمشیری حساب میشه
+	-- (وگرنه مسیر عادی هر 0.12 ثانیه tool:Activate می‌زد و انیمیشن کند خود میوه پخش می‌شد)
+	local function swordLike(tool)
+		return tool and SWORD_LIKE[tool.Name] and tool.ToolTip == "Blox Fruit"
+	end
 	function Brain.heldFruitM1()
 		local char = getChar()
 		local tool = char and char:FindFirstChildOfClass("Tool")
 		local remote = tool and tool:FindFirstChild("LeftClickRemote")
+		if not remote and swordLike(tool) then return tool, nil end
 		return remote and tool, remote
 	end
 
 	local function fruitMode(tool)
+		-- بدون LeftClickRemote فقط ضربه‌ی ملی معنی داره
+		if not tool:FindFirstChild("LeftClickRemote") then return { melee = true } end
 		local saved = Brain.store.fruit[tool.Name]
 		-- نتیجه‌ی نسخه‌های قبل که کلیک داشتن دیگه معتبر نیست
 		if saved and (saved.melee or (saved.gap and not saved.click and not saved.hit)) then return saved end
@@ -6679,7 +6687,7 @@ local okBrain, errBrain = pcall(function()
 	function Brain.fruitStatus(tool)
 		if tune and tune.tool == tool.Name then return ("testing %d/%d, keep fighting"):format(tune.i, #FRUIT_MODES) end
 		local m = Brain.store.fruit[tool.Name]
-		if m and m.melee then return "melee hit like a sword, no screen clicks" end
+		if (m and m.melee) or not tool:FindFirstChild("LeftClickRemote") then return "melee hit like a sword, no screen clicks" end
 		if not m or not m.gap or m.click or m.hit then return "will test on the first fight" end
 		return ("every %.1fs, no screen clicks"):format(m.gap)
 	end
