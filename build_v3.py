@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "4.8"
+VERSION = "4.9"
 
 
 def patch(src, old, new, count=1):
@@ -335,20 +335,17 @@ src = patch(
     "\t\ttable.insert(groups, g)\n"
     "\tend\n",
 )
-# صفحه‌های بلند با بخش اول باز شروع میشن تا پیدا کردن گزینه راحت باشه
+# همه‌ی بخش‌ها از اول بازن (کاربر نمی‌خواد بازشون کنه)؛ با کلیک روی عنوان هنوز جمع میشن
+
+# دکمه‌ی «–» پنل رو کامل قایم می‌کنه؛ دایره‌ی BM (یا RightControl) دوباره میارتش
 src = patch(
     src,
-    '\tselectPage("Home")',
-    "\tfor _, groups in pairs(Hub.TabUI.groups) do\n"
-    "\t\tlocal total = 0\n"
-    "\t\tfor _, g in ipairs(groups) do total += #g.items end\n"
-    "\t\tif total > 14 then\n"
-    "\t\t\tfor i, g in ipairs(groups) do\n"
-    "\t\t\t\tif i > 1 then g.show(false) end\n"
-    "\t\t\tend\n"
-    "\t\tend\n"
-    "\tend\n"
-    '\tselectPage("Home")',
+    "minBtn.Activated:Connect(function()\n"
+    "\tminimized = not minimized\n"
+    '\tminBtn.Text = minimized and "+" or "–"\n'
+    "\ttween(main, 0.35, { Size = minimized and UDim2.fromOffset(FULL.X.Offset, 50) or FULL })\n"
+    "end)\n",
+    "minBtn.Activated:Connect(function() showMain(false) end)\n",
 )
 src = patch(src, 'createTab(SEA_NAME, "≋")', 'createTab("Quests", "≋")')
 src = patch(src, 'createTab("Sea Events", "⚓")', 'createTab("Sea", "⚓")')

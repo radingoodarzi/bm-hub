@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "4.8" }
+local Hub = { Connections = {}, Running = true, Version = "4.9" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -8976,11 +8976,7 @@ local function showMain(show)
 end
 local function toggleMain() showMain(not isOpen) end
 
-minBtn.Activated:Connect(function()
-	minimized = not minimized
-	minBtn.Text = minimized and "+" or "–"
-	tween(main, 0.35, { Size = minimized and UDim2.fromOffset(FULL.X.Offset, 50) or FULL })
-end)
+minBtn.Activated:Connect(function() showMain(false) end)
 closeBtn.Activated:Connect(function() showMain(false) end)
 
 local function makeDraggable(handle, target, onClick)
@@ -9116,15 +9112,6 @@ task.spawn(function()
 	floatBtn.Visible = true
 	showMain(true)
 	task.wait(0.5)
-	for _, groups in pairs(Hub.TabUI.groups) do
-		local total = 0
-		for _, g in ipairs(groups) do total += #g.items end
-		if total > 14 then
-			for i, g in ipairs(groups) do
-				if i > 1 then g.show(false) end
-			end
-		end
-	end
 	selectPage("Home")
 	notify("BM Hub", ("Loaded ✔  Sea %s  •  %d quests"):format(Sea > 0 and Sea or "?", #QuestList), 4)
 	if Sea == 0 then notify("BM Hub", "This doesn't look like Blox Fruits!", 5) end
