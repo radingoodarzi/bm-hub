@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "5.5"
+VERSION = "5.6"
 
 
 def patch(src, old, new, count=1):
@@ -29,6 +29,10 @@ src = BASE.read_text(encoding="utf-8")  # \r\n -> \n
 
 src = patch(src, 'Version = "1.75"', f'Version = "{VERSION}"')
 src = patch(src, "loader_v2.lua", "loader_v3.lua", 2)
+
+# --- v5.6: مکث Auto Click وقتی باید کتک بخوریم (جاخالی مشاهده، CDK Yama 1) ---
+src = patch(src, "\t\tif S.AutoClick and alive() then\n\t\t\tlocal mob = nearestMobInRange()",
+	"\t\tif S.AutoClick and alive() and tick() >= (Hub.HoldAttackUntil or 0) then\n\t\t\tlocal mob = nearestMobInRange()")
 
 # --- v5.5: ریموت‌های حمله توی دریای 3 ---
 # دریای 3 سنگین‌ترین نقشه‌ست و دیرتر لود میشه؛ اگه هاب زودتر اجرا بشه Modules/Net هنوز نیومده و

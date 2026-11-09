@@ -282,6 +282,7 @@ local okSw, errSw = pcall(function()
 		while keep() and alive() and mob.Parent and isAliveMob(mob) and tick() - t0 < 10 do
 			local hrp = mob:FindFirstChild("HumanoidRootPart")
 			if not hrp then break end
+			Hub.HoldAttackUntil = tick() + 2 -- Auto Click نباید ماب رو بکشه، باید کتک بخوریم
 			setFloat(false)
 			local root = getRoot()
 			if root then root.CFrame = hrp.CFrame * CFrame.new(0, 0, 3) end
