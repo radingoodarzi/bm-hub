@@ -18,6 +18,16 @@ local function note(text)
 end
 
 local function version(src) return src and src:match('Version = "([%d%.]+)"') or "?" end
+-- "5.10" > "5.9": عدد به عدد مقایسه میشه
+local function newer(a, b)
+	local x, y = {}, {}
+	for n in tostring(a):gmatch("%d+") do x[#x + 1] = tonumber(n) end
+	for n in tostring(b):gmatch("%d+") do y[#y + 1] = tonumber(n) end
+	for i = 1, math.max(#x, #y) do
+		if (x[i] or 0) ~= (y[i] or 0) then return (x[i] or 0) > (y[i] or 0) end
+	end
+	return false
+end
 local function valid(src) return type(src) == "string" and #src > 5000 and src:find("BM Hub", 1, true) ~= nil end
 
 -- کش گیت‌هاب گاهی نسخه‌ی قدیمی رو میده؛ با شناسه‌ی آخرین commit مستقیم جدیدترین رو می‌گیریم (مثل loader_v3)
@@ -52,6 +62,9 @@ if valid(cached) then
 		local fresh = download()
 		if not fresh then
 			note(("Couldn't check for updates (running saved v%s)"):format(version(cached)))
+		elseif newer(version(cached), version(fresh)) then
+			-- نسخه‌ی ذخیره‌شده جدیدتره (مثلاً تست قبل از push): با نسخه‌ی قدیمی GitHub عوضش نکن
+			note(("Keeping saved v%s (GitHub has older v%s)"):format(version(cached), version(fresh)))
 		elseif fresh ~= cached then
 			pcall(writefile, CACHE, fresh)
 			note(("Update v%s downloaded - run again to use it"):format(version(fresh)))

@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "5.6"
+VERSION = "5.7"
 
 
 def patch(src, old, new, count=1):
@@ -32,7 +32,7 @@ src = patch(src, "loader_v2.lua", "loader_v3.lua", 2)
 
 # --- v5.6: مکث Auto Click وقتی باید کتک بخوریم (جاخالی مشاهده، CDK Yama 1) ---
 src = patch(src, "\t\tif S.AutoClick and alive() then\n\t\t\tlocal mob = nearestMobInRange()",
-	"\t\tif S.AutoClick and alive() and tick() >= (Hub.HoldAttackUntil or 0) then\n\t\t\tlocal mob = nearestMobInRange()")
+	"\t\tif S.AutoClick and alive() and not S.KenFarm and tick() >= (Hub.HoldAttackUntil or 0) then\n\t\t\tlocal mob = nearestMobInRange()")
 
 # Auto Observation قدیمی هر 5 ثانیه Ken رو روشن می‌کرد و نمی‌ذاشت سرویس جاخالی صبر کنه تا پر بشه
 src = patch(src, 'if S.AutoKen and CommE then', 'if S.AutoKen and not S.KenFarm and CommE then')

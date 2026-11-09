@@ -11,7 +11,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
 if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "5.6" }
+local Hub = { Connections = {}, Running = true, Version = "5.7" }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -1043,7 +1043,7 @@ end
 task.spawn(function()
 	while Hub.Running do
 		task.wait(0.1)
-		if S.AutoClick and alive() and tick() >= (Hub.HoldAttackUntil or 0) then
+		if S.AutoClick and alive() and not S.KenFarm and tick() >= (Hub.HoldAttackUntil or 0) then
 			local mob = nearestMobInRange()
 			if mob then
 				pcall(function()
@@ -8411,7 +8411,7 @@ end
 do
 local okKen, errKen = pcall(function()
 	local V3 = Hub.V3
-	for k, v in pairs({ KenFarm = false, KenRest = 30 }) do
+	for k, v in pairs({ KenFarm = false, KenRest = 30, KenRejoin = false }) do
 		if S[k] == nil then S[k] = v end
 	end
 	local Ken = { V2_AT = 5000, FILE = "BMHub_ken.json" }
@@ -8439,9 +8439,10 @@ local okKen, errKen = pcall(function()
 	function Ken.decide(ctx)
 		if ctx.finished then return "finish" end
 		if ctx.hpFrac < 0.35 then return "rest" end
+		-- وقت پر شدن همیشه کامل صبر میشه، حتی اگه Blur روشن بشه: Blur بازی با افکت‌های دیگه
+		-- (مثلاً Kitsune) هم روشن میشه و لاگ واقعی نشون داد وسط استراحت شیرجه می‌زد
+		if ctx.resting and (ctx.now < ctx.restUntil or ctx.hpFrac < 0.8) then return "rest" end
 		if ctx.kenOn then return "dodge" end
-		if ctx.resting and ctx.hpFrac < 0.8 then return "rest" end
-		if ctx.now < ctx.restUntil then return "rest" end
 		return "turnOn"
 	end
 
@@ -8552,6 +8553,83 @@ local okKen, errKen = pcall(function()
 		return (cf and cf.Position or b.spot) + Vector3.new(0, 60, 0)
 	end
 
+	-- ری‌جوین وقتی هاکی تموم شد (پیشنهاد کاربر): همین سرور (JobId) دوباره، هاب خودش برمی‌گرده
+	-- (queue_on_teleport + فایل autoexec سولارا) و کار از فایل BMHub_ken.json ادامه پیدا می‌کنه.
+	-- مستقیم خالی‌ترین سرور عمومی جدید. اگه هیچ‌کدوم نشد ری‌جوین برای این بار بازی خاموش میشه و مثل قبل صبر می‌کنه
+	local tpFailed = false
+	pcall(function()
+		Svc.Teleport.TeleportInitFailed:Connect(function(p) if p == player then tpFailed = true end end)
+	end)
+	Ken.rejoinOff = false
+	-- سرورهای خالی‌تر اول؛ سرور فعلی، پر، یا قبلاً رفته حذف (خالص، برای تست)
+	function Ken.pickServers(list, visited, current)
+		local seen = {}
+		for _, id in ipairs(visited or {}) do seen[id] = true end
+		local out = {}
+		for _, sv in ipairs(list or {}) do
+			local playing, max = tonumber(sv.playing) or 99, tonumber(sv.maxPlayers) or 0
+			if sv.id and sv.id ~= current and not seen[sv.id] and playing < max then table.insert(out, sv) end
+		end
+		table.sort(out, function(a, b) return (tonumber(a.playing) or 99) < (tonumber(b.playing) or 99) end)
+		return out
+	end
+
+	local function serverPage(cursor)
+		local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+			.. (cursor and ("&cursor=" .. cursor) or "")
+		local ok, body = pcall(function() return game:HttpGet(url) end)
+		if not ok or type(body) ~= "string" then return nil end
+		local ok2, d = pcall(function() return Svc.Http:JSONDecode(body) end)
+		return ok2 and type(d) == "table" and d or nil
+	end
+
+	-- هاکی تموم شد: مستقیم میره خالی‌ترین سرور جدید (کاربر: باید بره سرورهای خالی، نه همین سرور).
+	-- سرورهای رفته توی کار ذخیره میشن تا دوباره همونا نره. اگه یکی نشد بعدی، تا 4 تا
+	function Ken.rejoin(job)
+		if Ken.rejoinOff or os.time() - (tonumber(job.lastRejoin) or 0) < 20 then return false end
+		S.Status = "Observation: Ken ran out, finding an empty server"
+		local visited = type(job.visited) == "table" and job.visited or {}
+		local list, cursor = {}, nil
+		for _ = 1, 2 do
+			local d = serverPage(cursor)
+			if not d then break end
+			for _, sv in ipairs(d.data or {}) do table.insert(list, sv) end
+			cursor = d.nextPageCursor
+			if not cursor or #Ken.pickServers(list, visited, game.JobId) >= 4 then break end
+		end
+		local picks = Ken.pickServers(list, visited, game.JobId)
+		if #picks == 0 then
+			Ken.rejoinOff = true
+			V3.notify("Observation", "No empty server found, waiting for the refill instead", 8)
+			return false
+		end
+		if Hub.QueueReload then Hub.QueueReload() elseif Hub.SaveSettings then Hub.SaveSettings() end
+		table.insert(visited, game.JobId)
+		for i = 1, math.min(4, #picks) do
+			local sv = picks[i]
+			table.insert(visited, sv.id)
+			while #visited > 40 do table.remove(visited, 1) end
+			job.visited, job.lastRejoin, job.rejoins = visited, os.time(), (tonumber(job.rejoins) or 0) + 1
+			Ken.saveJob(job)
+			S.Status = ("Observation: joining a server with %d players"):format(tonumber(sv.playing) or 0)
+			tpFailed = false
+			pcall(function() Svc.Teleport:TeleportToPlaceInstance(game.PlaceId, sv.id, player) end)
+			local t0 = tick()
+			repeat task.wait(0.5) until tpFailed or tick() - t0 > 15
+			-- خطا نداد یعنی داره میره؛ تا 30 ثانیه صبر، بعد اگه هنوز اینجاییم سرور بعدی
+			if not tpFailed then
+				t0 = tick()
+				repeat task.wait(0.5) until tpFailed or not Hub.Running or tick() - t0 > 30
+			end
+			if not Hub.Running then return true end
+		end
+		-- هنوز اینجاییم یعنی هیچ‌کدوم نشد
+		Ken.rejoinOff = true
+		if Hub.ReloadFailed then Hub.ReloadFailed() end
+		V3.notify("Observation", "Couldn't change server, waiting for the refill instead", 8)
+		return false
+	end
+
 	local restUntil, resting = 0, false
 	Ken.state = { sessionDodges = 0 }
 	local lastPoints
@@ -8603,22 +8681,30 @@ local okKen, errKen = pcall(function()
 			if (root.Position - hrp.Position).Magnitude > 150 then
 				return tweenTo(CFrame.new(hrp.Position + Vector3.new(0, 30, 0)), keep)
 			end
-			local t0, checkAt = tick(), tick()
+			local t0, checkAt, gained = tick(), tick(), false
+			local startPts = p
 			while keep() and alive() and kenOn() and isAliveMob(mob) and hpFrac() >= 0.35 and tick() - t0 < 6 do
 				Hub.HoldAttackUntil = tick() + 2
 				-- هر ثانیه شمارش: به عدد سفارش که رسید همون موقع وایسه، نه چند جاخالی بعد
 				if tick() - checkAt >= 1 then
 					checkAt = tick()
-					local now = Ken.progress(job, Ken.points(true))
+					local cur = Ken.points(true)
+					if cur and cur > startPts then gained = true end
+					local now = Ken.progress(job, cur)
 					if now and now.finished then break end
 				end
-				setFloat(false)
+				-- شناور کنار ماب: بدون float کاراکتر بین هر قدم می‌افتاد و بالا پایین می‌پرید
+				setFloat(true)
 				root = getRoot()
 				if root then root.CFrame = hrp.CFrame * CFrame.new(0, 0, 3) end
 				task.wait(0.1)
 			end
-			-- هاکی همین الان تموم شد: از الان وقت پر شدن حساب میشه
-			if not kenOn() then restUntil, resting = tick() + S.KenRest, true end
+			-- هاکی تموم شد، یا 6 ثانیه کتک خوردیم و یه جاخالی هم ثبت نشد (یعنی Blur الکی روشن بود):
+			-- از الان وقت پر شدن حساب میشه
+			if not kenOn() or (tick() - t0 >= 5.5 and not gained) then
+				restUntil, resting = tick() + S.KenRest, true
+				if S.KenRejoin then Ken.rejoin(job) end
+			end
 			return
 		end
 
@@ -9837,6 +9923,13 @@ if Hub.V3.Ken and Hub.V3.Ken.ready then
 	end)
 	T:Toggle("Auto Dodge (keeps going after rejoin)", "KenFarm", stopOff)
 	T:Slider("Wait For Refill (seconds)", 0, 120, "KenRest")
+	T:Toggle("Join An Empty Server When Ken Runs Out (instead of waiting)", "KenRejoin")
+	T:Label(function()
+		local job = Ken.job()
+		local n = job and tonumber(job.rejoins) or 0
+		if Ken.rejoinOff then return "Rejoin didn't work, so it waits for the refill" end
+		return ("Server changes this job: %d  •  always the emptiest new server"):format(n)
+	end)
 	T:Label(function() return ("Dodge mob here: %s (Sea 1 Monkey, Sea 2 Zombie, Sea 3 Marine Commodore). Auto Click pauses while dodging."):format(Ken.bestFor(Sea).name) end)
 	T:Button("Clear Job", function()
 		S.KenFarm = false
