@@ -20,8 +20,15 @@ end
 local function version(src) return src and src:match('Version = "([%d%.]+)"') or "?" end
 local function valid(src) return type(src) == "string" and #src > 5000 and src:find("BM Hub", 1, true) ~= nil end
 
+-- کش گیت‌هاب گاهی نسخه‌ی قدیمی رو میده؛ با شناسه‌ی آخرین commit مستقیم جدیدترین رو می‌گیریم (مثل loader_v3)
 local function download()
-	local ok, src = pcall(function() return game:HttpGet(URL .. "?t=" .. tostring(os.time())) end)
+	local url = URL .. "?t=" .. tostring(os.time())
+	pcall(function()
+		local body = game:HttpGet("https://api.github.com/repos/radingoodarzi/bm-hub/commits/main")
+		local sha = body:match('"sha"%s*:%s*"(%x+)"')
+		if sha then url = "https://raw.githubusercontent.com/radingoodarzi/bm-hub/" .. sha .. "/bm_hub_v3.lua" end
+	end)
+	local ok, src = pcall(function() return game:HttpGet(url) end)
 	if ok and valid(src) then return src end
 end
 
@@ -43,7 +50,9 @@ if valid(cached) then
 	-- آپدیت توی پس‌زمینه؛ نسخه‌ی جدید از اجرای بعدی استفاده میشه
 	task.spawn(function()
 		local fresh = download()
-		if fresh and fresh ~= cached then
+		if not fresh then
+			note(("Couldn't check for updates (running saved v%s)"):format(version(cached)))
+		elseif fresh ~= cached then
 			pcall(writefile, CACHE, fresh)
 			note(("Update v%s downloaded - run again to use it"):format(version(fresh)))
 		end

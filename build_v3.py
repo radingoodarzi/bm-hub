@@ -34,6 +34,9 @@ src = patch(src, "loader_v2.lua", "loader_v3.lua", 2)
 src = patch(src, "\t\tif S.AutoClick and alive() then\n\t\t\tlocal mob = nearestMobInRange()",
 	"\t\tif S.AutoClick and alive() and tick() >= (Hub.HoldAttackUntil or 0) then\n\t\t\tlocal mob = nearestMobInRange()")
 
+# Auto Observation قدیمی هر 5 ثانیه Ken رو روشن می‌کرد و نمی‌ذاشت سرویس جاخالی صبر کنه تا پر بشه
+src = patch(src, 'if S.AutoKen and CommE then', 'if S.AutoKen and not S.KenFarm and CommE then')
+
 # --- v5.5: ریموت‌های حمله توی دریای 3 ---
 # دریای 3 سنگین‌ترین نقشه‌ست و دیرتر لود میشه؛ اگه هاب زودتر اجرا بشه Modules/Net هنوز نیومده و
 # RegisterAttack/RegisterHit برای کل بازی nil می‌موند: هیچ ضربه‌ای زده نمی‌شد و خطایی هم نشون داده نمی‌شد

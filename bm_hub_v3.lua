@@ -3263,7 +3263,7 @@ task.spawn(function()
 		task.wait(1)
 		tick5 += 1
 		if alive() and tick5 % 5 == 0 then
-			if S.AutoKen and CommE then pcall(CommE.FireServer, CommE, "Ken", true) end
+			if S.AutoKen and not S.KenFarm and CommE then pcall(CommE.FireServer, CommE, "Ken", true) end
 			if S.AutoRace and VIM then
 				pcall(function()
 					VIM:SendKeyEvent(true, Enum.KeyCode.T, false, game)
@@ -8470,13 +8470,27 @@ local okKen, errKen = pcall(function()
 		writeAll(all)
 	end
 
-	-- امتیاز فعلی از سرور (هر 4 ثانیه)
-	local cached, cachedAt = nil, 0
-	function Ken.points(force)
-		if force or tick() - cachedAt > 4 then
-			cachedAt = tick()
+	-- امتیاز فعلی از سرور. هیچ‌وقت منتظر سرور نمی‌مونه: لاگ واقعی نشون داد اگه جواب سرور
+	-- گیر کنه کل کار یخ می‌زنه (وضعیت یه دقیقه روی "refilling 9s" موند). پس توی پس‌زمینه
+	-- گرفته میشه و آخرین عدد برمی‌گرده؛ force فقط تا 5 ثانیه صبر می‌کنه
+	local cached, cachedAt, fetching = nil, -100, false
+	local function fetch()
+		if fetching then return end
+		fetching = true
+		task.spawn(function()
 			local p = Ken.parse(invoke("KenTalk", "Status"))
 			if p then cached = p end
+			cachedAt, fetching = tick(), false
+		end)
+	end
+	function Ken.points(force)
+		if force or tick() - cachedAt > 4 then
+			local before = cachedAt
+			fetch()
+			if force then
+				local t0 = tick()
+				while cachedAt == before and tick() - t0 < 5 do task.wait(0.1) end
+			end
 		end
 		return cached
 	end
@@ -8506,21 +8520,36 @@ local okKen, errKen = pcall(function()
 		return h and h.MaxHealth > 0 and h.Health / h.MaxHealth or 0
 	end
 
-	-- ماب برای کتک خوردن: دریای 3 Marine Commodore (مثل Banana)، بقیه نزدیک‌ترین ماب زنده
-	local COMMODORE_SPOT = Vector3.new(2180.54, 27.82, -6741.55)
+	-- بهترین ماب هر دریا: فقط ضربه‌ی ساده‌ی نزدیک، بدون تفنگ/پرتاب/گرفتن
+	-- (لاگ واقعی: Pirate Millionaire توی Port Town از دور می‌زد و حتی 200 بالاتر هم کشتمون)
+	--   دریای 1: Monkey (جنگل؛ ضربه‌های تند پشت سر هم، راهنماها هم میگن)
+	--   دریای 2: Zombie (Graveyard؛ فقط پنجه از نزدیک)
+	--   دریای 3: Marine Commodore (Great Tree؛ انتخاب Banana)
+	local BEST = {
+		[1] = { name = "Monkey", spot = Vector3.new(-1598.09, 35.55, 153.38) },
+		[2] = { name = "Zombie", spot = Vector3.new(-5497.06, 47.59, -795.23) },
+		[3] = { name = "Marine Commodore", spot = Vector3.new(2180.54, 27.82, -6741.55) },
+	}
+	Ken.BEST = BEST
+	function Ken.bestFor(sea) return BEST[sea] or BEST[3] end
 	local function dodgeMob()
 		local root = getRoot()
 		local enemies = workspace:FindFirstChild("Enemies")
 		if not root or not enemies then return nil end
+		local want = Ken.bestFor(Sea).name
 		local best, bestD
 		for _, m in ipairs(enemies:GetChildren()) do
-			if isAliveMob(m) then
+			if isAliveMob(m) and mobBaseName(m.Name) == want then
 				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
-				if Sea == 3 and mobBaseName(m.Name) == "Marine Commodore" then d -= 1e6 end
 				if not bestD or d < bestD then best, bestD = m, d end
 			end
 		end
 		return best
+	end
+	local function dodgeSpot()
+		local b = Ken.bestFor(Sea)
+		local cf = mobSpawn(b.name)
+		return (cf and cf.Position or b.spot) + Vector3.new(0, 60, 0)
 	end
 
 	local restUntil, resting = 0, false
@@ -8560,8 +8589,10 @@ local okKen, errKen = pcall(function()
 		Hub.HoldAttackUntil = tick() + 2 -- Auto Click نباید ماب رو بکشه
 
 		if not mob then
-			S.Status = ("Observation: %d / %d • going to the mobs"):format(prog.done, job.goal)
-			if Sea == 3 then tweenTo(CFrame.new(COMMODORE_SPOT + Vector3.new(0, 60, 0)), keep) end
+			S.Status = ("Observation: %d / %d • going to the %ss"):format(prog.done, job.goal, Ken.bestFor(Sea).name)
+			setFloat(true)
+			local spot = dodgeSpot()
+			if (root.Position - spot).Magnitude > 30 then tweenTo(CFrame.new(spot), keep) end
 			return task.wait(1)
 		end
 		local hrp = mob.HumanoidRootPart
@@ -8593,7 +8624,7 @@ local okKen, errKen = pcall(function()
 
 		-- استراحت یا روشن کردن: بالای سر ماب، دور از دسترس
 		setFloat(true)
-		local safe = CFrame.new(hrp.Position + Vector3.new(0, 200, 0))
+		local safe = CFrame.new(hrp.Position + Vector3.new(0, 300, 0))
 		if (root.Position - safe.Position).Magnitude > 20 then tweenTo(safe, keep) end
 		if act == "rest" then
 			local why = hpFrac() < 0.8 and "healing" or ("refilling %ds"):format(math.max(0, math.ceil(restUntil - tick())))
@@ -8601,8 +8632,10 @@ local okKen, errKen = pcall(function()
 			return task.wait(1)
 		end
 		S.Status = ("Observation: turning it on (E) • %d / %d"):format(prog.done, job.goal)
-		V3.key(Enum.KeyCode.E, 0.05)
+		-- مثل دکمه‌ی قدیمی Auto Observation: ریموت خود بازی؛ اگه نشد کلید E
+		if not (CommE and pcall(CommE.FireServer, CommE, "Ken", true)) then V3.key(Enum.KeyCode.E, 0.05) end
 		task.wait(1.5)
+		if not kenOn() then V3.key(Enum.KeyCode.E, 0.05) task.wait(1) end
 		if kenOn() then
 			resting = false
 		else
@@ -9804,7 +9837,7 @@ if Hub.V3.Ken and Hub.V3.Ken.ready then
 	end)
 	T:Toggle("Auto Dodge (keeps going after rejoin)", "KenFarm", stopOff)
 	T:Slider("Wait For Refill (seconds)", 0, 120, "KenRest")
-	T:Label(function() return "Sea 3: Marine Commodores (Great Tree). Other seas: the nearest mob. Auto Click is paused while dodging." end)
+	T:Label(function() return ("Dodge mob here: %s (Sea 1 Monkey, Sea 2 Zombie, Sea 3 Marine Commodore). Auto Click pauses while dodging."):format(Ken.bestFor(Sea).name) end)
 	T:Button("Clear Job", function()
 		S.KenFarm = false
 		Ken.clearJob()
