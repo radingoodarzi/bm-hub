@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "5.7"
+VERSION = "5.8"
 
 
 def patch(src, old, new, count=1):
@@ -36,6 +36,12 @@ src = patch(src, "\t\tif S.AutoClick and alive() then\n\t\t\tlocal mob = nearest
 
 # Auto Observation قدیمی هر 5 ثانیه Ken رو روشن می‌کرد و نمی‌ذاشت سرویس جاخالی صبر کنه تا پر بشه
 src = patch(src, 'if S.AutoKen and CommE then', 'if S.AutoKen and not S.KenFarm and CommE then')
+
+# --- v5.8: دکمه‌ی «برو دریای بعد» وقتی همون دریایی فقط اسماً روشنه ---
+# لاگ واقعی: AutoSea3 توی دریای 3 روشن مونده بود (اونجا کاری نمی‌کنه) ولی چون «فارم روشنه» حساب می‌شد
+# سرعت راه رفتن هیچ‌وقت کار نمی‌کرد. فقط توی دریای قبل از مقصد حساب میشه
+src = patch(src, "or S.AutoSea2 or S.AutoBartilo or S.AutoSea3 or S.AutoSaber",
+	"or (S.AutoSea2 and Sea == 1) or S.AutoBartilo or (S.AutoSea3 and Sea == 2) or S.AutoSaber", 2)
 
 # --- v5.5: ریموت‌های حمله توی دریای 3 ---
 # دریای 3 سنگین‌ترین نقشه‌ست و دیرتر لود میشه؛ اگه هاب زودتر اجرا بشه Modules/Net هنوز نیومده و

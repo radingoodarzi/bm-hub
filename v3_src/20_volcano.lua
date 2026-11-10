@@ -414,6 +414,7 @@ local okVol, errVol = pcall(function()
 	end, sea3, true)
 	V3.register("AutoDragonHunter", stepQuest, sea3)
 	V3.npcPart, V3.farmMobs = npcPart, farmMobs -- برای ماژول Draco
+	V3.stepVolcano, V3.prehistoricIsland = stepVolcano, island -- برای تریال Draco (V4)
 end)
 if not okVol then logError("v3 volcano", errVol) end
 end
