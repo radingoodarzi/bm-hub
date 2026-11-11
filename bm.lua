@@ -67,7 +67,7 @@ if valid(cached) then
 			note(("Keeping saved v%s (GitHub has older v%s)"):format(version(cached), version(fresh)))
 		elseif fresh ~= cached then
 			pcall(writefile, CACHE, fresh)
-			note(("Update v%s downloaded - run again to use it"):format(version(fresh)))
+			note(("Update v%s downloaded - to use it: Settings > Destroy Hub, then run again"):format(version(fresh)))
 		end
 	end)
 	if run(cached, "saved v" .. version(cached)) then return end

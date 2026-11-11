@@ -11,6 +11,8 @@ local okBrain, errBrain = pcall(function()
 	-- بعد از تلپورت: اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
 	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
 		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+	-- 5.9: مثل Server Finder: هر چند بار هم صف بشه توی سرور جدید فقط یه بار اجرا میشه
+	LOADER = 'local g = (getgenv and getgenv()) or _G; if g.BMHubQueuedRun then return end; g.BMHubQueuedRun = true; ' .. LOADER
 	for k, v in pairs({
 		BrainOn = false, BrainGoal = "Auto Farm", BrainBosses = true, BrainEvents = true, BrainElite = true, BrainFruits = true,
 		BrainSeas = false, BrainDeaths = 2,
@@ -37,21 +39,14 @@ local okBrain, errBrain = pcall(function()
 		local t = c and c:FindFirstChildOfClass("Tool")
 		return t and CAP_KEY[t.ToolTip], t and t.Name
 	end
-	function Hub.HeightCap()
-		local k = capKey()
-		return k and S[k] or 100
-	end
-	function Hub.LowerHeight()
-		local k, tool = capKey()
-		if not k then return false end
-		local cur = math.min(S.FarmHeight, S[k])
-		if cur <= MIN_HEIGHT then return false end
-		local new = math.max(MIN_HEIGHT, cur - HEIGHT_STEP)
-		S[k] = new
-		if Hub.LiveLog then Hub.LiveLog(("HEIGHT no damage from %d studs with %s, trying %d"):format(cur, tostring(tool), new)) end
-		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
-		return true
-	end
+	-- 5.9: یادگیری ارتفاع خاموش شد. لاگ‌های واقعی: دمیج نخوردن هیچ‌وقت به‌خاطر ارتفاع نبود (اول Bring Mobs
+	-- فقط توی صفحه‌ی خودمون ماب جمع می‌کرد، بعد سرور ضربه‌ها رو رد می‌کرد)، ولی ارتفاع هر بار تا 10 پایین
+	-- میومد و ذخیره می‌شد و کاراکتر توی حلق NPC ها می‌موند و مدام جون کم میاورد. حالا همیشه Farm Height
+	-- (اسلایدر Combat) و اگه دمیج نخورد ماب رد میشه
+	function Hub.HeightCap() return 100 end
+	function Hub.LowerHeight() return false end
+	function Hub.HeightGaveUp() end
+	function Hub.HeightWorked() end
 	-- وقتی خودت Farm Height رو عوض کنی، یادگرفته‌ها پاک میشن تا دوباره امتحان کنه
 	function Hub.ResetHeightCaps()
 		for _, k in pairs(CAP_KEY) do S[k] = 100 end
@@ -544,7 +539,8 @@ local okBrain, errBrain = pcall(function()
 	-- (لاگ Dragon-Dragon: فاصله‌ی 0.1 نصف فاصله‌ی 0.2 دمیج داد)، پس برای هر میوه یه بار چند فاصله
 	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
 	-- melee: میوه‌هایی که M1 شمشیری دارن (Light، Ice ...) مثل ملی با ضربه‌ی چندهدفه‌ی RegisterHit، بدون کلیک
-	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 }, { melee = true } }
+	-- 5.9: 0.8 حذف شد (هیچ‌وقت بهترین نشد) چون وسط تست M1 یهو کند می‌شد و برای مشتری بد بود
+	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { melee = true } }
 	-- Ice از اینجا دراومد: ضربه‌ی ملی (روش Light) توی بازی برای Ice دمیج نداد، پس Ice مثل بقیه
 	-- همه‌ی حالت‌ها رو با دمیج واقعی تست می‌کنه و بهترین رو نگه می‌داره
 	local SWORD_LIKE = { ["Light-Light"] = true }
@@ -580,18 +576,21 @@ local okBrain, errBrain = pcall(function()
 		if not tune or tune.tool ~= tool.Name then
 			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 			Brain.note("Testing the best M1 for " .. tool.Name)
+			V3.notify("Fruit M1", "Testing the best M1 for " .. tool.Name .. " (about 30s of fighting) - it can feel slower for a bit", 6)
 		end
 		return FRUIT_MODES[tune.i]
 	end
 
 	-- حالت M1 ابزار توی دست رو برمی‌گردونه (nil یعنی میوه‌ی M1 دار دستت نیست)
-	function Hub.FruitM1(root)
+	-- target: ماب/باسی که فارم داره می‌زنه (5.9: قبلاً همیشه سمت نزدیک‌ترین ماب می‌زد)
+	function Hub.FruitM1(root, target)
 		if not S.FruitM1 then return nil end
 		local tool, remote = Brain.heldFruitM1()
 		if not tool then return nil end
 		local mode = fruitMode(tool)
 		if mode.melee then return mode end
-		local mob = nearestMobInRange()
+		local th = target and target.Parent and target:FindFirstChild("HumanoidRootPart")
+		local mob = th and target or nearestMobInRange()
 		if not mob or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
 		fruitCombo = fruitCombo % 4 + 1
@@ -877,14 +876,5 @@ if Brain and Brain.ready then
 	T:Section("Stuck Guard")
 	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
 	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
-	T:Label(function()
-		local function v(k) return S[k] >= 100 and "-" or tostring(S[k]) end
-		return ("Learned max height  Melee %s • Sword %s • Fruit %s • Gun %s"):format(v("HeightCapMelee"), v("HeightCapSword"), v("HeightCapFruit"), v("HeightCapGun"))
-	end)
-	T:Button("Forget Learned Heights (try Farm Height again)", function()
-		if Hub.ResetHeightCaps then Hub.ResetHeightCaps() end
-		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
-		notify("Farm Height", "Learned heights cleared", 4)
-	end)
 	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
 end

@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "5.8"
+VERSION = "5.9"
 
 
 def patch(src, old, new, count=1):
@@ -36,6 +36,45 @@ src = patch(src, "\t\tif S.AutoClick and alive() then\n\t\t\tlocal mob = nearest
 
 # Auto Observation قدیمی هر 5 ثانیه Ken رو روشن می‌کرد و نمی‌ذاشت سرویس جاخالی صبر کنه تا پر بشه
 src = patch(src, 'if S.AutoKen and CommE then', 'if S.AutoKen and not S.KenFarm and CommE then')
+
+# --- v5.9: Auto Click توی بعضی اکانت‌ها کار نمی‌کرد ---
+# همه‌ی اکانت‌های یه کامپیوتر یه فایل تنظیمات داشتن (و چند پنجره‌ی هم‌زمان روی هم می‌نوشتن)؛ لاگ واقعی:
+# AutoClick=false ذخیره شده بود و هر اکانتی که بعدش باز می‌شد بدون Auto Click شروع می‌کرد.
+# حالا هر اکانت فایل خودش رو داره (اولین بار از فایل قدیمی مشترک کپی میشه) و Auto Click ذخیره نمیشه:
+# همیشه روشن شروع میشه
+src = patch(src, 'local SETTINGS_FILE = "BMHub_settings.json"\n',
+	'''local SHARED_SETTINGS = "BMHub_settings.json"
+local SETTINGS_FILE = "BMHub_settings_" .. tostring(player.UserId) .. ".json"
+''')
+src = patch(src, 'SummonSoulReaper = true, SummonDoughKing = true }\n\nlocal function saveSettings()',
+	'SummonSoulReaper = true, SummonDoughKing = true, AutoClick = true }\n\nlocal function saveSettings()')
+src = patch(src, '''local function loadSettings()
+	local ok, data = pcall(function()
+		if isfile and not isfile(SETTINGS_FILE) then return nil end
+		return Svc.Http:JSONDecode(readfile(SETTINGS_FILE))
+	end)
+	if not ok or type(data) ~= "table" then return false end
+''', '''local function readSettings(file)
+	local ok, data = pcall(function()
+		if isfile and not isfile(file) then return nil end
+		return Svc.Http:JSONDecode(readfile(file))
+	end)
+	return ok and type(data) == "table" and data or nil
+end
+
+local function loadSettings()
+	local data = readSettings(SETTINGS_FILE) or readSettings(SHARED_SETTINGS)
+	if not data then return false end
+''')
+# Attack Test اگه وسطش ماب می‌مرد خطا می‌داد و Auto Click خاموش می‌موند
+src = patch(src, '\t\t\tlocal savedClick = S.AutoClick\n\t\t\tS.AutoClick = false\n',
+	'\t\t\tlocal savedClick = S.AutoClick\n\t\t\tS.AutoClick = false\n\t\t\tlocal testOk, testErr = pcall(function()\n')
+src = patch(src, '\t\t\tS.AutoClick = savedClick\n\t\t\tnotify("Attack Test", "Done ✔ - tell Claude", 6)\n',
+	'''\t\t\tend)
+\t\t\tS.AutoClick = savedClick
+\t\t\tif not testOk then log("ATTACK TEST stopped: " .. tostring(testErr)) end
+\t\t\tnotify("Attack Test", "Done ✔ - tell Claude", 6)
+''')
 
 # --- v5.8: دکمه‌ی «برو دریای بعد» وقتی همون دریایی فقط اسماً روشنه ---
 # لاگ واقعی: AutoSea3 توی دریای 3 روشن مونده بود (اونجا کاری نمی‌کنه) ولی چون «فارم روشنه» حساب می‌شد
@@ -335,7 +374,10 @@ src = patch(
     "if not S.HeightDefault then\n"
     "\tS.HeightDefault = true\n"
     "\tif S.FarmHeight < 25 then S.FarmHeight = 25 end\n"
-    "end\n",
+    "end\n"
+    # 5.9: ارتفاع‌های 10 که نسخه‌های قبل اشتباهی یاد گرفته بودن پاک میشن (کاراکتر چسبیده به NPC ها بود)
+    # (یادگیری ارتفاع کلاً خاموشه؛ عددهای قدیمی فایل تنظیمات هر بار پاک میشن)
+    "if Hub.ResetHeightCaps then Hub.ResetHeightCaps() end\n",
 )
 
 # Server Finder هم بعد از تلپورت اگه لانچر سریع محلی هست از همون استفاده کنه
@@ -542,6 +584,248 @@ src = patch(
     '\tT:Section("Skills")\n\tT:Toggle("Use Skills", "UseSkills")\n\tT:Toggle("Skill Z", "SkillZ")\n\tT:Toggle("Skill X", "SkillX")\n\tT:Toggle("Skill C", "SkillC")\n\tT:Toggle("Skill V", "SkillV")\n',
     "",
 )
+
+# --- v5.9: شمشیر وسط چند ماب دمیج نمی‌داد (نگهبان ضربه: 52_hitguard) ---
+src = patch(src, "for i = 1, math.min(#found, 15) do",
+	"for i = 1, math.min(#found, Hub.HitGuard and Hub.HitGuard.limit or 15) do")
+src = patch(src, "\t\tHub.AttackInfo.remote += 1\n",
+	"\t\tHub.AttackInfo.remote += 1\n\t\tif Hub.HitGuard then Hub.HitGuard.sent() end\n")
+src = patch(src, '\tif m == "Auto" or m == "Tool" then\n',
+	'\tif m == "Auto" or m == "Tool" or (Hub.HitGuard and Hub.HitGuard.swing) then\n')
+# لاگ: tool:Activate برای شمشیر دمیج نداشت؛ پله‌های آخر نگهبان کلیک واقعی هم می‌زنن (حتی با Attack Method = Remote)
+src = patch(src, '\tif m == "Auto" or m == "Click" then clickScreen() end\n',
+	'\tif m == "Auto" or m == "Click" or (Hub.HitGuard and Hub.HitGuard.swing) then clickScreen() end\n')
+src = patch(src, "\tif tick() - cooldown.remote < 0.1 then return end\n",
+	"\tif tick() - cooldown.remote < (Hub.HitGuard and Hub.HitGuard.gap or 0.1) then return end\n")
+src = patch(src, "\tif #hits == 0 then return end\n",
+	"\tif #hits == 0 then return end\n\tif Hub.HitGuard and Hub.HitGuard.noRemote then Hub.HitGuard.sent() return end\n")
+# Attack Test: ضربه‌ی ریموت با سرعت‌های مختلف هم امتحان میشه تا علت دقیق دمیج نخوردن شمشیر معلوم بشه
+src = patch(src, '''					VIM:SendMouseButtonEvent(free.X, free.Y, 0, false, game, 0)
+				end },
+			}
+''', '''					VIM:SendMouseButtonEvent(free.X, free.Y, 0, false, game, 0)
+				end },
+				{ "remote hit 1 mob every 0.25s", function()
+					local head = best:FindFirstChild("Head") or best.HumanoidRootPart
+					RegisterAttack:FireServer(0)
+					RegisterHit:FireServer(head, { { best, head } })
+				end },
+				{ "remote hit 1 mob every 1s", function()
+					local head = best:FindFirstChild("Head") or best.HumanoidRootPart
+					RegisterAttack:FireServer(0)
+					RegisterHit:FireServer(head, { { best, head } })
+				end, 1 },
+			}
+''')
+src = patch(src, '\t\t\t\t\tif not ok then err = tostring(e) end\n\t\t\t\t\ttask.wait(0.25)\n',
+	'\t\t\t\t\tif not ok then err = tostring(e) end\n\t\t\t\t\ttask.wait(m[3] or 0.25)\n')
+src = patch(src, '"Testing 3 methods (12 s)... don\'t touch the mouse"', '"Testing 5 methods (20 s)... don\'t touch the mouse"')
+src = patch(src, '"ATTACK held=%s near=%d target=',
+	'"ATTACK held=%s near=%d maxHits=%s target=')
+src = patch(src, '"none", near, mobBaseName(best.Name),',
+	'"none", near, (Hub.HitGuard and Hub.HitGuard.describe() or "?") .. (" bring=%d/skip=%d"):format(Hub.BringMoved or 0, Hub.BringSkipped or 0), mobBaseName(best.Name),')
+# Bring Mobs فقط ماب‌هایی که کنترلشون دست ماست (52_hitguard: Hub.OwnsPart)
+src = patch(src, '''			local hrp, hum = m.HumanoidRootPart, m.Humanoid
+			hrp.CanCollide = false
+			hrp.CFrame = cf
+''', '''			local hrp, hum = m.HumanoidRootPart, m.Humanoid
+			if Hub.OwnsPart and not Hub.OwnsPart(hrp) then
+				Hub.BringSkipped = (Hub.BringSkipped or 0) + 1
+				return
+			end
+			Hub.BringMoved = (Hub.BringMoved or 0) + 1
+			hrp.CanCollide = false
+			hrp.CFrame = cf
+''')
+# ارتفاع: پایین اومدن فقط با دمیج واقعی ذخیره میشه (50_brain)
+src = patch(src, "\t\t\tlastHp, lastHit = hum.Health, tick()\n",
+	"\t\t\tlastHp, lastHit = hum.Health, tick()\n\t\t\tif Hub.HeightWorked then Hub.HeightWorked() end\n")
+src = patch(src, "\t\t\tmobSkipUntil[mob] = tick() + 45\n",
+	"\t\t\tmobSkipUntil[mob] = tick() + 45\n\t\t\tif Hub.HeightGaveUp then Hub.HeightGaveUp() end\n")
+
+# --- v5.9: Auto Cake همه‌ی ماب‌های جزیره‌ی کیک رو می‌زنه؛ کوئست اختیاری (CakeQuest) ---
+# قبلاً کوئست یکی از ماب‌ها (مثلاً Cookie Crafter) رو خودش می‌گرفت و بعد فقط همون یه نوع رو می‌زد،
+# Bring Mobs هم فقط هم‌اسم‌ها رو جمع می‌کرد
+src = patch(src, "AutoCake = false,", "AutoCake = false, CakeQuest = false,")
+src = patch(src, "local function farmList(list, keep, waitPos)", "local function farmList(list, keep, waitPos, anyMob)")
+src = patch(src, "local questMob = activeQuestMob()", "local questMob = not anyMob and activeQuestMob() or nil")
+src = patch(src, "if S.TakeQuest and q and not inList and not questBlocked(q) and not hasQuest(name) then",
+	"if not anyMob and S.TakeQuest and q and not inList and not questBlocked(q) and not hasQuest(name) then")
+src = patch(src, '\t\tS.Status = "Farming " .. name .. (inList and " (quest)" or "")\n\t\tkillMob(best, keep)\n',
+	'''\t\tS.Status = "Farming " .. name .. (inList and " (quest)" or "")
+\t\tif anyMob then
+\t\t\t-- همه‌ی ماب‌های لیست با هم جمع میشن (مثل Bone)
+\t\t\tHub.BringGroup = {}
+\t\t\tfor _, n in ipairs(list) do Hub.BringGroup[n] = true end
+\t\tend
+\t\tlocal fought, fightErr = pcall(killMob, best, keep)
+\t\tif anyMob then Hub.BringGroup = nil end
+\t\tif not fought then error(fightErr, 0) end
+''')
+src = patch(src, "farmList(CAKE_MOBS, keep, CAKE_ISLAND)", "farmList(CAKE_MOBS, keep, CAKE_ISLAND, not S.CakeQuest)", 3)
+src = patch(src, 'T:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", stopOff)',
+	'T:Toggle("Auto Cake Prince (all cake mobs + boss)", "AutoCake", stopOff)\n'
+	'\t\tT:Toggle("Cake: Take Quests (then only the quest mob)", "CakeQuest")')
+
+# --- v5.9: بعد از هاپ هاب دو بار اجرا می‌شد ---
+# چند جا هر کدوم جدا صف می‌کردن (Join Job خودش + «Restart Hub After Teleports» توی OnTeleport، Server Finder،
+# سرویس Ken). حالا متن صف‌شده توی سرور جدید فقط بار اول اجرا میشه، هر چند بار هم صف شده باشه
+src = patch(src, '''\t\tor 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+''', '''\t\tor 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+\tLOADER = 'local g = (getgenv and getgenv()) or _G; if g.BMHubQueuedRun then return end; g.BMHubQueuedRun = true; ' .. LOADER
+''')
+
+# --- v5.9: اسکریپت کلاً فقط یه بار اجرا میشه؛ اجرای دوم خودش متوقف میشه ---
+# قبلاً اجرای دوم اولی رو می‌بست و از اول شروع می‌کرد (هاب دو بار لود می‌شد). حالا اگه یه هاب روشنه
+# (کامل لود شده، یا همین 90 ثانیه‌ی اخیر شروع به لود کرده) اجرای جدید پیام میده و برمی‌گرده.
+# هابی که موقع لود خطا داده و 90 ثانیه گذشته، یا با Destroy Hub بسته شده، جلوی اجرای تازه رو نمی‌گیره
+src = patch(src, "if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end\n", '''local oldHub = genv.BMHub
+if oldHub and oldHub.Running and (oldHub.Loaded or tick() - (tonumber(oldHub.StartedAt) or 0) < 90) then
+	print("[BM Hub] already running - this second run was stopped")
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", { Title = "BM Hub",
+			Text = "Already running (v" .. tostring(oldHub.Version) .. "). To restart: Settings > Destroy Hub, then run it again.", Duration = 6 })
+	end)
+	return
+end
+if oldHub and oldHub.Destroy then pcall(oldHub.Destroy) end
+''')
+src = patch(src, f'local Hub = {{ Connections = {{}}, Running = true, Version = "{VERSION}" }}',
+	f'local Hub = {{ Connections = {{}}, Running = true, Version = "{VERSION}", StartedAt = tick() }}')
+src = patch(src, "\tpcall(function() espFolder:Destroy() end)\nend\n",
+	"\tpcall(function() espFolder:Destroy() end)\nend\n\n-- تا اینجا رسید یعنی کامل لود شد (اجرای دوم از این به بعد همیشه متوقف میشه)\nHub.Loaded = true\n")
+
+# --- v5.9: Auto Click روی باس‌ها کار نمی‌کرد ---
+# 1) فاصله تا مرکز ماب حساب می‌شد؛ باس بزرگ مرکزش دوره و با Attack Range کم «بیرون از برد» بود → فاصله تا لبه
+# 2) ماب/باسی که فارم «گیر کرده» حسابش کرده بود (8 ثانیه بی‌دمیج) 45 ثانیه از Auto Click و ضربه‌ها هم حذف می‌شد
+# 3) M1 میوه همیشه سمت نزدیک‌ترین ماب می‌زد، نه هدفی که فارم داره می‌زنه
+BOSS_HELPERS = '''-- برای ضربه زدن (نه انتخاب هدف فارم): ماب زنده، حتی اگه فارم «گیر کرده» ردش کرده باشه
+local function hittableMob(m)
+	local h = m:FindFirstChildOfClass("Humanoid")
+	local hrp = m:FindFirstChild("HumanoidRootPart")
+	if h and h.Health > 0 and hrp then return hrp end
+	return nil
+end
+-- فاصله تا لبه‌ی ماب (نصف اندازه‌ی مدل کم میشه، حداکثر 40) تا باس‌های بزرگ هم توی برد حساب بشن
+local mobRadius = setmetatable({}, { __mode = "k" })
+local function edgeDistance(m, hrp, pos)
+	local r = mobRadius[m]
+	if not r then
+		local ok, size = pcall(function() return m:GetExtentsSize() end)
+		r = ok and size and math.min(size.Magnitude / 2, 40) or 3
+		mobRadius[m] = r
+	end
+	return math.max(0, (hrp.Position - pos).Magnitude - r)
+end
+Hub.EdgeDistance = edgeDistance
+
+'''
+
+OLD_NEAREST = '''local function nearestMobInRange()
+	local root = getRoot()
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not root or not enemies then return nil end
+	local best, bestD
+	for _, m in ipairs(enemies:GetChildren()) do
+		if isAliveMob(m) then
+			local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+			if d <= S.AttackRange and (not bestD or d < bestD) then best, bestD = m, d end
+		end
+	end
+	return best
+end'''
+
+NEW_NEAREST = '''local function nearestMobInRange()
+	local root = getRoot()
+	local enemies = workspace:FindFirstChild("Enemies")
+	if not root or not enemies then return nil end
+	local best, bestD
+	for _, m in ipairs(enemies:GetChildren()) do
+		local hrp = hittableMob(m)
+		if hrp then
+			local d = edgeDistance(m, hrp, root.Position)
+			if d <= S.AttackRange and (not bestD or d < bestD) then best, bestD = m, d end
+		end
+	end
+	return best
+end'''
+src = patch(src, OLD_NEAREST, NEW_NEAREST)
+# کمک‌ها باید قبل از remoteAttack تعریف بشن (اون توی فایل بالاتر از nearestMobInRange هست)
+COOLDOWN_LINE = "local cooldown = { remote = 0, click = 0, skill = 0 }\n"
+src = patch(src, COOLDOWN_LINE, BOSS_HELPERS + COOLDOWN_LINE)
+src = patch(src, '''		for _, m in ipairs(enemies:GetChildren()) do
+			if isAliveMob(m) then
+				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+				if d <= math.max(S.AttackRange, S.FarmHeight + 20) then''', '''		for _, m in ipairs(enemies:GetChildren()) do
+			local hrp = hittableMob(m)
+			if hrp then
+				local d = edgeDistance(m, hrp, root.Position)
+				if d <= math.max(S.AttackRange, S.FarmHeight + 20) then''')
+src = patch(src, "local function attack()\n\tlocal root = getRoot()", "local function attack(target)\n\tlocal root = getRoot()")
+src = patch(src, 'Hub.FruitM1 and Hub.FruitM1(root)\n', 'Hub.FruitM1 and Hub.FruitM1(root, target)\n')
+
+# --- v5.9: آرنای Cake Prince / Dough King بالای آسمونه (حدود Y=4533)؛ هاب مستقیم می‌رفت تو آسمون.
+# مثل Banana: وقتی مقصد توی آرناست و ما بیشتر از 1000 استاد دوریم، میریم سمت آینه‌ی بزرگ توی کیک
+# (Map.CakeLoaf.BigMirror.Main) که خودش می‌برتمون داخل؛ دفعه‌ی بعد که نزدیکیم عادی میریم سراغ باس
+CAKE_TWEEN_ANCHOR = "\tlocal dist = (root.Position - cf.Position).Magnitude\n\tif dist <= 10 then\n\t\troot.CFrame = cf\n"
+src = patch(src, CAKE_TWEEN_ANCHOR, '''\tdo
+\t\tlocal arena = Vector3.new(-1990.67, 4532.97, -14973.67)
+\t\tif (cf.Position - arena).Magnitude <= 1000 and (root.Position - arena).Magnitude > 1000 then
+\t\t\tlocal main
+\t\t\tpcall(function() main = workspace.Map.CakeLoaf.BigMirror.Main end)
+\t\t\tif main then
+\t\t\t\tcf = main.CFrame
+\t\t\t\tS.Status = "Cake Prince: going in through the big mirror"
+\t\t\tend
+\t\tend
+\tend
+''' + CAKE_TWEEN_ANCHOR)
+
+# --- v5.9: موقع بالا اومدن هاب کلی اعلان پشت هم میومد ---
+# همون اعلان تا 60 ثانیه فقط یه بار، حداکثر 3 تا روی صفحه (تازه‌ها جای قدیمی‌ها)، و اعلان‌های 10 ثانیه‌ی
+# اول (به‌جز «BM Hub») یکجا توی یه اعلان خلاصه گفته میشن
+src = patch(src, "local function notify(title, text, dur)\n\tif not Hub.Running then return end\n\tnotifCount += 1\n\tlocal slot = new(",
+	'''local notifSeen, notifSlots, startBuffer, startFlushed = {}, {}, nil, false
+local function notify(title, text, dur)
+	if not Hub.Running then return end
+	local key = tostring(title) .. "|" .. tostring(text)
+	if notifSeen[key] and tick() - notifSeen[key] < 60 then return end
+	notifSeen[key] = tick()
+	local age = tick() - (tonumber(Hub.StartedAt) or 0)
+	if title ~= "BM Hub" and not startFlushed and age < 10 then
+		if not startBuffer then
+			startBuffer = {}
+			task.delay(math.max(1, 10 - age), function()
+				local list = startBuffer
+				startFlushed, startBuffer = true, nil
+				if #list == 1 then return notify(list[1][1], list[1][2], list[1][3]) end
+				local names = {}
+				for i, n in ipairs(list) do if i <= 4 then names[#names + 1] = tostring(n[1]) end end
+				notify("BM Hub", ("%d notices while loading: %s%s"):format(#list, table.concat(names, ", "), #list > 4 and ", ..." or ""), 8)
+			end)
+		end
+		table.insert(startBuffer, { title, text, dur })
+		return
+	end
+	while #notifSlots >= 3 do
+		local old = table.remove(notifSlots, 1)
+		pcall(function() old:Destroy() end)
+	end
+	notifCount += 1
+	local slot = new(''')
+src = patch(src, "\ttask.delay(dur or 3, function()\n\t\ttween(card, 0.35, { Position = UDim2.new(1.2, 0, 0, 0) })\n\t\ttask.wait(0.4)\n\t\tslot:Destroy()\n\tend)\nend\n\nnotifyHook = notify",
+	'''\ttable.insert(notifSlots, slot)
+\ttask.delay(dur or 3, function()
+\t\ttween(card, 0.35, { Position = UDim2.new(1.2, 0, 0, 0) })
+\t\ttask.wait(0.4)
+\t\tslot:Destroy()
+\t\tfor i, s in ipairs(notifSlots) do
+\t\t\tif s == slot then table.remove(notifSlots, i) break end
+\t\tend
+\tend)
+end
+
+notifyHook = notify''')
 
 logic, ui, top_ui, late_ui = [], [], [], []
 for m in sorted((ROOT / "v3_src").glob("[0-9][0-9]_*.lua")):

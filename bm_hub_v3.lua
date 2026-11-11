@@ -10,8 +10,17 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local genv = (getgenv and getgenv()) or _G
-if genv.BMHub and genv.BMHub.Destroy then pcall(genv.BMHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "5.8" }
+local oldHub = genv.BMHub
+if oldHub and oldHub.Running and (oldHub.Loaded or tick() - (tonumber(oldHub.StartedAt) or 0) < 90) then
+	print("[BM Hub] already running - this second run was stopped")
+	pcall(function()
+		game:GetService("StarterGui"):SetCore("SendNotification", { Title = "BM Hub",
+			Text = "Already running (v" .. tostring(oldHub.Version) .. "). To restart: Settings > Destroy Hub, then run it again.", Duration = 6 })
+	end)
+	return
+end
+if oldHub and oldHub.Destroy then pcall(oldHub.Destroy) end
+local Hub = { Connections = {}, Running = true, Version = "5.9", StartedAt = tick() }
 genv.BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
 
@@ -151,7 +160,7 @@ local S = {
 	AutoFactory = false, AutoEcto = false, AutoRengoku = false, AutoTrident = false, DealerNotify = true, AutoLegendary = false, AutoAllBosses = false,
 	AutoRaid = false, AutoBuyChip = false, RaidType = "Flame", AutoDarkbeard = false,
 	AutoTeam = true, TeamChoice = "Pirates", AutoSea2 = false, AutoBartilo = false, AutoSea3 = false, AutoSaber = false,
-	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
+	AutoElite = false, AutoYama = false, AutoBone = false, AutoCake = false, CakeQuest = false, AutoSeaBeast = false, SeaBeastWeapon = "Blox Fruit",
 	AutoBoneGamble = false, AutoAbilities = false, AutoPirateRaid = false, EventNotify = true, AutoAwaken = false, AutoHakiColor = false, AutoMaterial = false, Material = nil, AutoRetreat = true, RetreatHP = 35,
 	AutoTushita = false, AutoCDK = false, AutoRaceV2 = false, AutoRaceV3 = false, AutoSoulGuitar = false, AutoStyles = false,
 	AutoHopNear = false, HopDistance = 300, SelectedStyle = nil, AutoSave = true,
@@ -309,6 +318,17 @@ tweenTo = function(cf, keepGoing, manual)
 		pcall(portalHop, cf.Position, keepGoing)
 		root = getRoot()
 		if not root then return false end
+	end
+	do
+		local arena = Vector3.new(-1990.67, 4532.97, -14973.67)
+		if (cf.Position - arena).Magnitude <= 1000 and (root.Position - arena).Magnitude > 1000 then
+			local main
+			pcall(function() main = workspace.Map.CakeLoaf.BigMirror.Main end)
+			if main then
+				cf = main.CFrame
+				S.Status = "Cake Prince: going in through the big mirror"
+			end
+		end
 	end
 	local dist = (root.Position - cf.Position).Magnitude
 	if dist <= 10 then
@@ -902,18 +922,39 @@ local function clickScreen()
 	end
 end
 
+-- برای ضربه زدن (نه انتخاب هدف فارم): ماب زنده، حتی اگه فارم «گیر کرده» ردش کرده باشه
+local function hittableMob(m)
+	local h = m:FindFirstChildOfClass("Humanoid")
+	local hrp = m:FindFirstChild("HumanoidRootPart")
+	if h and h.Health > 0 and hrp then return hrp end
+	return nil
+end
+-- فاصله تا لبه‌ی ماب (نصف اندازه‌ی مدل کم میشه، حداکثر 40) تا باس‌های بزرگ هم توی برد حساب بشن
+local mobRadius = setmetatable({}, { __mode = "k" })
+local function edgeDistance(m, hrp, pos)
+	local r = mobRadius[m]
+	if not r then
+		local ok, size = pcall(function() return m:GetExtentsSize() end)
+		r = ok and size and math.min(size.Magnitude / 2, 40) or 3
+		mobRadius[m] = r
+	end
+	return math.max(0, (hrp.Position - pos).Magnitude - r)
+end
+Hub.EdgeDistance = edgeDistance
+
 local cooldown = { remote = 0, click = 0, skill = 0 }
 local function remoteAttack(root)
 	if not attackRemotes() then return end
-	if tick() - cooldown.remote < 0.1 then return end
+	if tick() - cooldown.remote < (Hub.HitGuard and Hub.HitGuard.gap or 0.1) then return end
 	cooldown.remote = tick()
 	-- نزدیک‌ترین ماب اولِ لیسته (هدف اصلی ضربه) و حداکثر 15 هدف توی یه ضربه
 	local found, hits = {}, {}
 	local enemies = workspace:FindFirstChild("Enemies")
 	if enemies then
 		for _, m in ipairs(enemies:GetChildren()) do
-			if isAliveMob(m) then
-				local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+			local hrp = hittableMob(m)
+			if hrp then
+				local d = edgeDistance(m, hrp, root.Position)
 				if d <= math.max(S.AttackRange, S.FarmHeight + 20) then
 					table.insert(found, { m = m, d = d })
 				end
@@ -921,28 +962,30 @@ local function remoteAttack(root)
 		end
 	end
 	table.sort(found, function(a, b) return a.d < b.d end)
-	for i = 1, math.min(#found, 15) do
+	for i = 1, math.min(#found, Hub.HitGuard and Hub.HitGuard.limit or 15) do
 		local m = found[i].m
 		table.insert(hits, { m, m:FindFirstChild("Head") or m.HumanoidRootPart })
 	end
 	if #hits == 0 then return end
+	if Hub.HitGuard and Hub.HitGuard.noRemote then Hub.HitGuard.sent() return end
 	local ok, err = pcall(function()
 		RegisterAttack:FireServer(0)
 		RegisterHit:FireServer(hits[1][2], hits)
 	end)
 	if ok then
 		Hub.AttackInfo.remote += 1
+		if Hub.HitGuard then Hub.HitGuard.sent() end
 	else
 		Hub.AttackInfo.lastError = "remote: " .. tostring(err)
 	end
 end
 
-local function attack()
+local function attack(target)
 	local root = getRoot()
 	if not root then return end
 	local m = S.AttackMethod
 	-- میوه‌ی M1 دار: بدون کلیک روی صفحه و انیمیشن
-	local fruit = (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root)
+	local fruit = (m == "Auto" or m == "Remote") and Hub.FruitM1 and Hub.FruitM1(root, target)
 	if fruit then
 		-- میوه‌ی شمشیری (melee) ضربه‌ی چندهدفه‌ی ملی می‌خوره، بقیه M1 خودشون؛ هیچ‌کدوم کلیک روی صفحه نداره
 		if fruit.melee then remoteAttack(root) end
@@ -951,13 +994,13 @@ local function attack()
 	if m == "Auto" or m == "Remote" then remoteAttack(root) end
 	if tick() - cooldown.click < 0.12 then return end
 	cooldown.click = tick()
-	if m == "Auto" or m == "Tool" then
+	if m == "Auto" or m == "Tool" or (Hub.HitGuard and Hub.HitGuard.swing) then
 		local tool = getChar() and getChar():FindFirstChildOfClass("Tool")
 		if tool and pcall(function() tool:Activate() end) then
 			Hub.AttackInfo.tool += 1
 		end
 	end
-	if m == "Auto" or m == "Click" then clickScreen() end
+	if m == "Auto" or m == "Click" or (Hub.HitGuard and Hub.HitGuard.swing) then clickScreen() end
 end
 
 -- استفاده از اسکیل‌ها (Z X C V) با شبیه‌سازی کیبورد
@@ -995,8 +1038,9 @@ local function nearestMobInRange()
 	if not root or not enemies then return nil end
 	local best, bestD
 	for _, m in ipairs(enemies:GetChildren()) do
-		if isAliveMob(m) then
-			local d = (m.HumanoidRootPart.Position - root.Position).Magnitude
+		local hrp = hittableMob(m)
+		if hrp then
+			local d = edgeDistance(m, hrp, root.Position)
 			if d <= S.AttackRange and (not bestD or d < bestD) then best, bestD = m, d end
 		end
 	end
@@ -1028,6 +1072,11 @@ local function bringMobs(name, cf)
 		local m = list[i].m
 		pcall(function()
 			local hrp, hum = m.HumanoidRootPart, m.Humanoid
+			if Hub.OwnsPart and not Hub.OwnsPart(hrp) then
+				Hub.BringSkipped = (Hub.BringSkipped or 0) + 1
+				return
+			end
+			Hub.BringMoved = (Hub.BringMoved or 0) + 1
 			hrp.CanCollide = false
 			hrp.CFrame = cf
 			-- سرعت صفر تا ماب‌ها از جمع فرار نکنن / پرت نشن
@@ -1096,12 +1145,14 @@ local function killMob(mob, keepGoing)
 		-- اگه 8 ثانیه کنارش بودیم و جونش کم نشد، گیر کرده: 45 ثانیه رد میشیم و میریم سراغ بعدی
 		if hum.Health < lastHp - 1 then
 			lastHp, lastHit = hum.Health, tick()
+			if Hub.HeightWorked then Hub.HeightWorked() end
 			Hub.LastProgress = lastHit
 		elseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120
 			and (root.Position.Y - hrp.Position.Y) > 11 and Hub.LowerHeight and Hub.LowerHeight() then
 			lastHit = tick()
 		elseif tick() - lastHit > 8 and (root.Position - hrp.Position).Magnitude < 120 then
 			mobSkipUntil[mob] = tick() + 45
+			if Hub.HeightGaveUp then Hub.HeightGaveUp() end
 			if Hub.LiveLog then Hub.LiveLog(("SKIP %s for 45s: no damage in 8s, hp=%d dist=%d"):format(name, hum.Health, (root.Position - hrp.Position).Magnitude)) end
 			S.Status = "Skipping stuck " .. name
 			break
@@ -2185,10 +2236,10 @@ do
 	end
 
 	-- نزدیک‌ترین ماب از لیست، با کوئست خودش (اگه Take Quest روشنه)
-	local function farmList(list, keep, waitPos)
+	local function farmList(list, keep, waitPos, anyMob)
 		local root = getRoot()
 		-- اگه کوئست یکی از همین ماب‌ها رو داریم، فقط همون رو می‌زنیم که کوئست پیش بره
-		local questMob = activeQuestMob()
+		local questMob = not anyMob and activeQuestMob() or nil
 		local inList = false
 		for _, n in ipairs(list) do
 			if n == questMob then inList = true end
@@ -2213,12 +2264,19 @@ do
 		end
 		local name = mobBaseName(best.Name)
 		local q = questForMob(name)
-		if S.TakeQuest and q and not inList and not questBlocked(q) and not hasQuest(name) then
+		if not anyMob and S.TakeQuest and q and not inList and not questBlocked(q) and not hasQuest(name) then
 			takeQuest(q, keep)
 			return
 		end
 		S.Status = "Farming " .. name .. (inList and " (quest)" or "")
-		killMob(best, keep)
+		if anyMob then
+			-- همه‌ی ماب‌های لیست با هم جمع میشن (مثل Bone)
+			Hub.BringGroup = {}
+			for _, n in ipairs(list) do Hub.BringGroup[n] = true end
+		end
+		local fought, fightErr = pcall(killMob, best, keep)
+		if anyMob then Hub.BringGroup = nil end
+		if not fought then error(fightErr, 0) end
 	end
 
 	local function stepElite(keep)
@@ -2402,7 +2460,7 @@ do
 				return
 			end
 		end
-		farmList(CAKE_MOBS, keep, CAKE_ISLAND)
+		farmList(CAKE_MOBS, keep, CAKE_ISLAND, not S.CakeQuest)
 	end
 
 	-- Sea Beast: بالای سرش می‌مونه و اسکیل‌ها رو می‌زنه
@@ -2464,10 +2522,10 @@ do
 			end },
 		{ id = "CakePrince", label = "Cake Prince", names = { "Cake Prince" }, sea = 3,
 			ready = function() return true end,
-			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND) end },
+			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND, not S.CakeQuest) end },
 		{ id = "DoughKing", label = "Dough King", names = { "Dough King" }, sea = 3, cost = "Sweet Chalice",
 			ready = function() return backpackTool("Sweet Chalice") ~= nil or hasItem("Sweet Chalice") end,
-			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND) end },
+			summon = function(keep) farmList(CAKE_MOBS, keep, CAKE_ISLAND, not S.CakeQuest) end },
 		{ id = "Indra", label = "rip_indra", names = { "rip_indra True Form", "rip_indra" }, sea = 3 },
 		{ id = "CursedCaptain", label = "Cursed Captain", names = { "Cursed Captain" }, sea = 2 },
 		{ id = "Order", label = "Order", names = { "Order" }, sea = 2 },
@@ -3622,6 +3680,7 @@ do
 	local HUNT_FILE = "BMHub_hunt.json"
 	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
 		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+	LOADER = 'local g = (getgenv and getgenv()) or _G; if g.BMHubQueuedRun then return end; g.BMHubQueuedRun = true; ' .. LOADER
 	local queueTp = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 	Hub.CanQueue = queueTp ~= nil
 
@@ -4075,8 +4134,8 @@ do
 						local held = char:FindFirstChildOfClass("Tool")
 						local a = Hub.AttackInfo
 						local function flag(n) local v = char:FindFirstChild(n) return v and tostring(v.Value) or "-" end
-						push(("ATTACK held=%s near=%d target=%s hp=%d dist=%d dmg/s=%d fruitM1=%d | clicks=%d activates=%d err=%s | Stun=%s Busy=%s Sit=%s"):format(
-							held and (held.Name .. "[" .. tostring(held.ToolTip) .. "]") or "none", near, mobBaseName(best.Name),
+						push(("ATTACK held=%s near=%d maxHits=%s target=%s hp=%d dist=%d dmg/s=%d fruitM1=%d | clicks=%d activates=%d err=%s | Stun=%s Busy=%s Sit=%s"):format(
+							held and (held.Name .. "[" .. tostring(held.ToolTip) .. "]") or "none", near, (Hub.HitGuard and Hub.HitGuard.describe() or "?") .. (" bring=%d/skip=%d"):format(Hub.BringMoved or 0, Hub.BringSkipped or 0), mobBaseName(best.Name),
 							math.floor(best.Humanoid.Health), math.floor(bestD), math.floor(Hub.DamageRate and Hub.DamageRate() or 0), a.fruit or 0, a.click, a.tool, tostring(a.lastError),
 							flag("Stun"), flag("Busy"), tostring(hum and hum.Sit)))
 					end
@@ -6086,6 +6145,8 @@ local okBrain, errBrain = pcall(function()
 	-- بعد از تلپورت: اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
 	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
 		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
+	-- 5.9: مثل Server Finder: هر چند بار هم صف بشه توی سرور جدید فقط یه بار اجرا میشه
+	LOADER = 'local g = (getgenv and getgenv()) or _G; if g.BMHubQueuedRun then return end; g.BMHubQueuedRun = true; ' .. LOADER
 	for k, v in pairs({
 		BrainOn = false, BrainGoal = "Auto Farm", BrainBosses = true, BrainEvents = true, BrainElite = true, BrainFruits = true,
 		BrainSeas = false, BrainDeaths = 2,
@@ -6112,21 +6173,14 @@ local okBrain, errBrain = pcall(function()
 		local t = c and c:FindFirstChildOfClass("Tool")
 		return t and CAP_KEY[t.ToolTip], t and t.Name
 	end
-	function Hub.HeightCap()
-		local k = capKey()
-		return k and S[k] or 100
-	end
-	function Hub.LowerHeight()
-		local k, tool = capKey()
-		if not k then return false end
-		local cur = math.min(S.FarmHeight, S[k])
-		if cur <= MIN_HEIGHT then return false end
-		local new = math.max(MIN_HEIGHT, cur - HEIGHT_STEP)
-		S[k] = new
-		if Hub.LiveLog then Hub.LiveLog(("HEIGHT no damage from %d studs with %s, trying %d"):format(cur, tostring(tool), new)) end
-		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
-		return true
-	end
+	-- 5.9: یادگیری ارتفاع خاموش شد. لاگ‌های واقعی: دمیج نخوردن هیچ‌وقت به‌خاطر ارتفاع نبود (اول Bring Mobs
+	-- فقط توی صفحه‌ی خودمون ماب جمع می‌کرد، بعد سرور ضربه‌ها رو رد می‌کرد)، ولی ارتفاع هر بار تا 10 پایین
+	-- میومد و ذخیره می‌شد و کاراکتر توی حلق NPC ها می‌موند و مدام جون کم میاورد. حالا همیشه Farm Height
+	-- (اسلایدر Combat) و اگه دمیج نخورد ماب رد میشه
+	function Hub.HeightCap() return 100 end
+	function Hub.LowerHeight() return false end
+	function Hub.HeightGaveUp() end
+	function Hub.HeightWorked() end
 	-- وقتی خودت Farm Height رو عوض کنی، یادگرفته‌ها پاک میشن تا دوباره امتحان کنه
 	function Hub.ResetHeightCaps()
 		for _, k in pairs(CAP_KEY) do S[k] = 100 end
@@ -6619,7 +6673,8 @@ local okBrain, errBrain = pcall(function()
 	-- (لاگ Dragon-Dragon: فاصله‌ی 0.1 نصف فاصله‌ی 0.2 دمیج داد)، پس برای هر میوه یه بار چند فاصله
 	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
 	-- melee: میوه‌هایی که M1 شمشیری دارن (Light، Ice ...) مثل ملی با ضربه‌ی چندهدفه‌ی RegisterHit، بدون کلیک
-	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { gap = 0.8 }, { melee = true } }
+	-- 5.9: 0.8 حذف شد (هیچ‌وقت بهترین نشد) چون وسط تست M1 یهو کند می‌شد و برای مشتری بد بود
+	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { melee = true } }
 	-- Ice از اینجا دراومد: ضربه‌ی ملی (روش Light) توی بازی برای Ice دمیج نداد، پس Ice مثل بقیه
 	-- همه‌ی حالت‌ها رو با دمیج واقعی تست می‌کنه و بهترین رو نگه می‌داره
 	local SWORD_LIKE = { ["Light-Light"] = true }
@@ -6655,18 +6710,21 @@ local okBrain, errBrain = pcall(function()
 		if not tune or tune.tool ~= tool.Name then
 			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 			Brain.note("Testing the best M1 for " .. tool.Name)
+			V3.notify("Fruit M1", "Testing the best M1 for " .. tool.Name .. " (about 30s of fighting) - it can feel slower for a bit", 6)
 		end
 		return FRUIT_MODES[tune.i]
 	end
 
 	-- حالت M1 ابزار توی دست رو برمی‌گردونه (nil یعنی میوه‌ی M1 دار دستت نیست)
-	function Hub.FruitM1(root)
+	-- target: ماب/باسی که فارم داره می‌زنه (5.9: قبلاً همیشه سمت نزدیک‌ترین ماب می‌زد)
+	function Hub.FruitM1(root, target)
 		if not S.FruitM1 then return nil end
 		local tool, remote = Brain.heldFruitM1()
 		if not tool then return nil end
 		local mode = fruitMode(tool)
 		if mode.melee then return mode end
-		local mob = nearestMobInRange()
+		local th = target and target.Parent and target:FindFirstChild("HumanoidRootPart")
+		local mob = th and target or nearestMobInRange()
 		if not mob or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
 		fruitCombo = fruitCombo % 4 + 1
@@ -6863,6 +6921,115 @@ local okBrain, errBrain = pcall(function()
 	Brain.ready = true
 end)
 if not okBrain then logError("v3 brain", errBrain) end
+end
+
+-- ===== 52_hitguard.lua =====
+-- نگهبان ضربه (5.9): لاگ واقعی: با شمشیر (Yama) ضربه‌ی ریموت چند ثانیه دمیج داد و بعد سرور دیگه هیچ
+-- ضربه‌ای قبول نکرد (dmg/s=0 حتی با 1 ماب در هر ضربه و از 10 استادی)؛ tool:Activate هم برای شمشیر
+-- هیچ دمیجی نداد (activates=123، dmg=0). پس اگه حمله میشه ولی دمیجی ثبت نمیشه، هر 2 ثانیه یه پله پایین:
+--   1) 15 ماب هر ضربه  2) 5 ماب  3) 1 ماب  4) ضربه‌ی آروم‌تر + کلیک واقعی  5) فقط کلیک واقعی (بدون ریموت)
+-- بعد از 90 ثانیه دمیج پشت سر هم یه پله برمی‌گرده بالا (اگه باز نخورد دوباره پایین میاد)؛
+-- اگه پله‌ی آخر هم 10 ثانیه نخورد از اول امتحان میشه (شاید جریمه‌ی سرور تموم شده باشه)
+-- 5.9: ماب رو فقط وقتی جابه‌جا می‌کنیم که کنترلش (network owner) دست خودمون باشه. لاگ اکانت دوستمون:
+-- روی باس‌ها (که جمع نمیشن) دمیج داشت ولی روی Cookie Crafter / Cake Guard هیچی؛ جمع کردن فقط توی
+-- صفحه‌ی خودمون بود، ماب روی سرور جای دیگه بود، ضربه‌ها «دور» رد می‌شدن و ماب‌های واقعی می‌زدنمون
+function Hub.OwnsPart(p)
+	if isnetworkowner then
+		local ok, r = pcall(isnetworkowner, p)
+		if ok and type(r) == "boolean" then return r end
+	end
+	local ok, age = pcall(function() return p.ReceiveAge end)
+	if ok and type(age) == "number" then return age == 0 end
+	return true -- نمی‌شه فهمید: مثل قبل
+end
+
+do
+	local LADDER = {
+		{ limit = 15, gap = 0.1 },
+		{ limit = 5, gap = 0.1 },
+		{ limit = 1, gap = 0.1 },
+		{ limit = 1, gap = 0.4, swing = true },
+		{ limit = 1, gap = 0.4, swing = true, noRemote = true },
+	}
+	local HG = { step = 1, sentAt = -1e9, quietSince = nil, goodSince = nil }
+	Hub.HitGuard = HG
+	HG.LADDER = LADDER
+
+	local function note(msg)
+		if Hub.LiveLog then Hub.LiveLog("HITS " .. msg) end
+	end
+
+	function HG.set(step)
+		local s = LADDER[step]
+		HG.step, HG.limit, HG.gap, HG.swing, HG.noRemote = step, s.limit, s.gap, s.swing == true, s.noRemote == true
+	end
+	HG.set(1)
+
+	function HG.describe()
+		if HG.noRemote then return "clicks-only" end
+		return tostring(HG.limit) .. (HG.gap > 0.1 and "/slow" or "") .. (HG.swing and "+clicks" or "")
+	end
+
+	function HG.sent()
+		HG.sentAt = tick()
+	end
+
+	-- همه‌ی پله‌ها امتحان شد؟ (تا اون موقع ارتفاع عوض نمیشه)
+	function HG.exhausted()
+		return HG.step >= #LADDER
+	end
+
+	-- now: زمان، dmg: دمیج این نیم ثانیه روی ماب‌های نزدیک
+	function HG.update(now, dmg)
+		if now - HG.sentAt > 1 then
+			HG.quietSince = nil
+			return
+		end
+		if dmg > 0 then
+			HG.quietSince = nil
+			HG.goodSince = HG.goodSince or now
+			if now - HG.goodSince >= 30 and HG.step > 1 then
+				HG.set(HG.step - 1)
+				HG.goodSince = now
+				note("steady damage, trying faster again: " .. HG.describe())
+			end
+			return
+		end
+		HG.goodSince = nil
+		HG.quietSince = HG.quietSince or now
+		if HG.step < #LADDER then
+			if now - HG.quietSince < 4 then return end
+			HG.quietSince = now
+			HG.set(HG.step + 1)
+			note("no damage, the server is ignoring hits: now " .. HG.describe())
+		elseif now - HG.quietSince >= 10 then
+			HG.quietSince = now
+			HG.set(1)
+			note("nothing worked for 10s, starting over: " .. HG.describe())
+		end
+	end
+
+	-- دمیج واقعی هر نیم ثانیه: کم شدن جون ماب‌های نزدیک
+	local hp = setmetatable({}, { __mode = "k" })
+	task.spawn(function()
+		while Hub.Running do
+			task.wait(0.5)
+			pcall(function()
+				local root = getRoot()
+				local enemies = workspace:FindFirstChild("Enemies")
+				if not root or not enemies then return end
+				local drop = 0
+				for _, m in ipairs(enemies:GetChildren()) do
+					local hum, hrp = m:FindFirstChildOfClass("Humanoid"), m:FindFirstChild("HumanoidRootPart")
+					if hum and hrp and (hrp.Position - root.Position).Magnitude <= S.AttackRange + 20 then
+						if hp[hum] and hum.Health < hp[hum] then drop += hp[hum] - hum.Health end
+						hp[hum] = hum.Health
+					end
+				end
+				HG.update(tick(), drop)
+			end)
+		end
+	end)
 end
 
 -- ===== 60_planner.lua =====
@@ -9134,8 +9301,32 @@ local notifHolder = new("Frame", {
 	new("UIListLayout", { VerticalAlignment = Enum.VerticalAlignment.Bottom, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
 })
 local notifCount = 0
+local notifSeen, notifSlots, startBuffer, startFlushed = {}, {}, nil, false
 local function notify(title, text, dur)
 	if not Hub.Running then return end
+	local key = tostring(title) .. "|" .. tostring(text)
+	if notifSeen[key] and tick() - notifSeen[key] < 60 then return end
+	notifSeen[key] = tick()
+	local age = tick() - (tonumber(Hub.StartedAt) or 0)
+	if title ~= "BM Hub" and not startFlushed and age < 10 then
+		if not startBuffer then
+			startBuffer = {}
+			task.delay(math.max(1, 10 - age), function()
+				local list = startBuffer
+				startFlushed, startBuffer = true, nil
+				if #list == 1 then return notify(list[1][1], list[1][2], list[1][3]) end
+				local names = {}
+				for i, n in ipairs(list) do if i <= 4 then names[#names + 1] = tostring(n[1]) end end
+				notify("BM Hub", ("%d notices while loading: %s%s"):format(#list, table.concat(names, ", "), #list > 4 and ", ..." or ""), 8)
+			end)
+		end
+		table.insert(startBuffer, { title, text, dur })
+		return
+	end
+	while #notifSlots >= 3 do
+		local old = table.remove(notifSlots, 1)
+		pcall(function() old:Destroy() end)
+	end
 	notifCount += 1
 	local slot = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, LayoutOrder = notifCount, Parent = notifHolder })
 	local card = new("Frame", {
@@ -9155,10 +9346,14 @@ local function notify(title, text, dur)
 		TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true, Text = text, Parent = card,
 	})
 	tween(card, 0.45, { Position = UDim2.new(0, 0, 0, 0) }, Enum.EasingStyle.Back)
+	table.insert(notifSlots, slot)
 	task.delay(dur or 3, function()
 		tween(card, 0.35, { Position = UDim2.new(1.2, 0, 0, 0) })
 		task.wait(0.4)
 		slot:Destroy()
+		for i, s in ipairs(notifSlots) do
+			if s == slot then table.remove(notifSlots, i) break end
+		end
 	end)
 end
 
@@ -9585,9 +9780,10 @@ end
 ---------------------------------------------------------------------
 -- Settings save / load (پوشه‌ی workspace خود executor)
 ---------------------------------------------------------------------
-local SETTINGS_FILE = "BMHub_settings.json"
+local SHARED_SETTINGS = "BMHub_settings.json"
+local SETTINGS_FILE = "BMHub_settings_" .. tostring(player.UserId) .. ".json"
 -- گزینه‌هایی که پول خرج می‌کنن هیچ‌وقت خودکار روشن نمیشن
-local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true }
+local SKIP_SAVE = { Status = true, AutoRandomFruit = true, AutoLegendary = true, AutoBuyChip = true, AutoBoneGamble = true, AutoAbilities = true, AutoStyles = true, AutoSoulGuitar = true, AutoAwaken = true, AutoHakiColor = true, SummonSoulReaper = true, SummonDoughKing = true, AutoClick = true }
 
 for k in pairs(Hub.V3SkipSave or {}) do SKIP_SAVE[k] = true end
 
@@ -9600,12 +9796,17 @@ local function saveSettings()
 	return pcall(function() writefile(SETTINGS_FILE, Svc.Http:JSONEncode(data)) end)
 end
 
-local function loadSettings()
+local function readSettings(file)
 	local ok, data = pcall(function()
-		if isfile and not isfile(SETTINGS_FILE) then return nil end
-		return Svc.Http:JSONDecode(readfile(SETTINGS_FILE))
+		if isfile and not isfile(file) then return nil end
+		return Svc.Http:JSONDecode(readfile(file))
 	end)
-	if not ok or type(data) ~= "table" then return false end
+	return ok and type(data) == "table" and data or nil
+end
+
+local function loadSettings()
+	local data = readSettings(SETTINGS_FILE) or readSettings(SHARED_SETTINGS)
+	if not data then return false end
 	for k, v in pairs(data) do
 		if S[k] ~= nil and type(S[k]) == type(v) and not SKIP_SAVE[k] then S[k] = v end
 	end
@@ -9618,6 +9819,7 @@ if not S.HeightDefault then
 	S.HeightDefault = true
 	if S.FarmHeight < 25 then S.FarmHeight = 25 end
 end
+if Hub.ResetHeightCaps then Hub.ResetHeightCaps() end
 -- تنظیمات ذخیره‌شده‌ای که باید همون اول اعمال بشن
 if S.CPUSaver then pcall(function() RunService:Set3dRenderingEnabled(false) end) end
 if S.FPSCapOn and setfpscap then pcall(setfpscap, S.FPSCap) end
@@ -9850,7 +10052,8 @@ do
 		T:Toggle("Auto Bone (Haunted Castle, mummy quest)", "AutoBone", stopOff)
 		T:Toggle("Auto Bone Gamble (50 bones each)", "AutoBoneGamble")
 		T:Label(function() return "Bones: " .. formatNumber(materialCount("Bones")) .. "  (gamble trades while Auto Bone is on)" end)
-		T:Toggle("Auto Cake Prince (cake mobs + boss)", "AutoCake", stopOff)
+		T:Toggle("Auto Cake Prince (all cake mobs + boss)", "AutoCake", stopOff)
+		T:Toggle("Cake: Take Quests (then only the quest mob)", "CakeQuest")
 		T:Label(function() return "Cake Prince: " .. tostring(invokeCached("cakeSpawner", 20, "CakePrinceSpawner") or "?") end)
 		T:Section("Items & Progress")
 		T:Toggle("Auto Tushita (Lv 2200+)", "AutoTushita", stopOff)
@@ -10334,6 +10537,7 @@ do
 			end
 			local savedClick = S.AutoClick
 			S.AutoClick = false
+			local testOk, testErr = pcall(function()
 			local vs = camera.ViewportSize
 			-- یه نقطه از صفحه که هیچ UI روش نیست
 			local free = Vector2.new(vs.X * 0.5, vs.Y * 0.5)
@@ -10356,9 +10560,19 @@ do
 					task.wait(0.03)
 					VIM:SendMouseButtonEvent(free.X, free.Y, 0, false, game, 0)
 				end },
+				{ "remote hit 1 mob every 0.25s", function()
+					local head = best:FindFirstChild("Head") or best.HumanoidRootPart
+					RegisterAttack:FireServer(0)
+					RegisterHit:FireServer(head, { { best, head } })
+				end },
+				{ "remote hit 1 mob every 1s", function()
+					local head = best:FindFirstChild("Head") or best.HumanoidRootPart
+					RegisterAttack:FireServer(0)
+					RegisterHit:FireServer(head, { { best, head } })
+				end, 1 },
 			}
 			log(("ATTACK TEST start: tool=%s[%s] mob=%s dist=%d freeClick=(%d,%d)"):format(tool.Name, tostring(tool.ToolTip), mobBaseName(best.Name), math.floor(bestD), free.X, free.Y))
-			notify("Attack Test", "Testing 3 methods (12 s)... don't touch the mouse", 5)
+			notify("Attack Test", "Testing 5 methods (20 s)... don't touch the mouse", 5)
 			for _, m in ipairs(methods) do
 				local h = best:FindFirstChildOfClass("Humanoid")
 				if not h or h.Health <= 0 then break end
@@ -10370,11 +10584,13 @@ do
 					if r then r.CFrame = CFrame.lookAt(r.Position, Vector3.new(p.X, r.Position.Y, p.Z)) end
 					local ok, e = pcall(m[2])
 					if not ok then err = tostring(e) end
-					task.wait(0.25)
+					task.wait(m[3] or 0.25)
 				end
 				log(("ATTACK TEST %s: hp %d -> %d (%s) err=%s"):format(m[1], math.floor(before), math.floor(h.Health), h.Health < before and "DAMAGE ✔" or "no damage", err))
 			end
+			end)
 			S.AutoClick = savedClick
+			if not testOk then log("ATTACK TEST stopped: " .. tostring(testErr)) end
 			notify("Attack Test", "Done ✔ - tell Claude", 6)
 		end)
 	end)
@@ -10706,15 +10922,6 @@ if Brain and Brain.ready then
 	T:Section("Stuck Guard")
 	T:Toggle("Fix Stuck Farms By Itself", "Watchdog")
 	T:Slider("Stuck After (seconds)", 30, 180, "WatchdogSec")
-	T:Label(function()
-		local function v(k) return S[k] >= 100 and "-" or tostring(S[k]) end
-		return ("Learned max height  Melee %s • Sword %s • Fruit %s • Gun %s"):format(v("HeightCapMelee"), v("HeightCapSword"), v("HeightCapFruit"), v("HeightCapGun"))
-	end)
-	T:Button("Forget Learned Heights (try Farm Height again)", function()
-		if Hub.ResetHeightCaps then Hub.ResetHeightCaps() end
-		if Hub.SaveSettings then pcall(Hub.SaveSettings) end
-		notify("Farm Height", "Learned heights cleared", 4)
-	end)
 	T:Label(function() return ("Rescues: %d  •  Deaths: %d"):format(Brain.rescues, Brain.deathTotal) end)
 end
 end
@@ -11054,3 +11261,6 @@ function Hub.Destroy()
 	pcall(function() root:Destroy() end)
 	pcall(function() espFolder:Destroy() end)
 end
+
+-- تا اینجا رسید یعنی کامل لود شد (اجرای دوم از این به بعد همیشه متوقف میشه)
+Hub.Loaded = true
