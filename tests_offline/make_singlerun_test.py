@@ -3,8 +3,9 @@ import pathlib
 import sys
 
 hub = pathlib.Path(r"D:\claude work\02-BM-Hub\bm-hub\bm_hub_v3.lua").read_text(encoding="utf-8").replace("\r\n", "\n")
-a = hub.index("local genv = (getgenv and getgenv()) or _G\n")
-b = hub.index("genv.BMHub = Hub\n", a) + len("genv.BMHub = Hub\n")
+a = hub.index("do\nlocal genv = (getgenv and getgenv()) or _G\n")
+END = "((getgenv and getgenv()) or _G).BMHub = Hub\n"
+b = hub.index(END, a) + len(END)
 start = hub[a:b]
 src = r'''
 local fails = 0

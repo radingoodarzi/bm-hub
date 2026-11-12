@@ -513,6 +513,12 @@ local okSea, errSea = pcall(function()
 		local ok, gap = pcall(function() return Hub.Brain.store.fruit[fruit.Name].gap end)
 		return ok and tonumber(gap) or 0.2
 	end
+	-- 5.10: طول کمبویی که مغز یاد گرفته (ضربه‌ی ۴ مکث میاره)
+	local function fruitComboLen(fruit)
+		local ok, n = pcall(function() return Hub.Brain.store.fruit[fruit.Name].combo end)
+		n = ok and tonumber(n)
+		return (n and n >= 1 and n <= 4) and math.floor(n) or 4
+	end
 	local function fireFruitM1()
 		local t = fruitTarget
 		if not t or tick() > fruitUntil or not t.obj.Parent then return 0.1 end
@@ -522,7 +528,7 @@ local okSea, errSea = pcall(function()
 		local _, aim = fruitStand(t, fruit, 0)
 		local dir = aim - root.Position
 		if not remote or dir.Magnitude < 0.5 then return 0.1 end
-		fruitCombo = fruitCombo % 4 + 1
+		fruitCombo = fruitCombo % fruitComboLen(fruit) + 1
 		if pcall(function() remote:FireServer(dir.Unit, fruitCombo) end) then
 			V3.seaFruitShots += 1
 		end

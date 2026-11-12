@@ -25,6 +25,7 @@ local Vector3 = { new = vec }
 local function cf(p, look) return setmetatable({ Position = p, LookVector = look or vec(0, 0, -1) }, { __mul = function(a, b) return cf(a.Position + (b.Position or vec(0,0,0))) end }) end
 local CFrame = { new = function(x, y, z) if type(x) == "table" then return cf(x) end return cf(vec(x or 0, y or 0, z or 0)) end }
 local S = { Status = "" }
+local Enum = { KeyCode = setmetatable({}, { __index = function(_, k) return k end }) }
 local Hub = { V3 = {}, Running = true }
 local V3 = Hub.V3
 local notes, logs, keys, aims = {}, {}, 0, 0

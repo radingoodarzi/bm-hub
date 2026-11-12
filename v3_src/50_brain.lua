@@ -8,8 +8,8 @@ do
 local okBrain, errBrain = pcall(function()
 	local V3 = Hub.V3
 	local BRAIN_FILE = "BMHub_brain.json"
-	-- بعد از تلپورت: اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
-	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
+	-- بعد از تلپورت: با کلید از لودر کلیددار (5.10)، وگرنه اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
+	local LOADER = (Hub.KeyLoader and Hub.KeyLoader()) or (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
 		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
 	-- 5.9: مثل Server Finder: هر چند بار هم صف بشه توی سرور جدید فقط یه بار اجرا میشه
 	LOADER = 'local g = (getgenv and getgenv()) or _G; if g.BMHubQueuedRun then return end; g.BMHubQueuedRun = true; ' .. LOADER
@@ -540,7 +540,14 @@ local okBrain, errBrain = pcall(function()
 	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
 	-- melee: میوه‌هایی که M1 شمشیری دارن (Light، Ice ...) مثل ملی با ضربه‌ی چندهدفه‌ی RegisterHit، بدون کلیک
 	-- 5.9: 0.8 حذف شد (هیچ‌وقت بهترین نشد) چون وسط تست M1 یهو کند می‌شد و برای مشتری بد بود
-	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { melee = true } }
+	-- 5.10: combo = طول چرخه‌ی ضربه. ضربه‌ی آخر کمبو (۴) توی بازی حدود ۱ ثانیه مکث میاره (Kitsune روی
+	-- ماب‌های پرجون: هر ماب یه ضربه، بعد مکث). کمبوی کوتاه‌تر رو هم با دمیج واقعی می‌سنجیم
+	local FRUIT_MODES = {
+		{ gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 },
+		{ gap = 0.2, combo = 3 }, { gap = 0.3, combo = 3 }, { gap = 0.3, combo = 2 }, { gap = 0.3, combo = 1 },
+		{ melee = true },
+	}
+	local TUNE_VERSION = 2 -- نتیجه‌های قبل از تست کمبو یه بار دوباره سنجیده میشن
 	-- Ice از اینجا دراومد: ضربه‌ی ملی (روش Light) توی بازی برای Ice دمیج نداد، پس Ice مثل بقیه
 	-- همه‌ی حالت‌ها رو با دمیج واقعی تست می‌کنه و بهترین رو نگه می‌داره
 	local SWORD_LIKE = { ["Light-Light"] = true }
@@ -566,6 +573,10 @@ local okBrain, errBrain = pcall(function()
 			Brain.store.fruit[tool.Name], saved = nil, nil
 			Brain.markDirty()
 		end
+		if saved and saved.gap and not saved.melee and (saved.v or 1) < TUNE_VERSION and not (tune and tune.tool == tool.Name) then
+			Brain.store.fruit[tool.Name], saved = nil, nil
+			Brain.markDirty()
+		end
 		if saved and (saved.melee or (saved.gap and not saved.click and not saved.hit)) then return saved end
 		-- میوه‌های شمشیری از اول مثل ملی؛ با Test This Fruit Again همه‌ی حالت‌ها سنجیده میشن
 		if not saved and SWORD_LIKE[tool.Name] and not (tune and tune.tool == tool.Name) then
@@ -576,7 +587,7 @@ local okBrain, errBrain = pcall(function()
 		if not tune or tune.tool ~= tool.Name then
 			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 			Brain.note("Testing the best M1 for " .. tool.Name)
-			V3.notify("Fruit M1", "Testing the best M1 for " .. tool.Name .. " (about 30s of fighting) - it can feel slower for a bit", 6)
+			V3.notify("Fruit M1", "Testing the best M1 for " .. tool.Name .. " (about 1 min of fighting) - it can feel slower for a bit", 6)
 		end
 		return FRUIT_MODES[tune.i]
 	end
@@ -593,7 +604,7 @@ local okBrain, errBrain = pcall(function()
 		local mob = th and target or nearestMobInRange()
 		if not mob or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
-		fruitCombo = fruitCombo % 4 + 1
+		fruitCombo = fruitCombo % (mode.combo or 4) + 1
 		local ok, err = pcall(function()
 			remote:FireServer((mob.HumanoidRootPart.Position - root.Position).Unit, fruitCombo)
 		end)
@@ -615,13 +626,14 @@ local okBrain, errBrain = pcall(function()
 		if tune.time < TUNE_SECONDS then return end
 		local mode = FRUIT_MODES[tune.i]
 		local rate = tune.damage / TUNE_SECONDS / (tune.mobs / (TUNE_SECONDS * 2))
-		V3.log(("FRUIT TEST %s %d/%d %s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, mode.melee and "melee hit" or ("gap=" .. tostring(mode.gap)), math.floor(rate)))
+		V3.log(("FRUIT TEST %s %d/%d %s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, mode.melee and "melee hit" or ("gap=" .. tostring(mode.gap) .. " combo=" .. tostring(mode.combo or 4)), math.floor(rate)))
 		if rate > tune.bestRate then tune.best, tune.bestRate = mode, rate end
 		tune.i += 1
 		tune.time, tune.damage, tune.mobs = 0, 0, 0
 		if tune.i > #FRUIT_MODES then
 			local best = table.clone(tune.best)
 			best.tested = true
+			best.v = TUNE_VERSION
 			Brain.store.fruit[tune.tool] = best
 			Brain.markDirty()
 			Brain.note(("M1 test done for %s: %d dmg/s per mob"):format(tune.tool, math.floor(tune.bestRate)))
@@ -635,7 +647,7 @@ local okBrain, errBrain = pcall(function()
 		local m = Brain.store.fruit[tool.Name]
 		if (m and m.melee) or not tool:FindFirstChild("LeftClickRemote") then return "melee hit like a sword, no screen clicks" end
 		if not m or not m.gap or m.click or m.hit then return "will test on the first fight" end
-		return ("every %.1fs, no screen clicks"):format(m.gap)
+		return ("every %.1fs, combo %d, no screen clicks"):format(m.gap, m.combo or 4)
 	end
 
 	function Brain.retestFruit(tool)

@@ -11,7 +11,8 @@ def piece(start, end_marker):
 
 
 scan = piece("\tlocal BONE_CLEAR = 150\n", "\tlocal function stepBone(keep)\n").replace("\tlocal function stepBone(keep)\n", "")
-bring = piece("local function bringMobs(name, cf)", "\nend\n")
+# 5.10: bringMobs توی do با lastSimRadius خودش
+bring = "local lastSimRadius = 0\nlocal " + piece("function bringMobs(name, cf)", "\nend\n")
 
 TEST = r'''
 local clock = 1000

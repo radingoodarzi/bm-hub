@@ -4,7 +4,7 @@ hg = (root / "v3_src" / "52_hitguard.lua").read_text(encoding="utf-8")
 brain = (root / "v3_src" / "50_brain.lua").read_text(encoding="utf-8")
 hub = (root / "bm_hub_v3.lua").read_text(encoding="utf-8").replace("\r\n", "\n")
 h = brain[brain.index("\tlocal CAP_KEY"):brain.index("\tlocal Brain = {")]
-bring = hub[hub.index("local lastSimRadius = 0"):hub.index("-- کلیک خودکار")]
+bring = hub[hub.index("local bringMobs\ndo\nlocal lastSimRadius = 0"):hub.index("-- کلیک خودکار")]
 src = r'''
 local fails = 0
 local function check(n, c) print((c and "ok   " or "FAIL ") .. n); if not c then fails += 1 end end

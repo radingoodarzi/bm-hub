@@ -14,6 +14,7 @@ local GENV = {}
 getgenv = function() return GENV end
 readfile = function(f) if f == "bm.lua" then return "RUNS += 1" end error("no file " .. f) end
 local function isfile(f) return f == "bm.lua" end
+local Hub = {} -- 5.10: بدون کلید، KeyLoader نیست و مثل قبل bm.lua
 local function pcall2(f, ...) return pcall(f, ...) end
 ''' + loader + r'''
 local QUEUE = {}

@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b0d17">
+<title>BM Hub — پنل کلیدها</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%233fa9ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='42' font-family='Arial' font-weight='800' font-size='26' text-anchor='middle' fill='white'%3EBM%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+	--bg: #0b0d17; --bg2: #10131f; --card: #151927; --card2: #1b2032; --line: #262c43; --line2: #323a57;
+	--text: #e9ecf8; --dim: #98a0bf; --dim2: #6d7596;
+	--accent: #7c5cff; --accent2: #3fa9ff; --grad: linear-gradient(135deg, #7c5cff, #3fa9ff);
+	--ok: #33c983; --okbg: rgba(51,201,131,.12); --bad: #ff5c6c; --badbg: rgba(255,92,108,.12);
+	--warn: #ffb547; --warnbg: rgba(255,181,71,.12); --info: #3fa9ff; --infobg: rgba(63,169,255,.12);
+	--radius: 14px; --shadow: 0 10px 30px rgba(0,0,0,.35);
+	--font: "Vazirmatn", Tahoma, "Segoe UI", sans-serif; --mono: "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14.5px/1.65 var(--font); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: -20% -10% auto auto; width: 60vw; height: 60vw; background: radial-gradient(closest-side, rgba(124,92,255,.16), transparent); pointer-events: none; z-index: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+svg { width: 18px; height: 18px; flex: none; }
+.card h3 svg { color: #a99bff; }
+a { color: var(--accent2); text-decoration: none; }
+.mono { font-family: var(--mono); direction: ltr; unicode-bidi: isolate; letter-spacing: .3px; }
+.hidden { display: none !important; }
+.dim { color: var(--dim); } .dim2 { color: var(--dim2); } .small { font-size: 12.5px; }
+
+/* دکمه‌ها و فرم */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 10px; padding: 9px 15px; cursor: pointer; background: var(--card2); border-color: var(--line2); transition: .15s; white-space: nowrap; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--grad); border: 0; color: #fff; font-weight: 700; box-shadow: 0 6px 18px rgba(124,92,255,.35); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { background: var(--badbg); color: var(--bad); border-color: rgba(255,92,108,.35); }
+.btn.ghost { background: transparent; }
+.btn.sm { padding: 6px 11px; font-size: 13px; border-radius: 9px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn svg { width: 16px; height: 16px; }
+.input, select.input, textarea.input { width: 100%; background: var(--bg2); border: 1px solid var(--line2); border-radius: 10px; padding: 10px 12px; outline: none; transition: .15s; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,.18); }
+textarea.input { resize: vertical; min-height: 70px; }
+label.f { display: block; margin-bottom: 14px; }
+label.f > span { display: block; font-size: 13px; color: var(--dim); margin-bottom: 6px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.grow { flex: 1 1 200px; min-width: 0; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--bg2); cursor: pointer; font-size: 13px; transition: .15s; }
+.chip.on { background: var(--grad); border-color: transparent; color: #fff; font-weight: 700; }
+.chip .n { opacity: .75; margin-inline-start: 4px; }
+
+/* چیدمان */
+.app { position: relative; z-index: 1; display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+.side { position: sticky; top: 0; height: 100vh; background: rgba(16,19,31,.85); backdrop-filter: blur(10px); border-inline-end: 1px solid var(--line); padding: 18px 14px; display: flex; flex-direction: column; gap: 6px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; }
+.logo { width: 38px; height: 38px; border-radius: 11px; background: var(--grad); display: grid; place-items: center; font-weight: 800; color: #fff; box-shadow: 0 6px 18px rgba(124,92,255,.4); }
+.brand b { display: block; font-size: 16px; } .brand small { color: var(--dim); }
+.nav { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 11px; color: var(--dim); cursor: pointer; transition: .15s; border: 1px solid transparent; }
+.nav:hover { color: var(--text); background: var(--card); }
+.nav.on { color: #fff; background: linear-gradient(135deg, rgba(124,92,255,.22), rgba(63,169,255,.12)); border-color: rgba(124,92,255,.35); }
+.nav svg { width: 19px; height: 19px; flex: none; }
+.side .foot { margin-top: auto; padding: 10px; border-top: 1px solid var(--line); }
+.me { display: flex; align-items: center; gap: 9px; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--card2); border: 1px solid var(--line2); display: grid; place-items: center; font-weight: 700; }
+.main { padding: 26px 30px 90px; max-width: 1180px; width: 100%; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.head h1 { font-size: 22px; margin: 0; font-weight: 800; }
+.head p { margin: 2px 0 0; color: var(--dim); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+.card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.grid { display: grid; gap: 14px; }
+.stats { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.two { grid-template-columns: 1fr 1fr; }
+.stat { position: relative; overflow: hidden; }
+.stat .v { font-size: 28px; font-weight: 800; line-height: 1.2; }
+.stat .l { color: var(--dim); font-size: 13px; }
+.stat .ic { position: absolute; inset-inline-end: 14px; top: 14px; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; }
+.stat .ic svg { width: 19px; height: 19px; }
+.c-ok { color: var(--ok); background: var(--okbg); } .c-bad { color: var(--bad); background: var(--badbg); }
+.c-warn { color: var(--warn); background: var(--warnbg); } .c-info { color: var(--info); background: var(--infobg); }
+.c-acc { color: #b6a6ff; background: rgba(124,92,255,.14); }
+.mini { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--line); }
+.mini:last-child { border-bottom: 0; }
+.empty { color: var(--dim2); text-align: center; padding: 26px 10px; }
+
+/* لیست کلیدها */
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.search { position: relative; flex: 1 1 260px; }
+.search svg { position: absolute; inset-inline-start: 11px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--dim2); }
+.search .input { padding-inline-start: 36px; }
+.bulk { position: sticky; top: 10px; z-index: 5; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: rgba(27,32,50,.95); backdrop-filter: blur(8px); border: 1px solid rgba(124,92,255,.45); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; box-shadow: var(--shadow); }
+.list { display: grid; gap: 9px; }
+.item { display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 13px; padding: 12px 14px; cursor: pointer; transition: .15s; }
+.item:hover { border-color: var(--line2); background: var(--card2); }
+.item.sel { border-color: var(--accent); }
+.item .t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.item .t b { font-size: 15px; }
+.item .m { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); font-size: 12.5px; margin-top: 3px; }
+.item .m span { display: inline-flex; align-items: center; gap: 5px; }
+.item .m svg { width: 13px; height: 13px; }
+.cb { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+.badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 9px; border-radius: 999px; font-weight: 700; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.b-active { color: var(--ok); background: var(--okbg); } .b-unused { color: var(--info); background: var(--infobg); }
+.b-expired { color: var(--warn); background: var(--warnbg); } .b-revoked { color: var(--bad); background: var(--badbg); }
+.tag { font-size: 11.5px; padding: 1px 8px; border-radius: 6px; background: var(--bg2); border: 1px solid var(--line2); color: var(--dim); }
+
+/* مودال، توست */
+.overlay { position: fixed; inset: 0; background: rgba(5,6,12,.65); backdrop-filter: blur(4px); z-index: 50; display: grid; place-items: center; padding: 16px; animation: fade .15s; }
+.modal { width: min(560px, 100%); max-height: 90vh; overflow: auto; background: var(--card); border: 1px solid var(--line2); border-radius: 18px; box-shadow: var(--shadow); padding: 22px; animation: pop .18s; }
+.modal h2 { margin: 0 0 14px; font-size: 18px; }
+.modal .acts { display: flex; gap: 8px; justify-content: flex-start; flex-wrap: wrap; margin-top: 18px; }
+.kv { display: grid; grid-template-columns: 130px 1fr; gap: 8px 12px; margin: 10px 0 4px; font-size: 13.5px; }
+.kv > div:nth-child(odd) { color: var(--dim); }
+.keybox { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--bg2); border: 1px dashed var(--line2); border-radius: 11px; padding: 10px 12px; margin-bottom: 10px; }
+.keybox .mono { font-size: 15px; }
+pre.code { background: var(--bg2); border: 1px solid var(--line); border-radius: 11px; padding: 12px; overflow: auto; font: 12.5px/1.6 var(--mono); direction: ltr; text-align: left; margin: 0; white-space: pre-wrap; word-break: break-all; }
+.toasts { position: fixed; bottom: 18px; inset-inline-start: 18px; display: grid; gap: 8px; z-index: 80; }
+.toast { background: var(--card2); border: 1px solid var(--line2); border-inline-start: 4px solid var(--ok); border-radius: 11px; padding: 10px 14px; box-shadow: var(--shadow); min-width: 220px; max-width: 360px; animation: pop .2s; }
+.toast.err { border-inline-start-color: var(--bad); }
+.uid { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; background: var(--bg2); border-radius: 9px; margin-bottom: 6px; }
+.step { display: inline-flex; align-items: center; border: 1px solid var(--line2); border-radius: 10px; overflow: hidden; }
+.step button { width: 36px; height: 38px; background: var(--card2); border: 0; cursor: pointer; font-size: 18px; }
+.step input { width: 56px; text-align: center; border: 0; background: var(--bg2); height: 38px; outline: none; }
+.audit { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.audit:last-child { border-bottom: 0; }
+.aic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
+.aic svg { width: 17px; height: 17px; }
+.spin { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; animation: rot .7s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+@keyframes pop { from { transform: translateY(6px) scale(.98); opacity: 0; } }
+@keyframes fade { from { opacity: 0; } }
+
+/* ورود */
+.login { min-height: 100vh; display: grid; place-items: center; padding: 18px; position: relative; z-index: 1; }
+.login .card { width: min(400px, 100%); padding: 28px; box-shadow: var(--shadow); }
+.login .logo { width: 52px; height: 52px; font-size: 20px; margin: 0 auto 12px; }
+.login h1 { text-align: center; margin: 0 0 4px; font-size: 21px; }
+.login p { text-align: center; color: var(--dim); margin: 0 0 20px; }
+
+.mnav { display: none; }
+@media (max-width: 860px) {
+	.app { grid-template-columns: 1fr; }
+	.side { display: none; }
+	.main { padding: 18px 14px 96px; }
+	.two { grid-template-columns: 1fr; }
+	.mnav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; z-index: 40; background: rgba(16,19,31,.96); backdrop-filter: blur(10px); border-top: 1px solid var(--line); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); justify-content: space-around; }
+	.mnav .nav { flex-direction: column; gap: 2px; padding: 6px 8px; font-size: 11px; }
+	.item { grid-template-columns: 24px 1fr; }
+	.item .r { grid-column: 2; }
+	.kv { grid-template-columns: 110px 1fr; }
+	.stat .v { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+
+<div id="login" class="login hidden">
+	<div class="card">
+		<div class="logo">BM</div>
+		<h1>پنل کلیدهای BM Hub</h1>
+		<p>برای ادامه وارد شو</p>
+		<form id="loginForm">
+			<label class="f"><span>نام کاربری</span><input class="input mono" id="lUser" autocomplete="username" placeholder="owner" autocapitalize="off" spellcheck="false"></label>
+			<label class="f"><span>رمز</span><input class="input" id="lPass" type="password" autocomplete="current-password"></label>
+			<button class="btn primary" style="width:100%" id="lBtn">ورود</button>
+			<div class="small dim2" style="margin-top:12px;text-align:center">صاحب هاب: نام کاربری <span class="mono">owner</span> یا خالی</div>
+		</form>
+	</div>
+</div>
+
+<div id="app" class="app hidden">
+	<aside class="side">
+		<div class="brand"><div class="logo">BM</div><div><b>BM Hub</b><small>مدیریت کلیدها</small></div></div>
+		<div id="nav"></div>
+		<div class="foot">
+			<div class="me"><div class="avatar" id="meAv">?</div><div class="grow"><div id="meName" style="font-weight:700">—</div><div class="small dim" id="meRole">—</div></div>
+			<button class="btn ghost sm" data-act="logout" title="خروج">خروج</button></div>
+		</div>
+	</aside>
+	<main class="main" id="main"></main>
+	<nav class="mnav" id="mnav"></nav>
+</div>
+
+<div id="modalRoot"></div>
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+var ICONS = {
+	dash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/></svg>',
+	key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 20 3"/><path d="m16 7 3 3"/><path d="m18 5 2 2"/></svg>',
+	plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+	log: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>',
+	team: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg>',
+	gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+	check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+	off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></svg>',
+	clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+	play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg>',
+	user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+	globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>',
+	shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/></svg>',
+	search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>',
+	copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
+	trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+	refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+	down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v12m0 0-5-5m5 5 5-5M4 20h16"/></svg>'
+};
+
+var S = { session: null, user: null, role: null, page: "dash", keys: [], stats: null, script: null, skew: 0, audit: null, admins: null,
+	q: "", filter: "all", sort: "new", sel: {}, created: null, loading: false };
+try { S.session = sessionStorage.getItem("bm_s"); S.page = sessionStorage.getItem("bm_p") || "dash"; } catch (e) {}
+
+// ---------------------------------------------------------------- کمکی‌ها
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function fa(n) { return Number(n || 0).toLocaleString("fa-IR"); }
+function now() { return Date.now() + S.skew; }
+function ago(t) {
+	if (!t) return "هرگز";
+	var s = Math.max(0, (now() - t) / 1000);
+	if (s < 60) return "همین الان";
+	if (s < 3600) return fa(Math.floor(s / 60)) + " دقیقه پیش";
+	if (s < 86400) return fa(Math.floor(s / 3600)) + " ساعت پیش";
+	if (s < 86400 * 30) return fa(Math.floor(s / 86400)) + " روز پیش";
+	return new Date(t).toLocaleDateString("fa-IR");
+}
+function left(t) {
+	if (!t) return "دائمی";
+	var s = (t - now()) / 1000;
+	if (s <= 0) return "تموم شده";
+	if (s < 3600) return fa(Math.ceil(s / 60)) + " دقیقه مونده";
+	if (s < 86400) return fa(Math.ceil(s / 3600)) + " ساعت مونده";
+	return fa(Math.ceil(s / 86400)) + " روز مونده";
+}
+function dateFa(t) { return t ? new Date(t).toLocaleString("fa-IR", { dateStyle: "medium", timeStyle: "short" }) : "—"; }
+function status(k) {
+	if (k.revoked) return "revoked";
+	if (k.expires && now() > k.expires) return "expired";
+	if (!k.uids || !k.uids.length) return "unused";
+	return "active";
+}
+var STATUS_FA = { active: "فعال", unused: "استفاده نشده", expired: "تموم شده", revoked: "خاموش" };
+function badge(k) { var s = status(k); return '<span class="badge b-' + s + '">' + STATUS_FA[s] + "</span>"; }
+function soon(k) { return !k.revoked && k.expires && k.expires > now() && k.expires - now() < 3 * 86400000; }
+function loaderFor(key) { return 'getgenv().BM_KEY = "' + key + '"\nloadstring(game:HttpGet("' + location.origin + '/l"))()'; }
+var FLAGS = {};
+function flag(cc) {
+	if (!cc || cc.length !== 2) return "";
+	if (FLAGS[cc]) return FLAGS[cc];
+	var f = String.fromCodePoint(127397 + cc.charCodeAt(0), 127397 + cc.charCodeAt(1));
+	return (FLAGS[cc] = f + " " + cc);
+}
+
+function toast(msg, err) {
+	var t = document.createElement("div");
+	t.className = "toast" + (err ? " err" : "");
+	t.textContent = msg;
+	$("toasts").appendChild(t);
+	setTimeout(function () { t.style.transition = ".3s"; t.style.opacity = "0"; setTimeout(function () { t.remove(); }, 300); }, err ? 4500 : 2600);
+}
+function copy(text, msg) {
+	function ok() { toast(msg || "کپی شد"); }
+	if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(ok, fallback); else fallback();
+	function fallback() {
+		var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+		document.body.appendChild(ta); ta.select();
+		try { document.execCommand("copy"); ok(); } catch (e) { toast("کپی نشد، دستی کپی کن", true); }
+		ta.remove();
+	}
+}
+
+function api(action, data) {
+	var body = Object.assign({ action: action }, data || {});
+	return fetch("/api", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (S.session || "") }, body: JSON.stringify(body) })
+		.then(function (r) {
+			return r.json().catch(function () { return {}; }).then(function (d) {
+				if (r.status === 401 && d.relogin) { logout(true); throw new Error(d.error || "دوباره وارد شو"); }
+				if (!r.ok) throw new Error(d.error || ("خطا " + r.status));
+				return d;
+			});
+		});
+}
+
+// ---------------------------------------------------------------- مودال
+function modal(html, onMount) {
+	var o = document.createElement("div");
+	o.className = "overlay";
+	o.innerHTML = '<div class="modal">' + html + "</div>";
+	o.addEventListener("mousedown", function (e) { if (e.target === o) close(); });
+	function close() { o.remove(); document.removeEventListener("keydown", onKey); }
+	function onKey(e) { if (e.key === "Escape") close(); }
+	document.addEventListener("keydown", onKey);
+	$("modalRoot").appendChild(o);
+	if (onMount) onMount(o.firstChild, close);
+	var f = o.querySelector("[autofocus]"); if (f) f.focus();
+	return close;
+}
+function confirmBox(title, text, okLabel, danger) {
+	return new Promise(function (res) {
+		modal('<h2>' + esc(title) + '</h2><div class="dim">' + text + '</div><div class="acts"><button class="btn ' + (danger ? "danger" : "primary") + '" data-ok>' + esc(okLabel || "باشه") + '</button><button class="btn ghost" data-no>انصراف</button></div>',
+			function (m, close) {
+				m.querySelector("[data-ok]").onclick = function () { close(); res(true); };
+				m.querySelector("[data-no]").onclick = function () { close(); res(false); };
+			});
+	});
+}
+function daysBox(title, hint, allowAdd) {
+	return new Promise(function (res) {
+		modal('<h2>' + esc(title) + '</h2><div class="dim small" style="margin-bottom:12px">' + esc(hint) + '</div>' +
+			'<div class="chips" style="margin-bottom:12px">' + [1, 7, 30, 90].map(function (d) { return '<span class="chip" data-d="' + d + '">' + fa(d) + ' روز</span>'; }).join("") + '<span class="chip" data-d="0">دائمی</span></div>' +
+			'<label class="f"><span>تعداد روز (۰ = دائمی)</span><input class="input" type="number" min="0" id="dIn" value="30" autofocus></label>' +
+			(allowAdd ? '<label class="row small" style="gap:8px;cursor:pointer"><input type="checkbox" class="cb" id="dAdd" checked> به روزهای باقی‌مونده اضافه بشه (نه از امروز)</label>' : "") +
+			'<div class="acts"><button class="btn primary" data-ok>تمدید</button><button class="btn ghost" data-no>انصراف</button></div>',
+			function (m, close) {
+				m.querySelectorAll("[data-d]").forEach(function (c) { c.onclick = function () { m.querySelector("#dIn").value = c.dataset.d; }; });
+				m.querySelector("[data-ok]").onclick = function () { var a = m.querySelector("#dAdd"); close(); res({ days: Number(m.querySelector("#dIn").value) || 0, mode: a && a.checked ? "add" : "set" }); };
+				m.querySelector("[data-no]").onclick = function () { close(); res(null); };
+			});
+	});
+}
+
+// ---------------------------------------------------------------- داده
+function load(silent) {
+	if (S.loading) return Promise.resolve();
+	S.loading = true;
+	return api("list").then(function (d) {
+		S.keys = d.keys; S.stats = d.stats; S.script = d.script; S.skew = d.now - Date.now();
+		var alive = {}; S.keys.forEach(function (k) { alive[k.key] = 1; });
+		Object.keys(S.sel).forEach(function (k) { if (!alive[k]) delete S.sel[k]; });
+		render();
+	}).catch(function (e) { if (!silent) toast(e.message, true); }).then(function () { S.loading = false; });
+}
+
+function act(action, keys, extra, okMsg) {
+	return api(action, Object.assign({ keys: keys }, extra || {})).then(function (d) {
+		toast(okMsg || "انجام شد");
+		S.audit = null;
+		return load(true).then(function () { return d; });
+	}).catch(function (e) { toast(e.message, true); });
+}
+
+// ---------------------------------------------------------------- صفحه‌ها
+var PAGES = [
+	{ id: "dash", name: "داشبورد", icon: "dash" },
+	{ id: "keys", name: "کلیدها", icon: "key" },
+	{ id: "new", name: "ساخت کلید", icon: "plus" },
+	{ id: "log", name: "فعالیت‌ها", icon: "log" },
+	{ id: "team", name: "ادمین‌ها", icon: "team", owner: true },
+	{ id: "settings", name: "تنظیمات", icon: "gear" }
+];
+function navHtml() {
+	return PAGES.filter(function (p) { return !p.owner || S.role === "owner"; }).map(function (p) {
+		return '<div class="nav' + (S.page === p.id ? " on" : "") + '" data-page="' + p.id + '">' + ICONS[p.icon] + "<span>" + p.name + "</span></div>";
+	}).join("");
+}
+function go(p) {
+	S.page = p;
+	try { sessionStorage.setItem("bm_p", p); } catch (e) {}
+	if (p === "log" && !S.audit) loadAudit();
+	if (p === "team" && !S.admins) loadAdmins();
+	render();
+	window.scrollTo(0, 0);
+}
+
+function render() {
+	$("nav").innerHTML = navHtml();
+	$("mnav").innerHTML = navHtml();
+	$("meName").textContent = S.user || "—";
+	$("meRole").textContent = S.role === "owner" ? "صاحب هاب" : "ادمین";
+	$("meAv").textContent = (S.user || "?").charAt(0).toUpperCase();
+	var fn = { dash: pDash, keys: pKeys, "new": pNew, log: pLog, team: pTeam, settings: pSettings }[S.page] || pDash;
+	if (S.page === "team" && S.role !== "owner") fn = pDash;
+	$("main").innerHTML = fn();
+	if (S.page === "keys") { var s = $("q"); if (s && document.activeElement !== s && S.focusQ) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+}
+
+function head(title, sub, right) {
+	return '<div class="head"><div><h1>' + title + "</h1>" + (sub ? "<p>" + sub + "</p>" : "") + "</div>" + (right || "") + "</div>";
+}
+
+function pDash() {
+	var st = S.stats || {};
+	function card(v, l, ic, c) { return '<div class="card stat"><div class="ic ' + c + '">' + ICONS[ic] + '</div><div class="v">' + fa(v) + '</div><div class="l">' + l + "</div></div>"; }
+	var soonList = S.keys.filter(soon).sort(function (a, b) { return a.expires - b.expires; }).slice(0, 6);
+	var recent = S.keys.filter(function (k) { return k.lastUse; }).sort(function (a, b) { return b.lastUse - a.lastUse; }).slice(0, 7);
+	var denied = S.keys.filter(function (k) { return k.lastDenied; }).sort(function (a, b) { return b.lastDenied - a.lastDenied; }).slice(0, 5);
+	function row(k, right) { return '<div class="mini" data-open="' + esc(k.key) + '" style="cursor:pointer"><div><b>' + esc(k.name) + '</b> <span class="dim small mono">' + esc(k.key.slice(0, 8)) + '…</span></div><div class="small dim">' + right + "</div></div>"; }
+	return head("داشبورد", "سلام " + esc(S.user) + "! وضعیت کلیدها در یک نگاه", '<button class="btn primary" data-page="new">' + ICONS.plus + "کلید جدید</button>") +
+		'<div class="grid stats" style="margin-bottom:14px">' +
+		card(st.total, "همه‌ی کلیدها", "key", "c-acc") + card(st.active, "فعال", "check", "c-ok") + card(st.unused, "هنوز استفاده نشده", "user", "c-info") +
+		card(st.expired, "تموم شده", "clock", "c-warn") + card(st.revoked, "خاموش", "off", "c-bad") + card(st.usedToday, "استفاده در ۲۴ ساعت", "play", "c-ok") +
+		"</div>" +
+		'<div class="grid two">' +
+		'<div class="card"><h3>' + ICONS.clock + "نزدیک انقضا (۳ روز)</h3>" + (soonList.length ? soonList.map(function (k) { return row(k, '<span style="color:var(--warn)">' + left(k.expires) + "</span>"); }).join("") : '<div class="empty">هیچ کلیدی نزدیک انقضا نیست</div>') + "</div>" +
+		'<div class="card"><h3>' + ICONS.play + "آخرین اجراها</h3>" + (recent.length ? recent.map(function (k) { return row(k, (k.lastCountry ? flag(k.lastCountry) + " · " : "") + ago(k.lastUse)); }).join("") : '<div class="empty">هنوز کسی هاب رو با کلید اجرا نکرده</div>') + "</div>" +
+		'<div class="card"><h3>' + ICONS.shield + "تلاش اکانت‌های دیگه</h3>" + (denied.length ? denied.map(function (k) { return row(k, '<span style="color:var(--bad)">' + fa(k.denied) + " بار</span> · " + ago(k.lastDenied)); }).join("") : '<div class="empty">کسی سعی نکرده کلید کس دیگه‌ای رو استفاده کنه</div>') + "</div>" +
+		'<div class="card"><h3>' + ICONS.globe + "هاب</h3>" + scriptInfo() + '<div class="mini"><span class="dim">مجموع اجراها</span><b>' + fa(st.runs) + '</b></div><div class="mini"><span class="dim">نزدیک انقضا</span><b>' + fa(st.expiringSoon) + "</b></div></div>" +
+		"</div>";
+}
+function scriptInfo() {
+	var s = S.script || {};
+	var st = s.ok === true ? '<span class="badge b-active">سالم</span>' : s.ok === false ? '<span class="badge b-revoked">' + esc(s.error || "خطا") + "</span>" : '<span class="badge b-unused">هنوز گرفته نشده</span>';
+	return '<div class="mini"><span class="dim">نسخه‌ای که داده میشه</span><b class="mono">' + esc(s.version || "—") + '</b></div><div class="mini"><span class="dim">گیت‌هاب</span>' + st + "</div>";
+}
+
+function filtered() {
+	var q = S.q.trim().toLowerCase();
+	var list = S.keys.filter(function (k) {
+		if (S.filter === "soon") { if (!soon(k)) return false; }
+		else if (S.filter !== "all" && status(k) !== S.filter) return false;
+		if (!q) return true;
+		return [k.name, k.note, k.key, k.createdBy, (k.uids || []).join(" ")].some(function (v) { return String(v || "").toLowerCase().indexOf(q) >= 0; });
+	});
+	var by = {
+		"new": function (a, b) { return (b.created || 0) - (a.created || 0); },
+		old: function (a, b) { return (a.created || 0) - (b.created || 0); },
+		use: function (a, b) { return (b.lastUse || 0) - (a.lastUse || 0); },
+		runs: function (a, b) { return (b.uses || 0) - (a.uses || 0); },
+		exp: function (a, b) { return (a.expires || 9e15) - (b.expires || 9e15); },
+		name: function (a, b) { return String(a.name).localeCompare(String(b.name), "fa"); }
+	}[S.sort];
+	return list.sort(by);
+}
+function pKeys() {
+	var counts = { all: S.keys.length, active: 0, unused: 0, expired: 0, revoked: 0, soon: 0 };
+	S.keys.forEach(function (k) { counts[status(k)]++; if (soon(k)) counts.soon++; });
+	var F = [["all", "همه"], ["active", "فعال"], ["unused", "استفاده نشده"], ["soon", "نزدیک انقضا"], ["expired", "تموم شده"], ["revoked", "خاموش"]];
+	var list = filtered();
+	var selN = Object.keys(S.sel).length;
+	var allSel = list.length && list.every(function (k) { return S.sel[k.key]; });
+	return head("کلیدها", fa(S.keys.length) + " کلید", '<div class="row"><button class="btn" data-act="reload">' + ICONS.refresh + 'تازه کردن</button><button class="btn primary" data-page="new">' + ICONS.plus + "کلید جدید</button></div>") +
+		'<div class="toolbar"><div class="search">' + ICONS.search + '<input class="input" id="q" placeholder="جستجو: اسم، یادداشت، کلید، آیدی اکانت، سازنده" value="' + esc(S.q) + '"></div>' +
+		'<select class="input" id="sort" style="width:auto">' + [["new", "جدیدترین"], ["old", "قدیمی‌ترین"], ["use", "آخرین استفاده"], ["runs", "بیشترین اجرا"], ["exp", "نزدیک‌ترین انقضا"], ["name", "اسم"]].map(function (o) { return '<option value="' + o[0] + '"' + (S.sort === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></div>" +
+		'<div class="chips" style="margin-bottom:14px">' + F.map(function (f) { return '<span class="chip' + (S.filter === f[0] ? " on" : "") + '" data-filter="' + f[0] + '">' + f[1] + '<span class="n">' + fa(counts[f[0]]) + "</span></span>"; }).join("") + "</div>" +
+		(selN ? '<div class="bulk"><b>' + fa(selN) + ' انتخاب شده</b><span class="grow"></span>' +
+			'<button class="btn sm" data-bulk="copy">' + ICONS.copy + 'کپی لودرها</button><button class="btn sm" data-bulk="extend">' + ICONS.clock + 'تمدید</button>' +
+			'<button class="btn sm" data-bulk="revoke">' + ICONS.off + 'خاموش</button><button class="btn sm" data-bulk="unrevoke">' + ICONS.check + 'روشن</button>' +
+			'<button class="btn sm" data-bulk="reset">' + ICONS.user + 'آزاد کردن اکانت</button><button class="btn sm danger" data-bulk="delete">' + ICONS.trash + 'حذف</button>' +
+			'<button class="btn sm ghost" data-bulk="none">لغو</button></div>' : "") +
+		(list.length ? '<div class="row small dim" style="margin:0 4px 8px"><label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" class="cb" data-selall' + (allSel ? " checked" : "") + '> انتخاب همه‌ی ' + fa(list.length) + " مورد</label></div>" : "") +
+		'<div class="list">' + (list.length ? list.map(itemHtml).join("") : '<div class="card empty">' + (S.keys.length ? "چیزی پیدا نشد" : 'هنوز کلیدی نساختی. <a href="#" data-page="new">اولین کلید رو بساز</a>') + "</div>") + "</div>";
+}
+function itemHtml(k) {
+	var u = (k.uids || []).length;
+	return '<div class="item' + (S.sel[k.key] ? " sel" : "") + '" data-open="' + esc(k.key) + '">' +
+		'<input type="checkbox" class="cb" data-sel="' + esc(k.key) + '"' + (S.sel[k.key] ? " checked" : "") + ">" +
+		'<div style="min-width:0"><div class="t"><b>' + esc(k.name) + "</b>" + badge(k) + (soon(k) ? '<span class="tag" style="color:var(--warn)">' + left(k.expires) + "</span>" : "") + (k.denied ? '<span class="tag" style="color:var(--bad)">' + fa(k.denied) + " تلاش مشکوک</span>" : "") + "</div>" +
+		'<div class="m"><span class="mono">' + esc(k.key) + "</span>" +
+		"<span>" + ICONS.user + fa(u) + "/" + fa(k.maxUids) + " اکانت</span>" +
+		"<span>" + ICONS.clock + left(k.expires) + "</span>" +
+		"<span>" + ICONS.play + fa(k.uses) + " اجرا · " + ago(k.lastUse) + "</span>" +
+		(k.createdBy ? "<span>سازنده: " + esc(k.createdBy) + "</span>" : "") + "</div>" +
+		(k.note ? '<div class="small dim2" style="margin-top:3px">' + esc(k.note) + "</div>" : "") + "</div>" +
+		'<div class="r row"><button class="btn sm" data-copy="' + esc(k.key) + '" title="کپی لودر">' + ICONS.copy + "لودر</button></div></div>";
+}
+
+function openKey(key) {
+	var k = S.keys.filter(function (x) { return x.key === key; })[0];
+	if (!k) return;
+	var mine = S.role === "owner" || k.createdBy === S.user;
+	modal('<div class="row" style="justify-content:space-between;margin-bottom:6px"><h2 style="margin:0">' + esc(k.name) + "</h2>" + badge(k) + "</div>" +
+		'<div class="keybox"><span class="mono">' + esc(k.key) + '</span><button class="btn sm" data-c="key">' + ICONS.copy + "کلید</button></div>" +
+		'<pre class="code">' + esc(loaderFor(k.key)) + '</pre><div class="row" style="margin:8px 0 14px"><button class="btn sm primary" data-c="loader">' + ICONS.copy + "کپی لودر</button></div>" +
+		'<div class="kv">' +
+		"<div>ساخته شده</div><div>" + dateFa(k.created) + (k.createdBy ? " · " + esc(k.createdBy) : "") + "</div>" +
+		"<div>انقضا</div><div>" + (k.expires ? dateFa(k.expires) + " · <b>" + left(k.expires) + "</b>" : "دائمی") + "</div>" +
+		"<div>اجراها</div><div>" + fa(k.uses) + " بار · آخرین: " + ago(k.lastUse) + (k.lastCountry ? " · " + flag(k.lastCountry) : "") + "</div>" +
+		"<div>تلاش اکانت دیگه</div><div>" + (k.denied ? '<span style="color:var(--bad)">' + fa(k.denied) + " بار</span> · آخرین: " + ago(k.lastDenied) + (k.lastDeniedUid ? ' · <a class="mono" target="_blank" rel="noopener" href="https://www.roblox.com/users/' + esc(k.lastDeniedUid) + '/profile">' + esc(k.lastDeniedUid) + "</a>" : "") : "نه") + "</div>" +
+		"</div>" +
+		'<h3 style="margin:16px 0 8px;font-size:14px">اکانت‌های روبلاکس (' + fa((k.uids || []).length) + " از " + fa(k.maxUids) + ")</h3>" +
+		((k.uids || []).length ? k.uids.map(function (u) { return '<div class="uid"><a class="mono" target="_blank" rel="noopener" href="https://www.roblox.com/users/' + esc(u) + '/profile">' + esc(u) + "</a>" + (u === k.lastUid ? '<span class="tag">آخرین</span>' : "") + "</div>"; }).join("") : '<div class="dim small">هنوز به هیچ اکانتی قفل نشده؛ اولین اجرا قفلش می‌کنه.</div>') +
+		'<h3 style="margin:16px 0 8px;font-size:14px">ویرایش</h3>' +
+		'<label class="f"><span>اسم</span><input class="input" id="eName" value="' + esc(k.name) + '" maxlength="60"></label>' +
+		'<label class="f"><span>یادداشت</span><textarea class="input" id="eNote" maxlength="200" placeholder="مثلاً دیسکورد، قیمت، تاریخ پرداخت…">' + esc(k.note) + "</textarea></label>" +
+		'<label class="f"><span>حداکثر تعداد اکانت روبلاکس</span><div class="step"><button type="button" data-st="-1">−</button><input id="eMax" type="number" min="1" max="10" value="' + k.maxUids + '"><button type="button" data-st="1">+</button></div></label>' +
+		'<div class="acts"><button class="btn primary" data-a="save">ذخیره</button><button class="btn" data-a="extend">' + ICONS.clock + "تمدید</button>" +
+		(k.revoked ? '<button class="btn" data-a="unrevoke">' + ICONS.check + "روشن کردن</button>" : '<button class="btn" data-a="revoke">' + ICONS.off + "خاموش کردن</button>") +
+		'<button class="btn" data-a="reset">' + ICONS.user + "آزاد کردن اکانت‌ها</button>" +
+		(mine ? '<button class="btn danger" data-a="delete">' + ICONS.trash + "حذف</button>" : "") + '<button class="btn ghost" data-a="close">بستن</button></div>',
+		function (m, close) {
+			m.querySelector('[data-c="key"]').onclick = function () { copy(k.key, "کلید کپی شد"); };
+			m.querySelector('[data-c="loader"]').onclick = function () { copy(loaderFor(k.key), "لودر کپی شد، برای همون نفر بفرست"); };
+			m.querySelectorAll("[data-st]").forEach(function (b) { b.onclick = function () { var i = m.querySelector("#eMax"); i.value = Math.min(10, Math.max(1, (Number(i.value) || 1) + Number(b.dataset.st))); }; });
+			m.querySelectorAll("[data-a]").forEach(function (b) {
+				b.onclick = function () {
+					var a = b.dataset.a;
+					if (a === "close") return close();
+					if (a === "save") {
+						b.disabled = true;
+						api("update", { key: k.key, name: m.querySelector("#eName").value, note: m.querySelector("#eNote").value, maxUids: Number(m.querySelector("#eMax").value) || 1 })
+							.then(function () { toast("ذخیره شد"); close(); S.audit = null; return load(true); })
+							.catch(function (e) { toast(e.message, true); b.disabled = false; });
+						return;
+					}
+					close();
+					single(a, k);
+				};
+			});
+		});
+}
+function single(a, k) {
+	if (a === "extend") return daysBox("تمدید «" + k.name + "»", "از امروز یا اضافه به روزهای باقی‌مونده", !!k.expires).then(function (r) { if (r) act("extend", [k.key], r, "تمدید شد"); });
+	if (a === "revoke") return confirmBox("خاموش کردن کلید", "هاب روشنِ «" + esc(k.name) + "» حداکثر ۱۰ دقیقه بعد بسته میشه. هر وقت خواستی می‌تونی دوباره روشنش کنی.", "خاموش کن", true).then(function (ok) { if (ok) act("revoke", [k.key], null, "خاموش شد"); });
+	if (a === "unrevoke") return act("unrevoke", [k.key], null, "روشن شد");
+	if (a === "reset") return confirmBox("آزاد کردن اکانت‌ها", "قفل اکانت‌های فعلی برداشته میشه و اجرای بعدی به اکانت جدید قفل میشه.", "آزاد کن").then(function (ok) { if (ok) act("reset", [k.key], null, "آزاد شد"); });
+	if (a === "delete") return confirmBox("حذف همیشگی", "کلید «" + esc(k.name) + "» برای همیشه پاک میشه و برنمی‌گرده. اگه فقط می‌خوای کار نکنه، «خاموش کردن» بهتره.", "حذف کن", true).then(function (ok) { if (ok) act("delete", [k.key], null, "حذف شد"); });
+}
+function bulk(a) {
+	var keys = Object.keys(S.sel);
+	if (a === "none") { S.sel = {}; return render(); }
+	if (!keys.length) return;
+	var n = fa(keys.length);
+	if (a === "copy") {
+		var map = {}; S.keys.forEach(function (k) { map[k.key] = k; });
+		return copy(keys.map(function (k) { return "-- " + (map[k] ? map[k].name : "") + "\n" + loaderFor(k); }).join("\n\n"), n + " لودر کپی شد");
+	}
+	if (a === "extend") return daysBox("تمدید " + n + " کلید", "برای کلیدهای دائمی «اضافه کردن» معنی نداره و دائمی می‌مونن", true).then(function (r) { if (r) act("extend", keys, r, n + " کلید تمدید شد"); });
+	var texts = {
+		revoke: ["خاموش کردن " + n + " کلید", "هاب این افراد حداکثر ۱۰ دقیقه بعد بسته میشه.", "خاموش کن", true],
+		unrevoke: ["روشن کردن " + n + " کلید", "این کلیدها دوباره کار می‌کنن.", "روشن کن", false],
+		reset: ["آزاد کردن اکانت " + n + " کلید", "اجرای بعدی هر کلید به اکانت جدید قفل میشه.", "آزاد کن", false],
+		"delete": ["حذف همیشگی " + n + " کلید", "برنمی‌گردن. ادمین‌ها فقط کلیدهای خودشون رو می‌تونن پاک کنن.", "حذف کن", true]
+	}[a];
+	confirmBox(texts[0], texts[1], texts[2], texts[3]).then(function (ok) {
+		if (ok) act(a, keys, null, "انجام شد").then(function () { if (a === "delete") { S.sel = {}; render(); } });
+	});
+}
+
+function pNew() {
+	var c = S.created;
+	return head("ساخت کلید", "برای هر نفر یه کلید اختصاصی") +
+		'<div class="grid two"><div class="card"><form id="newForm">' +
+		'<label class="f"><span>کلید برای کیه؟</span><input class="input" id="nName" maxlength="60" placeholder="مثلاً اسم یا آیدی دیسکورد" autofocus></label>' +
+		'<label class="f"><span>یادداشت (اختیاری)</span><textarea class="input" id="nNote" maxlength="200" placeholder="مثلاً مبلغ، تاریخ پرداخت، راه ارتباطی…"></textarea></label>' +
+		'<label class="f"><span>مدت</span><div class="chips" id="nDays">' + [[1, "۱ روز"], [7, "۷ روز"], [30, "۳۰ روز"], [90, "۹۰ روز"], [0, "دائمی"], ["c", "دلخواه"]].map(function (d) { return '<span class="chip' + (d[0] === 30 ? " on" : "") + '" data-d="' + d[0] + '">' + d[1] + "</span>"; }).join("") + "</div>" +
+		'<input class="input hidden" id="nCustom" type="number" min="1" placeholder="تعداد روز" style="margin-top:8px"></label>' +
+		'<div class="row" style="gap:24px;margin-bottom:14px"><label class="f" style="margin:0"><span>چند اکانت روبلاکس؟</span><div class="step"><button type="button" data-st="nMax:-1">−</button><input id="nMax" type="number" min="1" max="10" value="1"><button type="button" data-st="nMax:1">+</button></div></label>' +
+		'<label class="f" style="margin:0"><span>چند تا کلید؟</span><div class="step"><button type="button" data-st="nCount:-1">−</button><input id="nCount" type="number" min="1" max="50" value="1"><button type="button" data-st="nCount:1">+</button></div></label></div>' +
+		'<button class="btn primary" style="width:100%" id="nBtn">' + ICONS.key + "ساخت کلید</button></form>" +
+		'<div class="small dim2" style="margin-top:12px">کلید با اولین اجرا به اکانت روبلاکس همون نفر قفل میشه. اگه چند اکانت مجاز باشه، تا همون تعداد اکانت قبول می‌کنه.</div></div>' +
+		'<div class="card"><h3>' + ICONS.check + "کلیدهای ساخته شده</h3>" +
+		(c && c.length ? (c.length > 1 ? '<div class="row" style="margin-bottom:10px"><button class="btn sm primary" data-act="copyAllNew">' + ICONS.copy + "کپی همه‌ی لودرها</button></div>" : "") +
+			c.map(function (k) { return '<div class="keybox"><div style="min-width:0"><div><b>' + esc(k.name) + '</b></div><div class="mono small">' + esc(k.key) + '</div></div><button class="btn sm" data-copy="' + esc(k.key) + '">' + ICONS.copy + "لودر</button></div>"; }).join("") +
+			'<div class="small dim2">لودر رو برای همون نفر بفرست. توی Solara اجراش می‌کنه.</div>'
+			: '<div class="empty">بعد از ساختن، کلیدها و لودرهاشون اینجا میان</div>') + "</div></div>";
+}
+
+function loadAudit() {
+	api("audit").then(function (d) { S.audit = d.entries; if (S.page === "log") render(); }).catch(function (e) { toast(e.message, true); });
+}
+var AUDIT_FA = {
+	create: ["ساخت کلید", "plus", "c-ok"], update: ["ویرایش", "gear", "c-info"], revoke: ["خاموش کرد", "off", "c-bad"], unrevoke: ["روشن کرد", "check", "c-ok"],
+	reset: ["آزاد کردن اکانت", "user", "c-info"], extend: ["تمدید", "clock", "c-warn"], "delete": ["حذف", "trash", "c-bad"], refresh: ["نسخه‌ی جدید هاب", "refresh", "c-info"],
+	"export": ["پشتیبان", "down", "c-info"], addAdmin: ["ادمین جدید", "team", "c-acc"], adminPassword: ["رمز ادمین عوض شد", "shield", "c-acc"],
+	removeAdmin: ["حذف ادمین", "trash", "c-bad"], disableAdmin: ["ادمین غیرفعال شد", "off", "c-bad"], enableAdmin: ["ادمین فعال شد", "check", "c-ok"]
+};
+function pLog() {
+	var list = S.audit;
+	return head("فعالیت‌ها", "کارهای ادمین‌ها در ۹۰ روز اخیر", '<button class="btn" data-act="reloadAudit">' + ICONS.refresh + "تازه کردن</button>") +
+		'<div class="card">' + (!list ? '<div class="empty">در حال خوندن…</div>' : !list.length ? '<div class="empty">هنوز فعالیتی ثبت نشده</div>' :
+			list.map(function (e) {
+				var a = AUDIT_FA[e.action] || [e.action, "log", "c-info"];
+				return '<div class="audit"><div class="aic ' + a[2] + '">' + ICONS[a[1]] + '</div><div style="min-width:0"><b>' + esc(e.who) + "</b> · " + a[0] + '<div class="small dim" style="overflow-wrap:anywhere">' + esc(e.detail) + '</div></div><div class="small dim2" title="' + esc(dateFa(e.at)) + '">' + ago(e.at) + "</div></div>";
+			}).join("")) + "</div>";
+}
+
+function loadAdmins() {
+	api("admins").then(function (d) { S.admins = d.admins; if (S.page === "team") render(); }).catch(function (e) { toast(e.message, true); });
+}
+function pTeam() {
+	var list = S.admins;
+	return head("ادمین‌ها", "هر ادمین با نام کاربری و رمز خودش وارد میشه. می‌تونه کلید بسازه و مدیریت کنه، ولی فقط کلیدهای خودش رو پاک می‌کنه و به این صفحه دسترسی نداره.") +
+		'<div class="grid two"><div class="card"><h3>' + ICONS.plus + "ادمین جدید / عوض کردن رمز</h3><form id=\"adminForm\">" +
+		'<label class="f"><span>نام کاربری (انگلیسی کوچیک)</span><input class="input mono" id="aUser" maxlength="24" autocapitalize="off" spellcheck="false" placeholder="ali"></label>' +
+		'<label class="f"><span>رمز (حداقل ۸ حرف)</span><div class="row"><input class="input mono grow" id="aPass" type="text" autocomplete="new-password"><button type="button" class="btn sm" data-act="genPass">رمز تصادفی</button></div></label>' +
+		'<button class="btn primary" style="width:100%">ذخیره‌ی ادمین</button>' +
+		'<div class="small dim2" style="margin-top:10px">اگه نام کاربری از قبل باشه، فقط رمزش عوض میشه. نام کاربری و رمز رو خودت به ادمین بده.</div></form></div>' +
+		'<div class="card"><h3>' + ICONS.team + "ادمین‌ها</h3>" + (!list ? '<div class="empty">در حال خوندن…</div>' : !list.length ? '<div class="empty">هنوز ادمینی نساختی</div>' :
+			list.map(function (a) {
+				return '<div class="mini"><div><b class="mono">' + esc(a.user) + "</b> " + (a.disabled ? '<span class="badge b-revoked">غیرفعال</span>' : '<span class="badge b-active">فعال</span>') + '<div class="small dim2">از ' + ago(a.created) + '</div></div><div class="row">' +
+					'<button class="btn sm" data-admin="' + esc(a.user) + '" data-dis="' + (a.disabled ? "0" : "1") + '">' + (a.disabled ? "فعال کن" : "غیرفعال کن") + "</button>" +
+					'<button class="btn sm danger" data-admin="' + esc(a.user) + '" data-rm="1">' + ICONS.trash + "</button></div></div>";
+			}).join("")) + "</div></div>";
+}
+
+function pSettings() {
+	return head("تنظیمات") +
+		'<div class="grid two"><div class="card"><h3>' + ICONS.globe + "نسخه‌ی هاب</h3>" + scriptInfo() +
+		'<div class="small dim2" style="margin:10px 0">سرور هر ۱ دقیقه نسخه‌ی جدید رو از گیت‌هاب می‌گیره. بعد از push اگه فوری می‌خوای، این دکمه رو بزن.</div>' +
+		'<div class="row"><button class="btn" data-act="refresh">' + ICONS.refresh + 'گرفتن نسخه‌ی جدید هاب</button><button class="btn" data-act="testGithub">' + ICONS.shield + "آزمایش اتصال گیت‌هاب</button></div>" +
+		'<div id="ghResult" style="margin-top:12px"></div></div>' +
+		'<div class="card"><h3>' + ICONS.key + "شکل لودر</h3><pre class=\"code\">" + esc(loaderFor("BM-XXXX-XXXX-XXXX-XXXX")) + "</pre></div>" +
+		(S.role === "owner" ? '<div class="card"><h3>' + ICONS.down + 'پشتیبان</h3><div class="small dim" style="margin-bottom:10px">همه‌ی کلیدها به‌صورت فایل JSON. جای امن نگهش دار.</div><button class="btn" data-act="export">' + ICONS.down + "دانلود پشتیبان</button></div>" : "") +
+		'<div class="card"><h3>' + ICONS.user + 'حساب</h3><div class="mini"><span class="dim">وارد شده با</span><b class="mono">' + esc(S.user) + '</b></div><div class="mini"><span class="dim">نقش</span><b>' + (S.role === "owner" ? "صاحب هاب" : "ادمین") + '</b></div><button class="btn danger" style="margin-top:10px" data-act="logout">خروج</button></div></div>';
+}
+
+// ---------------------------------------------------------------- رویدادها
+document.addEventListener("click", function (e) {
+	var t = e.target.closest("[data-page],[data-act],[data-copy],[data-sel],[data-selall],[data-open],[data-filter],[data-bulk],[data-st],[data-d],[data-admin]");
+	if (!t || t.closest(".overlay")) return;
+	if (t.matches("[data-sel]")) { e.stopPropagation(); if (t.checked) S.sel[t.dataset.sel] = 1; else delete S.sel[t.dataset.sel]; render(); return; }
+	if (t.matches("[data-selall]")) { var on = t.checked; filtered().forEach(function (k) { if (on) S.sel[k.key] = 1; else delete S.sel[k.key]; }); render(); return; }
+	if (t.matches("[data-copy]")) { e.stopPropagation(); copy(loaderFor(t.dataset.copy), "لودر کپی شد، برای همون نفر بفرست"); return; }
+	if (t.matches("[data-page]")) { e.preventDefault(); go(t.dataset.page); return; }
+	if (t.matches("[data-filter]")) { S.filter = t.dataset.filter; render(); return; }
+	if (t.matches("[data-bulk]")) { bulk(t.dataset.bulk); return; }
+	if (t.matches("[data-st]")) {
+		var p = t.dataset.st.split(":"), inp = $(p[0]);
+		inp.value = Math.min(Number(inp.max), Math.max(1, (Number(inp.value) || 1) + Number(p[1]))); return;
+	}
+	if (t.matches("[data-d]")) {
+		document.querySelectorAll("#nDays .chip").forEach(function (c) { c.classList.toggle("on", c === t); });
+		$("nCustom").classList.toggle("hidden", t.dataset.d !== "c"); if (t.dataset.d === "c") $("nCustom").focus(); return;
+	}
+	if (t.matches("[data-admin]")) {
+		var u = t.dataset.admin;
+		if (t.dataset.rm) {
+			confirmBox("حذف ادمین", "«" + esc(u) + "» دیگه نمی‌تونه وارد بشه. کلیدهایی که ساخته سر جاشون می‌مونن.", "حذف کن", true).then(function (ok) {
+				if (ok) api("setAdmin", { user: u, remove: true }).then(function () { toast("حذف شد"); S.admins = null; S.audit = null; loadAdmins(); }).catch(function (er) { toast(er.message, true); });
+			});
+		} else api("setAdmin", { user: u, disabled: t.dataset.dis === "1" }).then(function () { toast("انجام شد"); S.admins = null; S.audit = null; loadAdmins(); }).catch(function (er) { toast(er.message, true); });
+		return;
+	}
+	if (t.matches("[data-open]")) { openKey(t.dataset.open); return; }
+	var a = t.dataset.act;
+	if (a === "logout") logout();
+	else if (a === "reload") load().then(function () { toast("به‌روز شد"); });
+	else if (a === "reloadAudit") { S.audit = null; render(); loadAudit(); }
+	else if (a === "testGithub") {
+		var box = $("ghResult"); box.innerHTML = '<div class="dim small">در حال آزمایش…</div>';
+		api("testGithub").then(function (d) {
+			var why = "";
+			if (!d.ok) {
+				var e = String(d.error || "");
+				if (!d.hasToken) why = "GITHUB_TOKEN توی تنظیمات Worker نیست.";
+				else if (e.indexOf("401") >= 0) why = "توکن گیت‌هاب اشتباهه یا باطل شده (مثلاً بعد از Regenerate). توکن جدید رو توی GITHUB_TOKEN بذار.";
+				else if (e.indexOf("403") >= 0) why = "توکن اجازه‌ی خوندن نداره: Contents باید Read-only باشه و مخزن bm-hub انتخاب شده باشه.";
+				else if (e.indexOf("404") >= 0) why = "فایل یا مخزن پیدا نشد: REPO / FILE / BRANCH رو چک کن، یا توکن به این مخزن دسترسی نداره.";
+				else why = e || "خطای ناشناخته";
+			}
+			box.innerHTML = d.ok
+				? '<div class="badge b-active">وصله</div> <span class="small">نسخه‌ی <b class="mono">' + esc(d.version) + "</b> از " + esc(d.repo) + "</span>"
+				: '<div class="badge b-revoked">' + esc(d.error || "خطا") + '</div><div class="small" style="margin-top:6px">' + esc(why) + "</div>";
+			S.script = { version: d.version, ok: d.ok, error: d.error };
+		}).catch(function (er) { box.innerHTML = ""; toast(er.message, true); });
+	}
+	else if (a === "refresh") api("refresh").then(function () { toast("از این به بعد آخرین نسخه داده میشه"); S.audit = null; }).catch(function (er) { toast(er.message, true); });
+	else if (a === "export") api("export").then(function (d) {
+		var blob = new Blob([JSON.stringify(d, null, 2)], { type: "application/json" });
+		var link = document.createElement("a"); link.href = URL.createObjectURL(blob);
+		link.download = "bmhub-keys-" + new Date().toISOString().slice(0, 10) + ".json"; link.click();
+		setTimeout(function () { URL.revokeObjectURL(link.href); }, 2000); toast("پشتیبان دانلود شد");
+	}).catch(function (er) { toast(er.message, true); });
+	else if (a === "genPass") {
+		var ch = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789", b = new Uint8Array(14), s = "";
+		crypto.getRandomValues(b); for (var i = 0; i < b.length; i++) s += ch[b[i] % ch.length];
+		$("aPass").value = s; copy(s, "رمز تصادفی ساخته و کپی شد");
+	}
+	else if (a === "copyAllNew" && S.created) copy(S.created.map(function (k) { return "-- " + k.name + "\n" + loaderFor(k.key); }).join("\n\n"), "همه‌ی لودرها کپی شد");
+});
+document.addEventListener("input", function (e) {
+	if (e.target.id === "q") { S.q = e.target.value; S.focusQ = true; render(); S.focusQ = false; }
+});
+document.addEventListener("change", function (e) { if (e.target.id === "sort") { S.sort = e.target.value; render(); } });
+document.addEventListener("submit", function (e) {
+	e.preventDefault();
+	var f = e.target;
+	if (f.id === "loginForm") return doLogin();
+	if (f.id === "newForm") {
+		var name = $("nName").value.trim();
+		if (!name) { toast("بنویس کلید برای کیه", true); $("nName").focus(); return; }
+		var chip = document.querySelector("#nDays .chip.on"), d = chip ? chip.dataset.d : "30";
+		var days = d === "c" ? Number($("nCustom").value) || 0 : Number(d);
+		if (d === "c" && !(days > 0)) { toast("تعداد روز رو بنویس", true); return; }
+		var btn = $("nBtn"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>در حال ساخت…';
+		api("create", { name: name, note: $("nNote").value, days: days, maxUids: Number($("nMax").value) || 1, count: Number($("nCount").value) || 1 }).then(function (r) {
+			S.created = r.keys; S.audit = null;
+			if (r.keys.length === 1) copy(loaderFor(r.keys[0].key), "کلید ساخته شد و لودرش کپی شد");
+			else toast(fa(r.keys.length) + " کلید ساخته شد");
+			return load(true);
+		}).catch(function (er) { toast(er.message, true); render(); });
+		return;
+	}
+	if (f.id === "adminForm") {
+		api("addAdmin", { user: $("aUser").value, password: $("aPass").value }).then(function () { toast("ادمین ذخیره شد"); S.admins = null; S.audit = null; loadAdmins(); }).catch(function (er) { toast(er.message, true); });
+	}
+});
+
+// ---------------------------------------------------------------- ورود / خروج
+function showApp() { $("login").classList.add("hidden"); $("app").classList.remove("hidden"); }
+function showLogin() { $("app").classList.add("hidden"); $("login").classList.remove("hidden"); setTimeout(function () { ($("lUser").value ? $("lPass") : $("lUser")).focus(); }, 30); }
+function doLogin() {
+	var btn = $("lBtn"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+	api("login", { user: $("lUser").value, password: $("lPass").value }).then(function (d) {
+		S.session = d.session; S.user = d.user; S.role = d.role;
+		try { sessionStorage.setItem("bm_s", d.session); localStorage.setItem("bm_u", d.user); } catch (e) {}
+		$("lPass").value = "";
+		showApp(); render(); return load();
+	}).catch(function (e) { toast(e.message, true); }).then(function () { btn.disabled = false; btn.textContent = "ورود"; });
+}
+function logout(expired) {
+	if (S.session && !expired) api("logout").catch(function () {});
+	S.session = null; S.keys = []; S.audit = null; S.admins = null; S.sel = {};
+	try { sessionStorage.removeItem("bm_s"); } catch (e) {}
+	if (expired) toast("جلسه تموم شده، دوباره وارد شو", true);
+	showLogin();
+}
+try { $("lUser").value = localStorage.getItem("bm_u") || ""; } catch (e) {}
+if (S.session) {
+	api("me").then(function (d) { S.user = d.user; S.role = d.role; showApp(); render(); load(); }).catch(function () { showLogin(); });
+} else showLogin();
+// تازه کردن خودکار؛ وقتی داری چیزی تایپ می‌کنی یا صفحه‌ی ساخت/ادمین بازه نه (فرم پاک میشه)
+setInterval(function () {
+	var ae = document.activeElement, typing = ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName);
+	if (S.session && !document.hidden && !typing && !document.querySelector(".overlay") && S.page !== "new" && S.page !== "team") load(true);
+}, 60000);
+</script>
+</body>
+</html>

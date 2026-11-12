@@ -57,6 +57,15 @@ check("fires at the learned gap", gap == 0.3 and #fired == 1)
 check("fires straight down", fired[1].d.Y == -1 and fired[1].c == 1)
 fireFruitM1(); fireFruitM1(); fireFruitM1(); fireFruitM1()
 check("combo goes 1..4 and wraps", fired[4].c == 4 and fired[5].c == 1)
+Hub.Brain.store.fruit = { ["Dragon-Dragon"] = { gap = 0.3, combo = 2 } }
+fired = {}
+fireFruitM1(); fireFruitM1(); fireFruitM1()
+check("learned combo 2: goes 1,2,1 (no 4th hit end-lag)", fired[1].c <= 2 and fired[2].c <= 2 and fired[3].c <= 2 and fired[1].c ~= fired[2].c)
+Hub.Brain.store.fruit = { ["Dragon-Dragon"] = { gap = 0.3, combo = 9 } }
+fired = {}
+for _ = 1, 8 do fireFruitM1() end
+local mx = 0 for _, f in ipairs(fired) do mx = math.max(mx, f.c) end
+check("bad saved combo falls back to 1..4", mx == 4)
 Hub.Brain.store.fruit = {}
 check("unknown fruit: 0.2 gap", fireFruitM1() == 0.2)
 NOW = 2

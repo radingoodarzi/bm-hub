@@ -81,7 +81,8 @@ local myHum = { Health = 1000, MaxHealth = 1000 }
 local function getRoot() return rootObj end
 local function getHum() return myHum end
 local heldTool = nil
-local function getChar() return { FindFirstChildOfClass = function() return heldTool end } end
+local charStable = { FindFirstChildOfClass = function() return heldTool end }
+local function getChar() return charStable end
 local function alive() return true end
 local tweens, sails, equipped, keys, aims = {}, {}, {}, {}, 0
 local function tweenTo(cf) table.insert(tweens, cf.Position); return true end
@@ -102,7 +103,11 @@ local tools = { Melee = true, Sword = true, Gun = false, ["Blox Fruit"] = true }
 local V3 = {
 	flatDist = function(a, b) return math.sqrt((a.X - b.X) ^ 2 + (a.Z - b.Z) ^ 2) end,
 	notify = function(title) table.insert(notes, title) end, webhook = function() end, log = function() end,
-	toolByTip = function(t) return tools[t] and { tip = t, Parent = nil } or nil end,
+	toolByTip = function(t)
+		if not tools[t] then return nil end
+		if t == "Blox Fruit" and heldTool then return heldTool end
+		return { tip = t, Parent = nil, FindFirstChild = function() return nil end }
+	end,
 	equip = function() end, aimClick = function() aims += 1 end, aimRelease = function() end,
 	key = function(k) table.insert(keys, k) end,
 	register = function() end,
@@ -325,6 +330,7 @@ local m1Fired = {}
 local fruitRemote = { FireServer = function(_, dir, combo) table.insert(m1Fired, { dir = dir, combo = combo }) end }
 local fruitTool = inst("Dragon-Dragon", { Class = "Tool", children = { inst("LeftClickRemote", { Class = "RemoteEvent", FireServer = fruitRemote.FireServer }) } })
 heldTool = fruitTool
+fruitTool.Parent = getChar()
 local beast2 = seaBeast(30)
 setChildren(folders.SeaBeasts, { beast2 })
 setChildren(folders.Boats, { enemyBoat(10) })
@@ -334,14 +340,16 @@ local registeredBeast = V3.seaBeastStep
 clock += 1
 registeredBeast(keep)
 check("Auto Sea Beast fights the sea beast, not the nearer enemy boat", S.Status:find("Sea Beast") ~= nil)
+-- از 5.3 M1 میوه توی حلقه‌ی جدای خودش می‌زنه (V3.fireFruitM1)، اینجا دستی صداش می‌کنیم
+local gap1 = V3.fireFruitM1()
 check("M1 Spam fires the fruit M1 at the sea beast", #m1Fired == 1 and m1Fired[1].combo == 1)
 local d = m1Fired[1].dir
 check("M1 direction points at the beast", d.Y < 0 and math.abs(d.X) < 0.01)
-registeredBeast(keep)
-check("no second M1 inside 0.2s", #m1Fired == 1)
+check("unknown fruit: M1 every 0.2s", gap1 == 0.2)
 clock += 0.25
 registeredBeast(keep)
-check("next M1 after 0.2s, combo goes on", #m1Fired == 2 and m1Fired[2].combo == 2)
+V3.fireFruitM1()
+check("next M1, combo goes on", #m1Fired == 2 and m1Fired[2].combo == 2)
 -- only sea beasts: an enemy boat alone is not fought, it hunts instead
 setChildren(folders.SeaBeasts, {})
 local listed = V3.seaTargets()

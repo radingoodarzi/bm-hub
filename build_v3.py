@@ -15,7 +15,7 @@ import sys
 ROOT = pathlib.Path(__file__).parent
 BASE = ROOT / "bm_hub_v2.lua"
 OUT = ROOT / "bm_hub_v3.lua"
-VERSION = "5.9"
+VERSION = "5.10"
 
 
 def patch(src, old, new, count=1):
@@ -826,6 +826,171 @@ src = patch(src, "\ttask.delay(dur or 3, function()\n\t\ttween(card, 0.35, { Pos
 end
 
 notifyHook = notify''')
+
+# --- 5.10: فارم توی اسکای (Sea 1) هر دور تا NPC کوئست برمی‌گشت ---
+# Royal Squad / Royal Soldier توی EnemySpawns نیستن، پس موقع «Waiting» میرفت بالای NPC کوئست
+# (حدود ۲۵۰۰ استاد دورتر از ماب‌ها) و بعد دوباره برمی‌گشت. حالا جایی که ماب آخرین بار دیده شده
+# یادش می‌مونه و همون‌جا منتظر می‌مونه؛ بین چند نقطه‌ی spawn هم نزدیک‌ترین رو انتخاب می‌کنه
+src = patch(src, 'local function findMob(target)\n\tlocal enemies = workspace:FindFirstChild("Enemies")',
+    '-- اسم ماب -> { pos = جای آخرین ماب زنده‌ای که دیدیم, t = زمان }. توی Hub چون Solara فقط 200 local توی بدنه‌ی اصلی قبول می‌کنه\n'
+    'Hub.MobSeenAt = {}\n'
+    'local function findMob(target)\n\tlocal enemies = workspace:FindFirstChild("Enemies")')
+src = patch(src, '\t\t\tif not bestDist or d < bestDist then best, bestDist = m, d end\n\t\tend\n\tend\n\treturn best\nend\n\n-- باس‌هایی که دور',
+    '\t\t\tif not bestDist or d < bestDist then best, bestDist = m, d end\n\t\tend\n\tend\n'
+    '\tif best then Hub.MobSeenAt[target] = { pos = best.HumanoidRootPart.Position, t = tick() } end\n'
+    '\treturn best\nend\n\n-- باس‌هایی که دور')
+src = patch(src, (
+    'local function mobSpawn(target)\n'
+    '\tlocal sp = spawnFolder()\n'
+    '\tif not sp then return nil end\n'
+    '\tfor _, p in ipairs(sp:GetChildren()) do\n'
+    '\t\tif p:IsA("BasePart") and mobBaseName(p.Name) == target then return p.CFrame end\n'
+    '\tend\n'
+    'end'), (
+    'local function mobSpawn(target)\n'
+    '\t-- اول جایی که این ماب واقعاً بود (EnemySpawns برای بعضی ماب‌ها مثل Royal Squad نقطه نداره)\n'
+    '\tlocal seen = Hub.MobSeenAt[target]\n'
+    '\tlocal root = getRoot()\n'
+    '\tif seen and tick() - seen.t < 600 then\n'
+    '\t\t-- رسیدیم اونجا و ۶۰ ثانیه خبری نشد: این جا اشتباهه، برمی‌گردیم سراغ spawn / NPC\n'
+    '\t\tif root and (root.Position - seen.pos).Magnitude < 150 then seen.waitFrom = seen.waitFrom or tick() else seen.waitFrom = nil end\n'
+    '\t\tif not seen.waitFrom or tick() - seen.waitFrom < 60 then return CFrame.new(seen.pos) end\n'
+    '\t\tHub.MobSeenAt[target] = nil\n'
+    '\tend\n'
+    '\tlocal sp = spawnFolder()\n'
+    '\tif not sp then return nil end\n'
+    '\tlocal best, bestD\n'
+    '\tfor _, p in ipairs(sp:GetChildren()) do\n'
+    '\t\tif p:IsA("BasePart") and mobBaseName(p.Name) == target then\n'
+    '\t\t\tlocal d = root and (p.Position - root.Position).Magnitude or 0\n'
+    '\t\t\tif not bestD or d < bestD then best, bestD = p, d end\n'
+    '\t\tend\n'
+    '\tend\n'
+    '\treturn best and best.CFrame\n'
+    'end'))
+
+NEAR_NPC = '''
+-- 5.10: NPC کوئست نزدیک ماب‌ها. جای ذخیره‌شده‌ی بعضی کوئست‌ها (مثل Royal Squad/Soldier توی اسکای)
+-- قدیمیه و حدود ۲۵۰۰ استاد دور از ماب‌هاست؛ اول نزدیک‌ترین کوئست‌دهنده به ماب‌ها رو امتحان می‌کنیم.
+-- اگه کوئست داد یادش می‌مونه، اگه نداد علامت می‌خوره و مثل قبل میریم سراغ جای ذخیره‌شده
+-- (takeQuestRaw و این بخش توی یه do هستن که local تازه‌ای به بدنه‌ی اصلی اضافه نشه)
+	local tried, learned = {}, {}
+	Hub.NearQuestNpc = learned
+	local function nearQuestGiver(q, key)
+		if learned[key] then return learned[key] end
+		local seen = Hub.MobSeenAt and Hub.MobSeenAt[q.mob]
+		local center = (seen and seen.pos) or spawnCentroid(q.mob)
+		if not center or not q.npc then return nil end
+		-- NPC ذخیره‌شده خودش نزدیک ماب‌هاست: کاری نداریم
+		if (q.npc.Position - center).Magnitude < 700 then return nil end
+		local best, bestD, bestK
+		for _, cf in ipairs(questGivers()) do
+			local d = (cf.Position - center).Magnitude
+			local k = key .. "@" .. math.floor(cf.Position.X) .. "," .. math.floor(cf.Position.Z)
+			if d < 600 and not tried[k] and (not bestD or d < bestD) then best, bestD, bestK = cf, d, k end
+		end
+		return best, bestK
+	end
+	takeQuest = function(q, keepGoing)
+		local key = q.quest .. q.index
+		local alt, altKey = nearQuestGiver(q, key)
+		if alt then
+			local orig, takenBefore, failsBefore = q.npc, Hub.QuestTakenAt, questFailures[key] or 0
+			q.npc = alt
+			takeQuestRaw(q, keepGoing)
+			q.npc = orig
+			if Hub.QuestTakenAt ~= takenBefore then
+				if not learned[key] then
+					learned[key] = alt
+					if Hub.LiveLog then Hub.LiveLog(("QUEST NPC near the mobs works for %s"):format(key)) end
+				end
+				return
+			end
+			-- نرسیدیم اونجا (فارم خاموش شد، لول کم...): چیزی یاد نمی‌گیریم
+			local r = getRoot()
+			if not r or (r.Position - alt.Position).Magnitude > 150 then return end
+			-- این NPC کوئست رو نداد: دیگه امتحانش نمی‌کنیم و این بار شکست حساب نمیشه
+			learned[key] = nil
+			if altKey then tried[altKey] = true end
+			questFailures[key] = failsBefore
+			questBlockedUntil[key] = nil
+			if Hub.LiveLog then Hub.LiveLog(("QUEST NPC near the mobs refused %s, using the saved one"):format(key)) end
+			if keepGoing and not keepGoing() then return end
+		end
+		return takeQuestRaw(q, keepGoing)
+	end
+end
+'''
+# --- 5.10: کوئست از NPC نزدیک ماب‌ها (اسکای: هر بار ۲۵۰۰ استاد میرفت سراغ NPC قدیمی) ---
+src = patch(src, 'local function takeQuest(q, keepGoing)\n', 'local takeQuest\ndo\nlocal function takeQuestRaw(q, keepGoing)\n')
+COMBAT_HDR = '\n' + '-' * 69 + '\n-- Combat\n'
+src = patch(src, COMBAT_HDR, NEAR_NPC + COMBAT_HDR)
+
+# --- 5.10: Solara فقط 200 local (رجیستر) توی بدنه‌ی اصلی قبول می‌کنه ---
+# 5.9 درست لب مرز بود و با سه local تازه‌ی 5.10 توی Solara کامپایل نشد ("Out of local registers").
+# بخش‌هایی که local شون فقط همون‌جا استفاده میشه توی do ... end رفتن (رفتار هیچ‌جا عوض نشده)
+src = patch(src, 'local genv = (getgenv and getgenv()) or _G\nlocal oldHub = genv.BMHub\n', 'do\nlocal genv = (getgenv and getgenv()) or _G\nlocal oldHub = genv.BMHub\n')
+src = patch(src, 'if oldHub and oldHub.Destroy then pcall(oldHub.Destroy) end\n', 'if oldHub and oldHub.Destroy then pcall(oldHub.Destroy) end\nend\n')
+src = patch(src, 'genv.BMHub = Hub\n', '((getgenv and getgenv()) or _G).BMHub = Hub\n')
+src = patch(src, 'local SEA_BY_PLACE = ', 'local Sea = (')
+src = patch(src, '}\nlocal Sea = SEA_BY_PLACE[game.PlaceId] or 0\n', '})[game.PlaceId] or 0\n')
+src = patch(src, 'local SEA_MARKERS = {', 'do\nlocal SEA_MARKERS = {')
+src = patch(src, '\t\t\t\tSea = entry[1]\n\t\t\t\treturn\n\t\t\tend\n\t\tend\n\tend\nend)\n', '\t\t\t\tSea = entry[1]\n\t\t\t\treturn\n\t\t\tend\n\t\tend\n\tend\nend)\nend\n')
+src = patch(src, 'local invokeCache = {}\nlocal function invokeCached(', 'local invokeCached\ndo\nlocal invokeCache = {}\nfunction invokeCached(')
+src = patch(src, '\treturn c and c.v\nend\n\nlocal Modules', '\treturn c and c.v\nend\nend\n\nlocal Modules')
+src = patch(src, 'local remotesCheckedAt = 0\nlocal function attackRemotes()', 'local attackRemotes\ndo\nlocal remotesCheckedAt = 0\nfunction attackRemotes()')
+src = patch(src, '\tHub.AttackInfo.lastError = "attack remotes not found yet"\n\treturn false\nend\n', '\tHub.AttackInfo.lastError = "attack remotes not found yet"\n\treturn false\nend\nend\n')
+src = patch(src, 'local function toCFrame(x)\n', 'do\nlocal function toCFrame(x)\n')
+src = patch(src, '\t\treturn toCFrame(rawget(x, "CFrame")) or toCFrame(rawget(x, "Position"))\n\tend\nend\n', '\t\treturn toCFrame(rawget(x, "CFrame")) or toCFrame(rawget(x, "Position"))\n\tend\nend\nend\n')
+src = patch(src, 'local mobRadius = setmetatable({}, { __mode = "k" })\nlocal function edgeDistance(', 'local edgeDistance\ndo\nlocal mobRadius = setmetatable({}, { __mode = "k" })\nfunction edgeDistance(')
+src = patch(src, '\treturn math.max(0, (hrp.Position - pos).Magnitude - r)\nend\n', '\treturn math.max(0, (hrp.Position - pos).Magnitude - r)\nend\nend\n')
+src = patch(src, 'local SKILL_KEYS = ', 'local useSkills\ndo\nlocal SKILL_KEYS = ')
+src = patch(src, '}\nlocal function useSkills()', '}\nfunction useSkills()')
+src = patch(src, '\t\t\t\tVIM:SendKeyEvent(false, SKILL_KEYS[k], false, game)\n\t\t\tend)\n\t\tend\n\tend\nend\n', '\t\t\t\tVIM:SendKeyEvent(false, SKILL_KEYS[k], false, game)\n\t\t\tend)\n\t\tend\n\tend\nend\nend\n')
+src = patch(src, 'local lastSimRadius = 0\nlocal function bringMobs(', 'local bringMobs\ndo\nlocal lastSimRadius = 0\nfunction bringMobs(')
+src = patch(src, '\t\t\thum.JumpPower = 0\n\t\tend)\n\tend\nend\n', '\t\t\thum.JumpPower = 0\n\t\tend)\n\tend\nend\nend\n')
+
+KEY_HUB = '''-- 5.10: سیستم کلید. وقتی هاب با لودر کلیددار اجرا شده (getgenv().BM_KEY و BM_SERVER)،
+-- بعد از تلپورت هم با همون لودر برمی‌گرده و هر ۱۰ دقیقه کلید رو با سرور چک می‌کنه.
+-- بدون کلید (اجرای خودت با bm.lua) هیچ چیزی عوض نمیشه
+function Hub.KeyInfo()
+	local g = (getgenv and getgenv()) or _G
+	local key, server = g.BM_KEY, g.BM_SERVER
+	if type(key) ~= "string" or type(server) ~= "string" then return nil end
+	if not key:match("^BM%-[%w%-]+$") or not server:match("^https://[%w%.%-]+$") then return nil end
+	return key, server
+end
+function Hub.KeyLoader()
+	local key, server = Hub.KeyInfo()
+	if not key then return nil end
+	return 'getgenv().BM_KEY = "' .. key .. '"; loadstring(game:HttpGet("' .. server .. '/l"))()'
+end
+Hub.KeyCheckEvery = 600
+task.spawn(function()
+	task.wait(120)
+	while Hub.Running do
+		local key, server = Hub.KeyInfo()
+		if key then
+			local ok, res = pcall(function()
+				return game:HttpGet(server .. "/check?key=" .. key .. "&uid=" .. tostring(game:GetService("Players").LocalPlayer.UserId))
+			end)
+			-- فقط جواب صریح «نه» هاب رو می‌بنده؛ قطعی اینترنت یا سرور مشتری رو بیرون نمی‌کنه
+			if ok and type(res) == "string" and res:sub(1, 3) == "no:" then
+				local msg = "BM Hub stopped: " .. res:sub(4)
+				print(msg)
+				pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "BM Hub", Text = msg, Duration = 15 }) end)
+				if Hub.Destroy then pcall(Hub.Destroy) end
+				return
+			end
+		end
+		task.wait(Hub.KeyCheckEvery)
+	end
+end)
+'''
+# --- 5.10: سیستم کلید (keyserver/): لودر کلیددار بعد از تلپورت و چک دوره‌ای کلید ---
+LOADING_LINE = 'print("[BM Hub] loading v" .. Hub.Version)'
+src = patch(src, LOADING_LINE + chr(10), LOADING_LINE + chr(10) + KEY_HUB)
+src = patch(src, "local LOADER = (isfile and select(2, pcall(isfile, \"bm.lua\")) == true)", "local LOADER = (Hub.KeyLoader and Hub.KeyLoader()) or (isfile and select(2, pcall(isfile, \"bm.lua\")) == true)")
 
 logic, ui, top_ui, late_ui = [], [], [], []
 for m in sorted((ROOT / "v3_src").glob("[0-9][0-9]_*.lua")):

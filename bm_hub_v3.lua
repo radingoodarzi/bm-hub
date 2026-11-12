@@ -9,6 +9,7 @@
 
 if not game:IsLoaded() then game.Loaded:Wait() end
 
+do
 local genv = (getgenv and getgenv()) or _G
 local oldHub = genv.BMHub
 if oldHub and oldHub.Running and (oldHub.Loaded or tick() - (tonumber(oldHub.StartedAt) or 0) < 90) then
@@ -20,9 +21,46 @@ if oldHub and oldHub.Running and (oldHub.Loaded or tick() - (tonumber(oldHub.Sta
 	return
 end
 if oldHub and oldHub.Destroy then pcall(oldHub.Destroy) end
-local Hub = { Connections = {}, Running = true, Version = "5.9", StartedAt = tick() }
-genv.BMHub = Hub
+end
+local Hub = { Connections = {}, Running = true, Version = "5.10", StartedAt = tick() }
+((getgenv and getgenv()) or _G).BMHub = Hub
 print("[BM Hub] loading v" .. Hub.Version)
+-- 5.10: سیستم کلید. وقتی هاب با لودر کلیددار اجرا شده (getgenv().BM_KEY و BM_SERVER)،
+-- بعد از تلپورت هم با همون لودر برمی‌گرده و هر ۱۰ دقیقه کلید رو با سرور چک می‌کنه.
+-- بدون کلید (اجرای خودت با bm.lua) هیچ چیزی عوض نمیشه
+function Hub.KeyInfo()
+	local g = (getgenv and getgenv()) or _G
+	local key, server = g.BM_KEY, g.BM_SERVER
+	if type(key) ~= "string" or type(server) ~= "string" then return nil end
+	if not key:match("^BM%-[%w%-]+$") or not server:match("^https://[%w%.%-]+$") then return nil end
+	return key, server
+end
+function Hub.KeyLoader()
+	local key, server = Hub.KeyInfo()
+	if not key then return nil end
+	return 'getgenv().BM_KEY = "' .. key .. '"; loadstring(game:HttpGet("' .. server .. '/l"))()'
+end
+Hub.KeyCheckEvery = 600
+task.spawn(function()
+	task.wait(120)
+	while Hub.Running do
+		local key, server = Hub.KeyInfo()
+		if key then
+			local ok, res = pcall(function()
+				return game:HttpGet(server .. "/check?key=" .. key .. "&uid=" .. tostring(game:GetService("Players").LocalPlayer.UserId))
+			end)
+			-- فقط جواب صریح «نه» هاب رو می‌بنده؛ قطعی اینترنت یا سرور مشتری رو بیرون نمی‌کنه
+			if ok and type(res) == "string" and res:sub(1, 3) == "no:" then
+				local msg = "BM Hub stopped: " .. res:sub(4)
+				print(msg)
+				pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "BM Hub", Text = msg, Duration = 15 }) end)
+				if Hub.Destroy then pcall(Hub.Destroy) end
+				return
+			end
+		end
+		task.wait(Hub.KeyCheckEvery)
+	end
+end)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -45,10 +83,10 @@ end
 ---------------------------------------------------------------------
 -- Game info
 ---------------------------------------------------------------------
-local SEA_BY_PLACE = { [2753915549] = 1, [4442272183] = 2, [7449423635] = 3, [79091703265657] = 2, [100117331123089] = 3 }
-local Sea = SEA_BY_PLACE[game.PlaceId] or 0
+local Sea = ({ [2753915549] = 1, [4442272183] = 2, [7449423635] = 3, [79091703265657] = 2, [100117331123089] = 3 })[game.PlaceId] or 0
 
 -- PlaceId ها عوض میشن، پس از اسم جزیره‌ها هم Sea رو تشخیص میدیم
+do
 local SEA_MARKERS = {
 	{ 2, { "Kingdom of Rose", "Cafe", "Graveyard Island", "Snow Mountain", "Hot and Cold", "Cursed Ship", "Ice Castle", "Forgotten Island" } },
 	{ 3, { "Port Town", "Hydra Island", "Great Tree", "Castle on the Sea", "Floating Turtle", "Haunted Castle", "Sea of Treats", "Tiki Outpost" } },
@@ -66,6 +104,7 @@ pcall(function()
 		end
 	end
 end)
+end
 
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 3)
 local CommF = Remotes and Remotes:FindFirstChild("CommF_")
@@ -77,8 +116,10 @@ local function invoke(...)
 end
 
 -- برای لیبل‌هایی که مدام آپدیت میشن: جواب سرور تا ttl ثانیه کش میشه
+local invokeCached
+do
 local invokeCache = {}
-local function invokeCached(key, ttl, ...)
+function invokeCached(key, ttl, ...)
 	local c = invokeCache[key]
 	if c and tick() - c.t < ttl then return c.v end
 	invokeCache[key] = { t = tick(), v = c and c.v }
@@ -87,6 +128,7 @@ local function invokeCached(key, ttl, ...)
 		invokeCache[key] = { t = tick(), v = invoke(table.unpack(args)) }
 	end)
 	return c and c.v
+end
 end
 
 local Modules = ReplicatedStorage:WaitForChild("Modules", 20)
@@ -112,8 +154,10 @@ end
 local RegisterAttack = findRemote("RegisterAttack")
 local RegisterHit = findRemote("RegisterHit")
 -- اگه هنوز پیدا نشدن (یا بازی عوضشون کرد) هر 2 ثانیه دوباره گشته میشه
+local attackRemotes
+do
 local remotesCheckedAt = 0
-local function attackRemotes()
+function attackRemotes()
 	if RegisterAttack and RegisterAttack.Parent and RegisterHit and RegisterHit.Parent then return true end
 	Hub.AttackInfo.lastError = "attack remotes not found yet"
 	if tick() - remotesCheckedAt < 2 then return false end
@@ -126,6 +170,7 @@ local function attackRemotes()
 	if RegisterAttack and RegisterHit then return true end
 	Hub.AttackInfo.lastError = "attack remotes not found yet"
 	return false
+end
 end
 
 local executorName = "?"
@@ -397,6 +442,8 @@ local function isAliveMob(m)
 	return h ~= nil and h.Health > 0 and m:FindFirstChild("HumanoidRootPart") ~= nil
 end
 
+-- اسم ماب -> { pos = جای آخرین ماب زنده‌ای که دیدیم, t = زمان }. توی Hub چون Solara فقط 200 local توی بدنه‌ی اصلی قبول می‌کنه
+Hub.MobSeenAt = {}
 local function findMob(target)
 	local enemies = workspace:FindFirstChild("Enemies")
 	local root = getRoot()
@@ -408,6 +455,7 @@ local function findMob(target)
 			if not bestDist or d < bestDist then best, bestDist = m, d end
 		end
 	end
+	if best then Hub.MobSeenAt[target] = { pos = best.HumanoidRootPart.Position, t = tick() } end
 	return best
 end
 
@@ -426,16 +474,31 @@ local function spawnFolder()
 end
 
 local function mobSpawn(target)
+	-- اول جایی که این ماب واقعاً بود (EnemySpawns برای بعضی ماب‌ها مثل Royal Squad نقطه نداره)
+	local seen = Hub.MobSeenAt[target]
+	local root = getRoot()
+	if seen and tick() - seen.t < 600 then
+		-- رسیدیم اونجا و ۶۰ ثانیه خبری نشد: این جا اشتباهه، برمی‌گردیم سراغ spawn / NPC
+		if root and (root.Position - seen.pos).Magnitude < 150 then seen.waitFrom = seen.waitFrom or tick() else seen.waitFrom = nil end
+		if not seen.waitFrom or tick() - seen.waitFrom < 60 then return CFrame.new(seen.pos) end
+		Hub.MobSeenAt[target] = nil
+	end
 	local sp = spawnFolder()
 	if not sp then return nil end
+	local best, bestD
 	for _, p in ipairs(sp:GetChildren()) do
-		if p:IsA("BasePart") and mobBaseName(p.Name) == target then return p.CFrame end
+		if p:IsA("BasePart") and mobBaseName(p.Name) == target then
+			local d = root and (p.Position - root.Position).Magnitude or 0
+			if not bestD or d < bestD then best, bestD = p, d end
+		end
 	end
+	return best and best.CFrame
 end
 
 ---------------------------------------------------------------------
 -- Quest data (از ماژول‌های خود بازی خونده میشه)
 ---------------------------------------------------------------------
+do
 local function toCFrame(x)
 	local t = typeof(x)
 	if t == "CFrame" then return x end
@@ -447,6 +510,7 @@ local function toCFrame(x)
 	if t == "table" then
 		return toCFrame(rawget(x, "CFrame")) or toCFrame(rawget(x, "Position"))
 	end
+end
 end
 
 -- نکته: Luau حداکثر 200 متغیر local در یک اسکوپ قبول می‌کنه؛ بخش‌های مستقل داخل do ... end هستن
@@ -785,7 +849,9 @@ local function questBlocked(q)
 	return (questBlockedUntil[q.quest .. q.index] or 0) > tick()
 end
 
-local function takeQuest(q, keepGoing)
+local takeQuest
+do
+local function takeQuestRaw(q, keepGoing)
 	local started = tick()
 	-- فقط کوئست یه ماب دیگه رو ول می‌کنیم؛ کوئست تموم‌شده (8/8) خودش تحویل میشه
 	local cur = questTitle()
@@ -849,6 +915,57 @@ local function takeQuest(q, keepGoing)
 		-- مدت کوتاه بدون کوئست، بعد دوباره تلاش
 		questBlockedUntil[key] = tick() + 15
 		questFailures[key] = 0
+	end
+end
+
+-- 5.10: NPC کوئست نزدیک ماب‌ها. جای ذخیره‌شده‌ی بعضی کوئست‌ها (مثل Royal Squad/Soldier توی اسکای)
+-- قدیمیه و حدود ۲۵۰۰ استاد دور از ماب‌هاست؛ اول نزدیک‌ترین کوئست‌دهنده به ماب‌ها رو امتحان می‌کنیم.
+-- اگه کوئست داد یادش می‌مونه، اگه نداد علامت می‌خوره و مثل قبل میریم سراغ جای ذخیره‌شده
+-- (takeQuestRaw و این بخش توی یه do هستن که local تازه‌ای به بدنه‌ی اصلی اضافه نشه)
+	local tried, learned = {}, {}
+	Hub.NearQuestNpc = learned
+	local function nearQuestGiver(q, key)
+		if learned[key] then return learned[key] end
+		local seen = Hub.MobSeenAt and Hub.MobSeenAt[q.mob]
+		local center = (seen and seen.pos) or spawnCentroid(q.mob)
+		if not center or not q.npc then return nil end
+		-- NPC ذخیره‌شده خودش نزدیک ماب‌هاست: کاری نداریم
+		if (q.npc.Position - center).Magnitude < 700 then return nil end
+		local best, bestD, bestK
+		for _, cf in ipairs(questGivers()) do
+			local d = (cf.Position - center).Magnitude
+			local k = key .. "@" .. math.floor(cf.Position.X) .. "," .. math.floor(cf.Position.Z)
+			if d < 600 and not tried[k] and (not bestD or d < bestD) then best, bestD, bestK = cf, d, k end
+		end
+		return best, bestK
+	end
+	takeQuest = function(q, keepGoing)
+		local key = q.quest .. q.index
+		local alt, altKey = nearQuestGiver(q, key)
+		if alt then
+			local orig, takenBefore, failsBefore = q.npc, Hub.QuestTakenAt, questFailures[key] or 0
+			q.npc = alt
+			takeQuestRaw(q, keepGoing)
+			q.npc = orig
+			if Hub.QuestTakenAt ~= takenBefore then
+				if not learned[key] then
+					learned[key] = alt
+					if Hub.LiveLog then Hub.LiveLog(("QUEST NPC near the mobs works for %s"):format(key)) end
+				end
+				return
+			end
+			-- نرسیدیم اونجا (فارم خاموش شد، لول کم...): چیزی یاد نمی‌گیریم
+			local r = getRoot()
+			if not r or (r.Position - alt.Position).Magnitude > 150 then return end
+			-- این NPC کوئست رو نداد: دیگه امتحانش نمی‌کنیم و این بار شکست حساب نمیشه
+			learned[key] = nil
+			if altKey then tried[altKey] = true end
+			questFailures[key] = failsBefore
+			questBlockedUntil[key] = nil
+			if Hub.LiveLog then Hub.LiveLog(("QUEST NPC near the mobs refused %s, using the saved one"):format(key)) end
+			if keepGoing and not keepGoing() then return end
+		end
+		return takeQuestRaw(q, keepGoing)
 	end
 end
 
@@ -930,8 +1047,10 @@ local function hittableMob(m)
 	return nil
 end
 -- فاصله تا لبه‌ی ماب (نصف اندازه‌ی مدل کم میشه، حداکثر 40) تا باس‌های بزرگ هم توی برد حساب بشن
+local edgeDistance
+do
 local mobRadius = setmetatable({}, { __mode = "k" })
-local function edgeDistance(m, hrp, pos)
+function edgeDistance(m, hrp, pos)
 	local r = mobRadius[m]
 	if not r then
 		local ok, size = pcall(function() return m:GetExtentsSize() end)
@@ -939,6 +1058,7 @@ local function edgeDistance(m, hrp, pos)
 		mobRadius[m] = r
 	end
 	return math.max(0, (hrp.Position - pos).Magnitude - r)
+end
 end
 Hub.EdgeDistance = edgeDistance
 
@@ -1004,8 +1124,10 @@ local function attack(target)
 end
 
 -- استفاده از اسکیل‌ها (Z X C V) با شبیه‌سازی کیبورد
+local useSkills
+do
 local SKILL_KEYS = { Z = Enum.KeyCode.Z, X = Enum.KeyCode.X, C = Enum.KeyCode.C, V = Enum.KeyCode.V }
-local function useSkills()
+function useSkills()
 	if not S.UseSkills or not VIM or tick() - cooldown.skill < 0.6 then return end
 	cooldown.skill = tick()
 	for _, k in ipairs({ "Z", "X", "C", "V" }) do
@@ -1017,6 +1139,7 @@ local function useSkills()
 			end)
 		end
 	end
+end
 end
 
 local function enemyInRange()
@@ -1048,8 +1171,10 @@ local function nearestMobInRange()
 end
 
 -- ماب‌های هم‌اسم رو (نزدیک‌ترین‌ها اول، تا BringMax تا و داخل BringRange) روی cf جمع می‌کنه
+local bringMobs
+do
 local lastSimRadius = 0
-local function bringMobs(name, cf)
+function bringMobs(name, cf)
 	local enemies = workspace:FindFirstChild("Enemies")
 	local root = getRoot()
 	if not enemies or not root then return end
@@ -1086,6 +1211,7 @@ local function bringMobs(name, cf)
 			hum.JumpPower = 0
 		end)
 	end
+end
 end
 
 -- کلیک خودکار: همیشه به ماب‌های داخل Attack Range حمله می‌کنه، حتی وقتی فارم خاموشه
@@ -3678,7 +3804,7 @@ end)
 -- وضعیت (سرورهای دیده‌شده، تعداد هاپ) توی فایل می‌مونه چون بعد از تلپورت هاب از اول اجرا میشه
 do
 	local HUNT_FILE = "BMHub_hunt.json"
-	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
+	local LOADER = (Hub.KeyLoader and Hub.KeyLoader()) or (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
 		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
 	LOADER = 'local g = (getgenv and getgenv()) or _G; if g.BMHubQueuedRun then return end; g.BMHubQueuedRun = true; ' .. LOADER
 	local queueTp = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
@@ -4934,6 +5060,12 @@ local okSea, errSea = pcall(function()
 		local ok, gap = pcall(function() return Hub.Brain.store.fruit[fruit.Name].gap end)
 		return ok and tonumber(gap) or 0.2
 	end
+	-- 5.10: طول کمبویی که مغز یاد گرفته (ضربه‌ی ۴ مکث میاره)
+	local function fruitComboLen(fruit)
+		local ok, n = pcall(function() return Hub.Brain.store.fruit[fruit.Name].combo end)
+		n = ok and tonumber(n)
+		return (n and n >= 1 and n <= 4) and math.floor(n) or 4
+	end
 	local function fireFruitM1()
 		local t = fruitTarget
 		if not t or tick() > fruitUntil or not t.obj.Parent then return 0.1 end
@@ -4943,7 +5075,7 @@ local okSea, errSea = pcall(function()
 		local _, aim = fruitStand(t, fruit, 0)
 		local dir = aim - root.Position
 		if not remote or dir.Magnitude < 0.5 then return 0.1 end
-		fruitCombo = fruitCombo % 4 + 1
+		fruitCombo = fruitCombo % fruitComboLen(fruit) + 1
 		if pcall(function() remote:FireServer(dir.Unit, fruitCombo) end) then
 			V3.seaFruitShots += 1
 		end
@@ -6142,8 +6274,8 @@ do
 local okBrain, errBrain = pcall(function()
 	local V3 = Hub.V3
 	local BRAIN_FILE = "BMHub_brain.json"
-	-- بعد از تلپورت: اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
-	local LOADER = (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
+	-- بعد از تلپورت: با کلید از لودر کلیددار (5.10)، وگرنه اگه لانچر سریع محلی هست (بدون معطلی دانلود) از همون، وگرنه از GitHub
+	local LOADER = (Hub.KeyLoader and Hub.KeyLoader()) or (isfile and select(2, pcall(isfile, "bm.lua")) == true) and 'loadstring(readfile("bm.lua"))()'
 		or 'loadstring(game:HttpGet("https://raw.githubusercontent.com/radingoodarzi/bm-hub/main/loader_v3.lua"))()'
 	-- 5.9: مثل Server Finder: هر چند بار هم صف بشه توی سرور جدید فقط یه بار اجرا میشه
 	LOADER = 'local g = (getgenv and getgenv()) or _G; if g.BMHubQueuedRun then return end; g.BMHubQueuedRun = true; ' .. LOADER
@@ -6674,7 +6806,14 @@ local okBrain, errBrain = pcall(function()
 	-- با دمیج واقعی سنجیده میشه و بهترین نگه داشته میشه. کلیک روی صفحه و انیمیشن نداره
 	-- melee: میوه‌هایی که M1 شمشیری دارن (Light، Ice ...) مثل ملی با ضربه‌ی چندهدفه‌ی RegisterHit، بدون کلیک
 	-- 5.9: 0.8 حذف شد (هیچ‌وقت بهترین نشد) چون وسط تست M1 یهو کند می‌شد و برای مشتری بد بود
-	local FRUIT_MODES = { { gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 }, { melee = true } }
+	-- 5.10: combo = طول چرخه‌ی ضربه. ضربه‌ی آخر کمبو (۴) توی بازی حدود ۱ ثانیه مکث میاره (Kitsune روی
+	-- ماب‌های پرجون: هر ماب یه ضربه، بعد مکث). کمبوی کوتاه‌تر رو هم با دمیج واقعی می‌سنجیم
+	local FRUIT_MODES = {
+		{ gap = 0.2 }, { gap = 0.3 }, { gap = 0.5 },
+		{ gap = 0.2, combo = 3 }, { gap = 0.3, combo = 3 }, { gap = 0.3, combo = 2 }, { gap = 0.3, combo = 1 },
+		{ melee = true },
+	}
+	local TUNE_VERSION = 2 -- نتیجه‌های قبل از تست کمبو یه بار دوباره سنجیده میشن
 	-- Ice از اینجا دراومد: ضربه‌ی ملی (روش Light) توی بازی برای Ice دمیج نداد، پس Ice مثل بقیه
 	-- همه‌ی حالت‌ها رو با دمیج واقعی تست می‌کنه و بهترین رو نگه می‌داره
 	local SWORD_LIKE = { ["Light-Light"] = true }
@@ -6700,6 +6839,10 @@ local okBrain, errBrain = pcall(function()
 			Brain.store.fruit[tool.Name], saved = nil, nil
 			Brain.markDirty()
 		end
+		if saved and saved.gap and not saved.melee and (saved.v or 1) < TUNE_VERSION and not (tune and tune.tool == tool.Name) then
+			Brain.store.fruit[tool.Name], saved = nil, nil
+			Brain.markDirty()
+		end
 		if saved and (saved.melee or (saved.gap and not saved.click and not saved.hit)) then return saved end
 		-- میوه‌های شمشیری از اول مثل ملی؛ با Test This Fruit Again همه‌ی حالت‌ها سنجیده میشن
 		if not saved and SWORD_LIKE[tool.Name] and not (tune and tune.tool == tool.Name) then
@@ -6710,7 +6853,7 @@ local okBrain, errBrain = pcall(function()
 		if not tune or tune.tool ~= tool.Name then
 			tune = { tool = tool.Name, i = 1, time = 0, damage = 0, mobs = 0, bestRate = -1 }
 			Brain.note("Testing the best M1 for " .. tool.Name)
-			V3.notify("Fruit M1", "Testing the best M1 for " .. tool.Name .. " (about 30s of fighting) - it can feel slower for a bit", 6)
+			V3.notify("Fruit M1", "Testing the best M1 for " .. tool.Name .. " (about 1 min of fighting) - it can feel slower for a bit", 6)
 		end
 		return FRUIT_MODES[tune.i]
 	end
@@ -6727,7 +6870,7 @@ local okBrain, errBrain = pcall(function()
 		local mob = th and target or nearestMobInRange()
 		if not mob or tick() - fruitAt < mode.gap then return mode end
 		fruitAt = tick()
-		fruitCombo = fruitCombo % 4 + 1
+		fruitCombo = fruitCombo % (mode.combo or 4) + 1
 		local ok, err = pcall(function()
 			remote:FireServer((mob.HumanoidRootPart.Position - root.Position).Unit, fruitCombo)
 		end)
@@ -6749,13 +6892,14 @@ local okBrain, errBrain = pcall(function()
 		if tune.time < TUNE_SECONDS then return end
 		local mode = FRUIT_MODES[tune.i]
 		local rate = tune.damage / TUNE_SECONDS / (tune.mobs / (TUNE_SECONDS * 2))
-		V3.log(("FRUIT TEST %s %d/%d %s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, mode.melee and "melee hit" or ("gap=" .. tostring(mode.gap)), math.floor(rate)))
+		V3.log(("FRUIT TEST %s %d/%d %s: %d dmg/s per mob"):format(tune.tool, tune.i, #FRUIT_MODES, mode.melee and "melee hit" or ("gap=" .. tostring(mode.gap) .. " combo=" .. tostring(mode.combo or 4)), math.floor(rate)))
 		if rate > tune.bestRate then tune.best, tune.bestRate = mode, rate end
 		tune.i += 1
 		tune.time, tune.damage, tune.mobs = 0, 0, 0
 		if tune.i > #FRUIT_MODES then
 			local best = table.clone(tune.best)
 			best.tested = true
+			best.v = TUNE_VERSION
 			Brain.store.fruit[tune.tool] = best
 			Brain.markDirty()
 			Brain.note(("M1 test done for %s: %d dmg/s per mob"):format(tune.tool, math.floor(tune.bestRate)))
@@ -6769,7 +6913,7 @@ local okBrain, errBrain = pcall(function()
 		local m = Brain.store.fruit[tool.Name]
 		if (m and m.melee) or not tool:FindFirstChild("LeftClickRemote") then return "melee hit like a sword, no screen clicks" end
 		if not m or not m.gap or m.click or m.hit then return "will test on the first fight" end
-		return ("every %.1fs, no screen clicks"):format(m.gap)
+		return ("every %.1fs, combo %d, no screen clicks"):format(m.gap, m.combo or 4)
 	end
 
 	function Brain.retestFruit(tool)

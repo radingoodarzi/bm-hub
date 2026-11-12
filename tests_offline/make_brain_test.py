@@ -327,7 +327,7 @@ local held = meleeTool
 charObj = { FindFirstChildOfClass = function() return held end }
 local me = { Position = Vector3.new(0, 12, 0) }
 nearMob = { HumanoidRootPart = { Position = Vector3.new(10, 0, 0) } }
-Brain.store.fruit["Dragon-Dragon"] = { gap = 0.1 }
+Brain.store.fruit["Dragon-Dragon"] = { gap = 0.1, v = 2 }
 check("melee in hand: no fruit mode", Hub.FruitM1(me) == nil and #fired == 0)
 held = fruitTool
 check("saved mode is returned", Hub.FruitM1(me).gap == 0.1)
@@ -372,15 +372,21 @@ end
 local first = Hub.FruitM1(me)
 check("first mode is 0.2s", first.gap == 0.2)
 check("no mode uses clicks or the melee hit", first.click == nil and first.hit == nil)
-check("status shows the test", Brain.fruitStatus(kitsune):find("1/4") ~= nil)
+check("status shows the test", Brain.fruitStatus(kitsune):find("1/8") ~= nil)
 fightMode(500, 5)
 check("moves to the next mode", Hub.FruitM1(me).gap == 0.3)
 Brain.tuneStep(1000, 0)
-check("time without mobs is not counted", Brain.fruitStatus(kitsune):find("2/4") ~= nil)
+check("time without mobs is not counted", Brain.fruitStatus(kitsune):find("2/8") ~= nil)
 fightMode(800, 5)
 check("mode 3 is 0.5s", Hub.FruitM1(me).gap == 0.5)
 fightMode(1500, 5)
 check("5.9: no slow 0.8s step any more", Hub.FruitM1(me).gap ~= 0.8)
+-- 5.10: چهار حالت کمبوی کوتاه‌تر قبل از ضربه‌ی ملی
+for _ = 1, 4 do
+	local cm = Hub.FruitM1(me)
+	check("5.10: combo step " .. tostring(cm.combo), cm.combo ~= nil and cm.combo < 4)
+	fightMode(300, 5)
+end
 check("last mode is the melee hit", Hub.FruitM1(me).melee == true)
 fightMode(200, 5)
 local best = Brain.store.fruit["Kitsune-Kitsune"]
@@ -391,14 +397,14 @@ check("status says no screen clicks", Brain.fruitStatus(kitsune):find("no screen
 Brain.store.fruit["Old-Old"] = { click = true }
 held = { Name = "Old-Old", FindFirstChild = kitsune.FindFirstChild }
 check("old click result is not used", Hub.FruitM1(me).gap == 0.2)
-check("old click result starts a new test", Brain.fruitStatus(held):find("1/4") ~= nil)
+check("old click result starts a new test", Brain.fruitStatus(held):find("1/8") ~= nil)
 Brain.retestFruit(held)
 -- more mobs must not beat better damage per mob
 held = { Name = "Rumble-Rumble", FindFirstChild = kitsune.FindFirstChild }
 Hub.FruitM1(me)
 fightMode(1000, 10)
 fightMode(600, 2)
-for _ = 1, 3 do fightMode(100, 5) end
+for _ = 1, 6 do fightMode(100, 5) end
 check("score is per mob, not per crowd", Brain.store.fruit["Rumble-Rumble"].gap == 0.3)
 Brain.retestFruit(held)
 check("re-test clears the saved mode", Brain.store.fruit["Rumble-Rumble"] == nil)
@@ -499,7 +505,7 @@ local lm = Hub.FruitM1(me)
 check("Light starts in melee mode, no fruit M1 sent", lm and lm.melee == true)
 check("status says melee", Brain.fruitStatus(light):find("melee") ~= nil)
 Brain.retestFruit(light)
-check("re-test really tests (starts at mode 1)", Hub.FruitM1(me).gap == 0.2 and Brain.fruitStatus(light):find("1/4") ~= nil)
+check("re-test really tests (starts at mode 1)", Hub.FruitM1(me).gap == 0.2 and Brain.fruitStatus(light):find("1/8") ~= nil)
 Brain.retestFruit(light)
 Brain.store.fruit["Light-Light"] = nil
 charObj, nearMob = nil, nil

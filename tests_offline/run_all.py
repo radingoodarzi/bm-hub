@@ -17,7 +17,11 @@ def run(gen, out, *extra):
     if g.returncode != 0:
         return None, g.stderr.strip().splitlines()[-1:] or ["generator failed"]
     r = subprocess.run([str(LUAU), str(out)], capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return r.stdout.splitlines(), r.stderr.strip().splitlines()[-3:]
+    lines = r.stdout.splitlines()
+    # تستی که وسط کار خطا بده و قطع بشه باید شکست حساب بشه، نه اینکه بی‌صدا تست‌های کمتری پاس بشن
+    if r.returncode != 0:
+        lines.append("FAIL crashed: " + (r.stderr.strip().splitlines() or ["exit " + str(r.returncode)])[0])
+    return lines, r.stderr.strip().splitlines()[-3:]
 
 
 def main():
