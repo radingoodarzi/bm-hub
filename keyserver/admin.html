@@ -243,7 +243,7 @@ function dateFa(t) { return t ? new Date(t).toLocaleString("fa-IR", { dateStyle:
 function status(k) {
 	if (k.revoked) return "revoked";
 	if (k.expires && now() > k.expires) return "expired";
-	if (!k.uids || !k.uids.length) return "unused";
+	if ((!k.devs || !k.devs.length) && (!k.uids || !k.uids.length)) return "unused";
 	return "active";
 }
 var STATUS_FA = { active: "فعال", unused: "استفاده نشده", expired: "تموم شده", revoked: "خاموش" };
@@ -400,7 +400,7 @@ function pDash() {
 		'<div class="grid two">' +
 		'<div class="card"><h3>' + ICONS.clock + "نزدیک انقضا (۳ روز)</h3>" + (soonList.length ? soonList.map(function (k) { return row(k, '<span style="color:var(--warn)">' + left(k.expires) + "</span>"); }).join("") : '<div class="empty">هیچ کلیدی نزدیک انقضا نیست</div>') + "</div>" +
 		'<div class="card"><h3>' + ICONS.play + "آخرین اجراها</h3>" + (recent.length ? recent.map(function (k) { return row(k, (k.lastCountry ? flag(k.lastCountry) + " · " : "") + ago(k.lastUse)); }).join("") : '<div class="empty">هنوز کسی هاب رو با کلید اجرا نکرده</div>') + "</div>" +
-		'<div class="card"><h3>' + ICONS.shield + "تلاش اکانت‌های دیگه</h3>" + (denied.length ? denied.map(function (k) { return row(k, '<span style="color:var(--bad)">' + fa(k.denied) + " بار</span> · " + ago(k.lastDenied)); }).join("") : '<div class="empty">کسی سعی نکرده کلید کس دیگه‌ای رو استفاده کنه</div>') + "</div>" +
+		'<div class="card"><h3>' + ICONS.shield + "تلاش دستگاه‌های دیگه</h3>" + (denied.length ? denied.map(function (k) { return row(k, '<span style="color:var(--bad)">' + fa(k.denied) + " بار</span> · " + ago(k.lastDenied)); }).join("") : '<div class="empty">کسی سعی نکرده کلید کس دیگه‌ای رو استفاده کنه</div>') + "</div>" +
 		'<div class="card"><h3>' + ICONS.globe + "هاب</h3>" + scriptInfo() + '<div class="mini"><span class="dim">مجموع اجراها</span><b>' + fa(st.runs) + '</b></div><div class="mini"><span class="dim">نزدیک انقضا</span><b>' + fa(st.expiringSoon) + "</b></div></div>" +
 		"</div>";
 }
@@ -416,7 +416,7 @@ function filtered() {
 		if (S.filter === "soon") { if (!soon(k)) return false; }
 		else if (S.filter !== "all" && status(k) !== S.filter) return false;
 		if (!q) return true;
-		return [k.name, k.note, k.key, k.createdBy, (k.uids || []).join(" ")].some(function (v) { return String(v || "").toLowerCase().indexOf(q) >= 0; });
+		return [k.name, k.note, k.key, k.createdBy, (k.uids || []).join(" "), (k.devs || []).join(" ")].some(function (v) { return String(v || "").toLowerCase().indexOf(q) >= 0; });
 	});
 	var by = {
 		"new": function (a, b) { return (b.created || 0) - (a.created || 0); },
@@ -436,24 +436,24 @@ function pKeys() {
 	var selN = Object.keys(S.sel).length;
 	var allSel = list.length && list.every(function (k) { return S.sel[k.key]; });
 	return head("کلیدها", fa(S.keys.length) + " کلید", '<div class="row"><button class="btn" data-act="reload">' + ICONS.refresh + 'تازه کردن</button><button class="btn primary" data-page="new">' + ICONS.plus + "کلید جدید</button></div>") +
-		'<div class="toolbar"><div class="search">' + ICONS.search + '<input class="input" id="q" placeholder="جستجو: اسم، یادداشت، کلید، آیدی اکانت، سازنده" value="' + esc(S.q) + '"></div>' +
+		'<div class="toolbar"><div class="search">' + ICONS.search + '<input class="input" id="q" placeholder="جستجو: اسم، یادداشت، کلید، آیدی اکانت، دستگاه، سازنده" value="' + esc(S.q) + '"></div>' +
 		'<select class="input" id="sort" style="width:auto">' + [["new", "جدیدترین"], ["old", "قدیمی‌ترین"], ["use", "آخرین استفاده"], ["runs", "بیشترین اجرا"], ["exp", "نزدیک‌ترین انقضا"], ["name", "اسم"]].map(function (o) { return '<option value="' + o[0] + '"' + (S.sort === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></div>" +
 		'<div class="chips" style="margin-bottom:14px">' + F.map(function (f) { return '<span class="chip' + (S.filter === f[0] ? " on" : "") + '" data-filter="' + f[0] + '">' + f[1] + '<span class="n">' + fa(counts[f[0]]) + "</span></span>"; }).join("") + "</div>" +
 		(selN ? '<div class="bulk"><b>' + fa(selN) + ' انتخاب شده</b><span class="grow"></span>' +
 			'<button class="btn sm" data-bulk="copy">' + ICONS.copy + 'کپی لودرها</button><button class="btn sm" data-bulk="extend">' + ICONS.clock + 'تمدید</button>' +
 			'<button class="btn sm" data-bulk="revoke">' + ICONS.off + 'خاموش</button><button class="btn sm" data-bulk="unrevoke">' + ICONS.check + 'روشن</button>' +
-			'<button class="btn sm" data-bulk="reset">' + ICONS.user + 'آزاد کردن اکانت</button><button class="btn sm danger" data-bulk="delete">' + ICONS.trash + 'حذف</button>' +
+			'<button class="btn sm" data-bulk="reset">' + ICONS.user + 'آزاد کردن دستگاه</button><button class="btn sm danger" data-bulk="delete">' + ICONS.trash + 'حذف</button>' +
 			'<button class="btn sm ghost" data-bulk="none">لغو</button></div>' : "") +
 		(list.length ? '<div class="row small dim" style="margin:0 4px 8px"><label class="row" style="gap:8px;cursor:pointer"><input type="checkbox" class="cb" data-selall' + (allSel ? " checked" : "") + '> انتخاب همه‌ی ' + fa(list.length) + " مورد</label></div>" : "") +
 		'<div class="list">' + (list.length ? list.map(itemHtml).join("") : '<div class="card empty">' + (S.keys.length ? "چیزی پیدا نشد" : 'هنوز کلیدی نساختی. <a href="#" data-page="new">اولین کلید رو بساز</a>') + "</div>") + "</div>";
 }
 function itemHtml(k) {
-	var u = (k.uids || []).length;
+	var u = (k.devs || []).length;
 	return '<div class="item' + (S.sel[k.key] ? " sel" : "") + '" data-open="' + esc(k.key) + '">' +
 		'<input type="checkbox" class="cb" data-sel="' + esc(k.key) + '"' + (S.sel[k.key] ? " checked" : "") + ">" +
 		'<div style="min-width:0"><div class="t"><b>' + esc(k.name) + "</b>" + badge(k) + (soon(k) ? '<span class="tag" style="color:var(--warn)">' + left(k.expires) + "</span>" : "") + (k.denied ? '<span class="tag" style="color:var(--bad)">' + fa(k.denied) + " تلاش مشکوک</span>" : "") + "</div>" +
 		'<div class="m"><span class="mono">' + esc(k.key) + "</span>" +
-		"<span>" + ICONS.user + fa(u) + "/" + fa(k.maxUids) + " اکانت</span>" +
+		"<span>" + ICONS.user + fa(u) + "/" + fa(k.maxDevs) + " دستگاه</span>" +
 		"<span>" + ICONS.clock + left(k.expires) + "</span>" +
 		"<span>" + ICONS.play + fa(k.uses) + " اجرا · " + ago(k.lastUse) + "</span>" +
 		(k.createdBy ? "<span>سازنده: " + esc(k.createdBy) + "</span>" : "") + "</div>" +
@@ -472,17 +472,19 @@ function openKey(key) {
 		"<div>ساخته شده</div><div>" + dateFa(k.created) + (k.createdBy ? " · " + esc(k.createdBy) : "") + "</div>" +
 		"<div>انقضا</div><div>" + (k.expires ? dateFa(k.expires) + " · <b>" + left(k.expires) + "</b>" : "دائمی") + "</div>" +
 		"<div>اجراها</div><div>" + fa(k.uses) + " بار · آخرین: " + ago(k.lastUse) + (k.lastCountry ? " · " + flag(k.lastCountry) : "") + "</div>" +
-		"<div>تلاش اکانت دیگه</div><div>" + (k.denied ? '<span style="color:var(--bad)">' + fa(k.denied) + " بار</span> · آخرین: " + ago(k.lastDenied) + (k.lastDeniedUid ? ' · <a class="mono" target="_blank" rel="noopener" href="https://www.roblox.com/users/' + esc(k.lastDeniedUid) + '/profile">' + esc(k.lastDeniedUid) + "</a>" : "") : "نه") + "</div>" +
+		"<div>تلاش دستگاه دیگه</div><div>" + (k.denied ? '<span style="color:var(--bad)">' + fa(k.denied) + " بار</span> · آخرین: " + ago(k.lastDenied) + (k.lastDeniedDev ? ' · <span class="mono">' + esc(k.lastDeniedDev) + "</span>" : "") + (k.lastDeniedUid ? ' · <a class="mono" target="_blank" rel="noopener" href="https://www.roblox.com/users/' + esc(k.lastDeniedUid) + '/profile">' + esc(k.lastDeniedUid) + "</a>" : "") : "نه") + "</div>" +
 		"</div>" +
-		'<h3 style="margin:16px 0 8px;font-size:14px">اکانت‌های روبلاکس (' + fa((k.uids || []).length) + " از " + fa(k.maxUids) + ")</h3>" +
-		((k.uids || []).length ? k.uids.map(function (u) { return '<div class="uid"><a class="mono" target="_blank" rel="noopener" href="https://www.roblox.com/users/' + esc(u) + '/profile">' + esc(u) + "</a>" + (u === k.lastUid ? '<span class="tag">آخرین</span>' : "") + "</div>"; }).join("") : '<div class="dim small">هنوز به هیچ اکانتی قفل نشده؛ اولین اجرا قفلش می‌کنه.</div>') +
+		'<h3 style="margin:16px 0 8px;font-size:14px">دستگاه‌ها (' + fa((k.devs || []).length) + " از " + fa(k.maxDevs) + ")</h3>" +
+		((k.devs || []).length ? k.devs.map(function (d) { return '<div class="uid"><span class="mono">' + esc(d) + "</span>" + (d === k.lastDev ? '<span class="tag">آخرین</span>' : "") + "</div>"; }).join("") : '<div class="dim small">هنوز به هیچ دستگاهی قفل نشده؛ اولین اجرا قفلش می‌کنه.</div>') +
+		'<h3 style="margin:16px 0 8px;font-size:14px">اکانت‌های روبلاکس که استفاده کردن (' + fa((k.uids || []).length) + ")</h3>" +
+		((k.uids || []).length ? k.uids.map(function (u) { return '<div class="uid"><a class="mono" target="_blank" rel="noopener" href="https://www.roblox.com/users/' + esc(u) + '/profile">' + esc(u) + "</a>" + (u === k.lastUid ? '<span class="tag">آخرین</span>' : "") + "</div>"; }).join("") : '<div class="dim small">هنوز هیچ اکانتی اجرا نکرده.</div>') +
 		'<h3 style="margin:16px 0 8px;font-size:14px">ویرایش</h3>' +
 		'<label class="f"><span>اسم</span><input class="input" id="eName" value="' + esc(k.name) + '" maxlength="60"></label>' +
 		'<label class="f"><span>یادداشت</span><textarea class="input" id="eNote" maxlength="200" placeholder="مثلاً دیسکورد، قیمت، تاریخ پرداخت…">' + esc(k.note) + "</textarea></label>" +
-		'<label class="f"><span>حداکثر تعداد اکانت روبلاکس</span><div class="step"><button type="button" data-st="-1">−</button><input id="eMax" type="number" min="1" max="10" value="' + k.maxUids + '"><button type="button" data-st="1">+</button></div></label>' +
+		'<label class="f"><span>حداکثر تعداد دستگاه</span><div class="step"><button type="button" data-st="-1">−</button><input id="eMax" type="number" min="1" max="10" value="' + k.maxDevs + '"><button type="button" data-st="1">+</button></div></label>' +
 		'<div class="acts"><button class="btn primary" data-a="save">ذخیره</button><button class="btn" data-a="extend">' + ICONS.clock + "تمدید</button>" +
 		(k.revoked ? '<button class="btn" data-a="unrevoke">' + ICONS.check + "روشن کردن</button>" : '<button class="btn" data-a="revoke">' + ICONS.off + "خاموش کردن</button>") +
-		'<button class="btn" data-a="reset">' + ICONS.user + "آزاد کردن اکانت‌ها</button>" +
+		'<button class="btn" data-a="reset">' + ICONS.user + "آزاد کردن دستگاه‌ها</button>" +
 		(mine ? '<button class="btn danger" data-a="delete">' + ICONS.trash + "حذف</button>" : "") + '<button class="btn ghost" data-a="close">بستن</button></div>',
 		function (m, close) {
 			m.querySelector('[data-c="key"]').onclick = function () { copy(k.key, "کلید کپی شد"); };
@@ -494,7 +496,7 @@ function openKey(key) {
 					if (a === "close") return close();
 					if (a === "save") {
 						b.disabled = true;
-						api("update", { key: k.key, name: m.querySelector("#eName").value, note: m.querySelector("#eNote").value, maxUids: Number(m.querySelector("#eMax").value) || 1 })
+						api("update", { key: k.key, name: m.querySelector("#eName").value, note: m.querySelector("#eNote").value, maxDevs: Number(m.querySelector("#eMax").value) || 1 })
 							.then(function () { toast("ذخیره شد"); close(); S.audit = null; return load(true); })
 							.catch(function (e) { toast(e.message, true); b.disabled = false; });
 						return;
@@ -509,7 +511,7 @@ function single(a, k) {
 	if (a === "extend") return daysBox("تمدید «" + k.name + "»", "از امروز یا اضافه به روزهای باقی‌مونده", !!k.expires).then(function (r) { if (r) act("extend", [k.key], r, "تمدید شد"); });
 	if (a === "revoke") return confirmBox("خاموش کردن کلید", "هاب روشنِ «" + esc(k.name) + "» حداکثر ۱۰ دقیقه بعد بسته میشه. هر وقت خواستی می‌تونی دوباره روشنش کنی.", "خاموش کن", true).then(function (ok) { if (ok) act("revoke", [k.key], null, "خاموش شد"); });
 	if (a === "unrevoke") return act("unrevoke", [k.key], null, "روشن شد");
-	if (a === "reset") return confirmBox("آزاد کردن اکانت‌ها", "قفل اکانت‌های فعلی برداشته میشه و اجرای بعدی به اکانت جدید قفل میشه.", "آزاد کن").then(function (ok) { if (ok) act("reset", [k.key], null, "آزاد شد"); });
+	if (a === "reset") return confirmBox("آزاد کردن دستگاه‌ها", "قفل دستگاه‌های فعلی برداشته میشه و اجرای بعدی به دستگاه جدید قفل میشه.", "آزاد کن").then(function (ok) { if (ok) act("reset", [k.key], null, "آزاد شد"); });
 	if (a === "delete") return confirmBox("حذف همیشگی", "کلید «" + esc(k.name) + "» برای همیشه پاک میشه و برنمی‌گرده. اگه فقط می‌خوای کار نکنه، «خاموش کردن» بهتره.", "حذف کن", true).then(function (ok) { if (ok) act("delete", [k.key], null, "حذف شد"); });
 }
 function bulk(a) {
@@ -525,7 +527,7 @@ function bulk(a) {
 	var texts = {
 		revoke: ["خاموش کردن " + n + " کلید", "هاب این افراد حداکثر ۱۰ دقیقه بعد بسته میشه.", "خاموش کن", true],
 		unrevoke: ["روشن کردن " + n + " کلید", "این کلیدها دوباره کار می‌کنن.", "روشن کن", false],
-		reset: ["آزاد کردن اکانت " + n + " کلید", "اجرای بعدی هر کلید به اکانت جدید قفل میشه.", "آزاد کن", false],
+		reset: ["آزاد کردن دستگاه " + n + " کلید", "اجرای بعدی هر کلید به دستگاه جدید قفل میشه.", "آزاد کن", false],
 		"delete": ["حذف همیشگی " + n + " کلید", "برنمی‌گردن. ادمین‌ها فقط کلیدهای خودشون رو می‌تونن پاک کنن.", "حذف کن", true]
 	}[a];
 	confirmBox(texts[0], texts[1], texts[2], texts[3]).then(function (ok) {
@@ -541,10 +543,10 @@ function pNew() {
 		'<label class="f"><span>یادداشت (اختیاری)</span><textarea class="input" id="nNote" maxlength="200" placeholder="مثلاً مبلغ، تاریخ پرداخت، راه ارتباطی…"></textarea></label>' +
 		'<label class="f"><span>مدت</span><div class="chips" id="nDays">' + [[1, "۱ روز"], [7, "۷ روز"], [30, "۳۰ روز"], [90, "۹۰ روز"], [0, "دائمی"], ["c", "دلخواه"]].map(function (d) { return '<span class="chip' + (d[0] === 30 ? " on" : "") + '" data-d="' + d[0] + '">' + d[1] + "</span>"; }).join("") + "</div>" +
 		'<input class="input hidden" id="nCustom" type="number" min="1" placeholder="تعداد روز" style="margin-top:8px"></label>' +
-		'<div class="row" style="gap:24px;margin-bottom:14px"><label class="f" style="margin:0"><span>چند اکانت روبلاکس؟</span><div class="step"><button type="button" data-st="nMax:-1">−</button><input id="nMax" type="number" min="1" max="10" value="1"><button type="button" data-st="nMax:1">+</button></div></label>' +
+		'<div class="row" style="gap:24px;margin-bottom:14px"><label class="f" style="margin:0"><span>چند دستگاه؟</span><div class="step"><button type="button" data-st="nMax:-1">−</button><input id="nMax" type="number" min="1" max="10" value="1"><button type="button" data-st="nMax:1">+</button></div></label>' +
 		'<label class="f" style="margin:0"><span>چند تا کلید؟</span><div class="step"><button type="button" data-st="nCount:-1">−</button><input id="nCount" type="number" min="1" max="50" value="1"><button type="button" data-st="nCount:1">+</button></div></label></div>' +
 		'<button class="btn primary" style="width:100%" id="nBtn">' + ICONS.key + "ساخت کلید</button></form>" +
-		'<div class="small dim2" style="margin-top:12px">کلید با اولین اجرا به اکانت روبلاکس همون نفر قفل میشه. اگه چند اکانت مجاز باشه، تا همون تعداد اکانت قبول می‌کنه.</div></div>' +
+		'<div class="small dim2" style="margin-top:12px">کلید با اولین اجرا به دستگاه (کامپیوتر یا گوشی) همون نفر قفل میشه. هر اکانت روبلاکسی روی همون دستگاه کار می‌کنه؛ دستگاه دیگه رد میشه. اگه چند دستگاه مجاز باشه، تا همون تعداد قبول می‌کنه.</div></div>' +
 		'<div class="card"><h3>' + ICONS.check + "کلیدهای ساخته شده</h3>" +
 		(c && c.length ? (c.length > 1 ? '<div class="row" style="margin-bottom:10px"><button class="btn sm primary" data-act="copyAllNew">' + ICONS.copy + "کپی همه‌ی لودرها</button></div>" : "") +
 			c.map(function (k) { return '<div class="keybox"><div style="min-width:0"><div><b>' + esc(k.name) + '</b></div><div class="mono small">' + esc(k.key) + '</div></div><button class="btn sm" data-copy="' + esc(k.key) + '">' + ICONS.copy + "لودر</button></div>"; }).join("") +
@@ -557,7 +559,7 @@ function loadAudit() {
 }
 var AUDIT_FA = {
 	create: ["ساخت کلید", "plus", "c-ok"], update: ["ویرایش", "gear", "c-info"], revoke: ["خاموش کرد", "off", "c-bad"], unrevoke: ["روشن کرد", "check", "c-ok"],
-	reset: ["آزاد کردن اکانت", "user", "c-info"], extend: ["تمدید", "clock", "c-warn"], "delete": ["حذف", "trash", "c-bad"], refresh: ["نسخه‌ی جدید هاب", "refresh", "c-info"],
+	reset: ["آزاد کردن دستگاه", "user", "c-info"], extend: ["تمدید", "clock", "c-warn"], "delete": ["حذف", "trash", "c-bad"], refresh: ["نسخه‌ی جدید هاب", "refresh", "c-info"],
 	"export": ["پشتیبان", "down", "c-info"], addAdmin: ["ادمین جدید", "team", "c-acc"], adminPassword: ["رمز ادمین عوض شد", "shield", "c-acc"],
 	removeAdmin: ["حذف ادمین", "trash", "c-bad"], disableAdmin: ["ادمین غیرفعال شد", "off", "c-bad"], enableAdmin: ["ادمین فعال شد", "check", "c-ok"]
 };
@@ -680,7 +682,7 @@ document.addEventListener("submit", function (e) {
 		var days = d === "c" ? Number($("nCustom").value) || 0 : Number(d);
 		if (d === "c" && !(days > 0)) { toast("تعداد روز رو بنویس", true); return; }
 		var btn = $("nBtn"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>در حال ساخت…';
-		api("create", { name: name, note: $("nNote").value, days: days, maxUids: Number($("nMax").value) || 1, count: Number($("nCount").value) || 1 }).then(function (r) {
+		api("create", { name: name, note: $("nNote").value, days: days, maxDevs: Number($("nMax").value) || 1, count: Number($("nCount").value) || 1 }).then(function (r) {
 			S.created = r.keys; S.audit = null;
 			if (r.keys.length === 1) copy(loaderFor(r.keys[0].key), "کلید ساخته شد و لودرش کپی شد");
 			else toast(fa(r.keys.length) + " کلید ساخته شد");

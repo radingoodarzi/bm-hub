@@ -1,6 +1,7 @@
 // BM Hub - سرور کلید (Cloudflare Worker)
 //
-// هر کلید مال یه نفره: اولین بار که استفاده بشه به اکانت (یا اکانت‌های) روبلاکس همون نفر قفل میشه.
+// هر کلید مال یه دستگاهه: اولین بار که استفاده بشه به همون دستگاه (کامپیوتر/گوشی) قفل میشه؛ هر اکانت روبلاکسی
+// روی همون دستگاه کار می‌کنه، دستگاه دیگه رد میشه. اکانت‌ها فقط برای دیدن توی پنل ثبت میشن.
 // اسکریپت اصلی فقط با کلید درست داده میشه و از مخزن خصوصی گیت‌هاب خونده میشه
 // (توکن گیت‌هاب فقط روی سرور می‌مونه، هیچ‌وقت به کاربر نمیرسه).
 //
@@ -11,8 +12,8 @@
 //
 // آدرس‌ها:
 //   GET  /l               لودر کوتاه (کلید رو از getgenv().BM_KEY می‌خونه)
-//   GET  /load?key&uid    اسکریپت اصلی، فقط با کلید معتبر
-//   GET  /check?key&uid   "ok" یا "no:دلیل" (هاب هر چند دقیقه چک می‌کنه)
+//   GET  /load?key&uid&dev    اسکریپت اصلی، فقط با کلید معتبر (dev = شناسه‌ی دستگاه؛ فقط هش‌ش ذخیره میشه)
+//   GET  /check?key&uid&dev   "ok" یا "no:دلیل" (هاب هر چند دقیقه چک می‌کنه؛ هاب قدیمی بدون dev فقط خاموش/انقضا رو چک می‌کنه)
 //   GET  /admin           پنل مدیریت
 //   POST /api             کارهای پنل (ورود با نام کاربری و رمز، بعد با توکن جلسه)
 //
@@ -23,6 +24,7 @@ import { ADMIN_HTML } from "./admin.js";
 const KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // بدون 0/O و 1/I که با هم قاطی نشن
 const KEY_RE = /^BM-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 const UID_RE = /^[0-9]{1,20}$/;
+const DEV_RE = /^[A-Za-z0-9{}_.:-]{4,128}$/; // gethwid() یا RbxAnalyticsService:GetClientId()
 const USER_RE = /^[a-z0-9_.-]{3,24}$/;
 const SCRIPT_TTL_MS = 60 * 1000;
 const MAX_FAILS = 10; // رمز اشتباه پشت هم از یه IP
@@ -30,7 +32,8 @@ const FAIL_WINDOW_S = 600;
 const SESSION_TTL_S = 12 * 3600;
 const AUDIT_TTL_S = 90 * 86400;
 const DENY_WRITE_GAP_MS = 60 * 1000; // ثبت تلاش اکانت دیگه حداکثر دقیقه‌ای یه بار (نوشتن KV محدوده)
-const MAX_UIDS = 10;
+const MAX_DEVS = 10;
+const MAX_SEEN_UIDS = 20; // اکانت‌هایی که روی کلید دیده شدن (فقط برای پنل)
 const MAX_BULK = 50;
 const PBKDF2_ITER = 20000;
 const OWNER = "owner";
@@ -54,6 +57,11 @@ export function newKey(rand = crypto.getRandomValues.bind(crypto)) {
 function hex(bytes) {
 	return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+// شناسه‌ی خام دستگاه ذخیره نمیشه؛ فقط یه برچسب کوتاه از هش‌ش
+export async function deviceTag(dev) {
+	const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("bmhub-dev:" + dev));
+	return "D-" + hex(d).slice(0, 12).toUpperCase();
+}
 function randomHex(n) {
 	const b = new Uint8Array(n);
 	crypto.getRandomValues(b);
@@ -75,12 +83,15 @@ function sameString(a, b) {
 	return diff === 0;
 }
 
-// رکوردهای قدیمی (یه uid) به شکل جدید (لیست uid) تبدیل میشن
+// رکوردهای قدیمی: uid تکی → لیست uid؛ «حداکثر اکانت» قدیمی → «حداکثر دستگاه». کلید قدیمی که هنوز دستگاه نداره
+// با اولین اجرای بعد از آپدیت به همون دستگاه قفل میشه
 export function normalize(rec) {
 	if (!rec) return rec;
 	if (!Array.isArray(rec.uids)) rec.uids = rec.uid ? [String(rec.uid)] : [];
 	delete rec.uid;
-	rec.maxUids = Math.min(MAX_UIDS, Math.max(1, Number(rec.maxUids) || 1));
+	if (!Array.isArray(rec.devs)) rec.devs = [];
+	rec.maxDevs = Math.min(MAX_DEVS, Math.max(1, Number(rec.maxDevs) || Number(rec.maxUids) || 1));
+	delete rec.maxUids;
 	rec.note = rec.note || "";
 	rec.uses = rec.uses || 0;
 	rec.denied = rec.denied || 0;
@@ -88,19 +99,20 @@ export function normalize(rec) {
 }
 
 // دلیل رد شدن کلید، یا null یعنی معتبره
-export function keyProblem(rec, uid, now) {
+// dev = برچسب دستگاه (deviceTag)، یا null یعنی دستگاه چک نشه (هاب قدیمی که توی /check دستگاه نمی‌فرسته)
+export function keyProblem(rec, dev, now) {
 	if (!rec) return "This key does not exist";
 	if (rec.revoked) return "This key was turned off by the admin";
 	if (rec.expires && now > rec.expires) return "This key has expired";
-	const uids = rec.uids || (rec.uid ? [String(rec.uid)] : []);
-	if (uid && !uids.includes(String(uid)) && uids.length >= (rec.maxUids || 1)) return "This key belongs to another Roblox account";
+	const devs = rec.devs || [];
+	if (dev && !devs.includes(dev) && devs.length >= (rec.maxDevs || 1)) return "This key is locked to another device";
 	return null;
 }
 
 export function keyStatus(rec, now) {
 	if (rec.revoked) return "revoked";
 	if (rec.expires && now > rec.expires) return "expired";
-	if (!rec.uids || rec.uids.length === 0) return "unused";
+	if ((!rec.devs || rec.devs.length === 0) && (!rec.uids || rec.uids.length === 0)) return "unused";
 	return "active";
 }
 
@@ -114,7 +126,7 @@ export function denyLua(msg) {
 	return `print(${m})\npcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "BM Hub", Text = ${m}, Duration = 12 }) end)\n`;
 }
 
-// لودر کوتاه: کلید از getgenv().BM_KEY، UserId از خود بازی
+// لودر کوتاه: کلید از getgenv().BM_KEY، UserId از خود بازی، شناسه‌ی دستگاه از executor
 export function bootstrapLua(origin) {
 	return `local g = (getgenv and getgenv()) or _G
 local SERVER = ${luaString(origin)}
@@ -131,7 +143,15 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 local Players = game:GetService("Players")
 local lp = Players.LocalPlayer
 while not lp do task.wait(0.1) lp = Players.LocalPlayer end
-local ok, src = pcall(function() return game:HttpGet(SERVER .. "/load?key=" .. key .. "&uid=" .. tostring(lp.UserId)) end)
+local dev
+pcall(function() if gethwid then dev = tostring(gethwid()) end end)
+if type(dev) ~= "string" or #dev < 4 then
+	pcall(function() dev = game:GetService("RbxAnalyticsService"):GetClientId() end)
+end
+dev = (tostring(dev or ""):gsub("[^%w%-_%.:]", ""))
+if #dev > 128 then dev = dev:sub(1, 128) end
+g.BM_DEV = dev
+local ok, src = pcall(function() return game:HttpGet(SERVER .. "/load?key=" .. key .. "&uid=" .. tostring(lp.UserId) .. "&dev=" .. dev) end)
 if not ok or type(src) ~= "string" or #src == 0 then
 	return note("Could not reach the key server: " .. tostring(src):sub(1, 120))
 end
@@ -355,13 +375,13 @@ async function adminApi(req, env, now, fetchFn) {
 			if (!name) return json({ error: "بنویس کلید برای کیه" }, 400);
 			const count = Math.min(MAX_BULK, Math.max(1, Math.floor(Number(body.count) || 1)));
 			const note = cleanName(body.note, 200);
-			const maxUids = Math.min(MAX_UIDS, Math.max(1, Math.floor(Number(body.maxUids) || 1)));
+			const maxDevs = Math.min(MAX_DEVS, Math.max(1, Math.floor(Number(body.maxDevs ?? body.maxUids) || 1)));
 			const expires = daysToExpiry(body.days, now);
 			const made = [];
 			for (let i = 0; i < count; i++) {
 				let key;
 				do key = newKey(); while (await env.KEYS.get("key:" + key));
-				const rec = normalize({ key, name: count > 1 ? `${name} #${i + 1}` : name, note, created: now, createdBy: me.user, expires, uids: [], maxUids, revoked: false, lastUse: null, uses: 0 });
+				const rec = normalize({ key, name: count > 1 ? `${name} #${i + 1}` : name, note, created: now, createdBy: me.user, expires, uids: [], devs: [], maxDevs, revoked: false, lastUse: null, uses: 0 });
 				await putRec(env, rec);
 				made.push(rec);
 			}
@@ -377,9 +397,9 @@ async function adminApi(req, env, now, fetchFn) {
 				rec.name = n;
 			}
 			if (body.note !== undefined) rec.note = cleanName(body.note, 200);
-			if (body.maxUids !== undefined) {
-				rec.maxUids = Math.min(MAX_UIDS, Math.max(1, Math.floor(Number(body.maxUids) || 1)));
-				if (rec.uids.length > rec.maxUids) rec.uids = rec.uids.slice(-rec.maxUids);
+			if (body.maxDevs !== undefined || body.maxUids !== undefined) {
+				rec.maxDevs = Math.min(MAX_DEVS, Math.max(1, Math.floor(Number(body.maxDevs ?? body.maxUids) || 1)));
+				if (rec.devs.length > rec.maxDevs) rec.devs = rec.devs.slice(-rec.maxDevs);
 			}
 			await putRec(env, rec);
 			await audit(env, now, me.user, "update", `${rec.key} (${rec.name})`);
@@ -402,7 +422,7 @@ async function adminApi(req, env, now, fetchFn) {
 				} else {
 					if (action === "revoke") rec.revoked = true;
 					if (action === "unrevoke") rec.revoked = false;
-					if (action === "reset") rec.uids = [];
+					if (action === "reset") rec.devs = [];
 					if (action === "extend") {
 						if (body.mode === "add" && rec.expires) {
 							const base = Math.max(rec.expires, now);
@@ -489,19 +509,23 @@ export async function handle(req, env, fetchFn = fetch, now = Date.now()) {
 	const path = url.pathname.replace(/\/+$/, "") || "/";
 	const key = (url.searchParams.get("key") || "").trim().toUpperCase();
 	const uid = (url.searchParams.get("uid") || "").trim();
+	const devRaw = (url.searchParams.get("dev") || "").trim();
 
 	if (req.method === "GET" && path === "/l") return text(bootstrapLua(url.origin));
 
 	if (req.method === "GET" && (path === "/load" || path === "/check")) {
-		if (!UID_RE.test(uid)) return text(path === "/load" ? denyLua("Bad request") : "no:bad request");
+		if (!UID_RE.test(uid) || (devRaw && !DEV_RE.test(devRaw))) return text(path === "/load" ? denyLua("Bad request") : "no:bad request");
 		const rec = await getRec(env, key);
-		const problem = keyProblem(rec, uid, now);
+		// executor هیچ شناسه‌ای نداد: اکانت به‌جای دستگاه (مثل قبل). /check هاب قدیمی بدون dev: دستگاه چک نمیشه
+		const dev = devRaw ? await deviceTag(devRaw) : path === "/load" ? "U-" + uid : null;
+		const problem = keyProblem(rec, dev, now);
 		if (problem) {
-			// اکانت دیگه با کلید یکی دیگه: برای پنل ثبت میشه (حداکثر دقیقه‌ای یه بار)
+			// دستگاه دیگه با کلید یکی دیگه: برای پنل ثبت میشه (حداکثر دقیقه‌ای یه بار)
 			if (rec && path === "/load" && problem.includes("another") && now - (rec.lastDenied || 0) > DENY_WRITE_GAP_MS) {
 				rec.denied = (rec.denied || 0) + 1;
 				rec.lastDenied = now;
 				rec.lastDeniedUid = uid;
+				rec.lastDeniedDev = dev;
 				await putRec(env, rec);
 			}
 			return text(path === "/load" ? denyLua(problem) : "no:" + problem);
@@ -509,10 +533,12 @@ export async function handle(req, env, fetchFn = fetch, now = Date.now()) {
 		if (path === "/check") return text("ok");
 		const script = await getScript(env, fetchFn);
 		if (!script) return text(denyLua("Server could not get the script right now, try again in a minute"));
-		// اولین استفاده (یا اکانت جدید تا سقف مجاز): کلید به همین اکانت قفل میشه
-		if (!rec.uids.includes(uid)) rec.uids.push(uid);
+		// اولین استفاده (یا دستگاه جدید تا سقف مجاز): کلید به همین دستگاه قفل میشه؛ اکانت فقط ثبت میشه
+		if (!rec.devs.includes(dev)) rec.devs.push(dev);
+		rec.uids = rec.uids.filter((u) => u !== uid).concat(uid).slice(-MAX_SEEN_UIDS);
 		rec.lastUse = now;
 		rec.lastUid = uid;
+		rec.lastDev = dev;
 		rec.lastCountry = (req.cf && req.cf.country) || req.headers.get("CF-IPCountry") || null;
 		rec.uses = (rec.uses || 0) + 1;
 		await putRec(env, rec);

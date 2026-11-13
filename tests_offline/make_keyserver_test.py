@@ -45,9 +45,15 @@ check("loader: no key -> message, nothing downloaded", #URLS == 0 and NOTES[#NOT
 -- با کلید
 GENV.BM_KEY = "BM-ABCD-EFGH-JKLM-NPQR"
 runBoot()
-check("loader: sends key and Roblox UserId", URLS[1] == "https://keys.example.workers.dev/load?key=BM-ABCD-EFGH-JKLM-NPQR&uid=4242")
+check("loader: sends key, Roblox UserId and an empty device id when the executor has none", URLS[1] == "https://keys.example.workers.dev/load?key=BM-ABCD-EFGH-JKLM-NPQR&uid=4242&dev=")
 check("loader: runs what the server sent", RAN_HUB == true)
 check("loader: remembers the server for teleports", GENV.BM_SERVER == "https://keys.example.workers.dev")
+-- 5.11: کلید به دستگاه قفله
+gethwid = function() return "HW-77{x}" end
+URLS = {}
+runBoot()
+check("loader: sends the executor's device id, cleaned for the URL", URLS[1] == "https://keys.example.workers.dev/load?key=BM-ABCD-EFGH-JKLM-NPQR&uid=4242&dev=HW-77x" and GENV.BM_DEV == "HW-77x")
+gethwid = nil
 -- کلید با کاراکتر عجیب (جلوی دستکاری آدرس)
 GENV.BM_KEY = "BM-AB&uid=1"
 URLS = {}
@@ -88,6 +94,11 @@ pcall(spawned)
 check("hub: checks the key with the server", URLS[1] == "https://keys.example.workers.dev/check?key=BM-ABCD-EFGH-JKLM-NPQR&uid=4242")
 check("hub: key ok -> keeps running", not destroyed)
 check("hub: first check after 2 min, then every 10 min", waits[1] == 120 and waits[2] == 600)
+GENV.BM_DEV = "HW-77x"
+URLS, waits = {}, {}
+pcall(spawned)
+check("hub: periodic check also sends the device id", URLS[1] == "https://keys.example.workers.dev/check?key=BM-ABCD-EFGH-JKLM-NPQR&uid=4242&dev=HW-77x")
+GENV.BM_DEV = nil
 HTTP_FAIL = true
 waits = {}
 pcall(spawned)
